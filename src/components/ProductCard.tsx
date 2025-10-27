@@ -151,7 +151,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
               <div className="mt-2 space-y-1">
                 {product.externalUrls.map((url: string, idx: number) => {
                   // URL 인덱스에 따른 예약 사이트 이름 매핑
-                  const siteNames = ["KKday", "Klook", "Trip.com", "GetYourGuide"];
+                  const siteNames = ["마이리얼트립", "KLOOK", "KKDAY", "GYG", "트립닷컴"];
                   const siteName = siteNames[idx] || `예약 링크 ${idx + 1}`;
                   
                   return (
