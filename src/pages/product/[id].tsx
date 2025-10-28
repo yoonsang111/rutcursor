@@ -23,7 +23,7 @@ export default function ProductDetail({ params }: ProductDetailProps) {
   }
 
   // SEO 메타태그 데이터
-  const seoData = product.seo || {
+  const seoData = (product as any).seo || {
     title: `${product.name} | TourStream`,
     description: `${product.description} TourStream에서 예약하세요!`,
     keywords: `${product.name}, ${product.locations.join(', ')}, ${product.categories.join(', ')}, 예약, 할인`
