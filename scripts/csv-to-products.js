@@ -1,6 +1,109 @@
 const fs = require('fs');
 const path = require('path');
 
+// SEO 메타태그 생성 함수들
+function extractKeywords(name) {
+  const keywords = name.split(/[\s·\-_]+/).filter(word => 
+    word.length > 1 && 
+    !['입장권', '티켓', '패스', '체험', '투어', '액티비티'].includes(word)
+  );
+  return keywords.slice(0, 3);
+}
+
+function generateTitle(name, location, category, keywords) {
+  let title = '';
+  
+  if (location) {
+    title = `${location} ${name}`;
+  } else {
+    title = name;
+  }
+  
+  if (category && title.length < 40) {
+    title += ` ${category}`;
+  }
+  
+  if (title.length > 55) {
+    title = title.substring(0, 55);
+  }
+  
+  title += ' | TourStream';
+  return title;
+}
+
+function generateDescription(name, description, location, category) {
+  let metaDesc = '';
+  
+  if (description && description.length > 20) {
+    metaDesc = description;
+  } else {
+    metaDesc = `${name} 체험을 TourStream에서 예약하세요!`;
+  }
+  
+  if (location && !metaDesc.includes(location)) {
+    metaDesc = metaDesc.replace(/체험|투어|액티비티/, `${location} $&`);
+  }
+  
+  const ctaPhrases = [
+    '지금 예약하고 특가 혜택을 받으세요!',
+    '가격 비교 후 최저가로 예약하세요!',
+    '즉시 확인 가능한 예약으로 편리하게!',
+    '무료 취소 가능한 안전한 예약!'
+  ];
+  
+  const randomCTA = ctaPhrases[Math.floor(Math.random() * ctaPhrases.length)];
+  let finalDesc = `${metaDesc} ${randomCTA}`;
+  
+  if (finalDesc.length > 160) {
+    finalDesc = finalDesc.substring(0, 157) + '...';
+  }
+  
+  return finalDesc;
+}
+
+function generateKeywords(name, location, category, tags) {
+  const keywordSet = new Set();
+  
+  keywordSet.add(name);
+  if (location) keywordSet.add(location);
+  if (category) keywordSet.add(category);
+  
+  const usefulTags = tags.filter(tag => 
+    tag.length > 1 && 
+    !['입장권', '티켓', '패스'].includes(tag) &&
+    keywordSet.size < 8
+  );
+  
+  usefulTags.forEach(tag => keywordSet.add(tag));
+  
+  const commonKeywords = ['예약', '할인', '가격비교', '즉시확정'];
+  commonKeywords.forEach(keyword => {
+    if (keywordSet.size < 10) {
+      keywordSet.add(keyword);
+    }
+  });
+  
+  return Array.from(keywordSet).join(', ');
+}
+
+function generateSEOMetaTags(product) {
+  const { name, description, locations, categories, tags } = product;
+  
+  const mainLocation = locations[0] || '';
+  const mainCategory = categories[0] || '';
+  const nameKeywords = extractKeywords(name);
+  
+  const title = generateTitle(name, mainLocation, mainCategory, nameKeywords);
+  const metaDescription = generateDescription(name, description, mainLocation, mainCategory);
+  const keywords = generateKeywords(name, mainLocation, mainCategory, tags);
+  
+  return {
+    title,
+    description: metaDescription,
+    keywords
+  };
+}
+
 // CSV 파일 경로 (프로젝트 루트에 있는 products.csv 파일)
 const csvFilePath = path.join(__dirname, '../products.csv');
 const outputFilePath = path.join(__dirname, '../src/mock/products.ts');
@@ -99,6 +202,10 @@ for (let i = 1; i < lines.length; i++) {
   product.isRecommended = product.isRecommended || false;
   product.isAvailable = product.isAvailable !== false;
   product.views = product.views || 0;
+
+  // SEO 메타태그 자동 생성
+  const seoData = generateSEOMetaTags(product);
+  product.seo = seoData;
 
   products.push(product);
 }
