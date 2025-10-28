@@ -133,7 +133,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
               className="flex items-center justify-between w-full text-left text-xs text-blue-600 hover:text-blue-700 transition-colors"
             >
               <span className="font-medium">
-                예약 링크 {product.externalUrls.length}개
+                예약 링크 {product.externalUrls.filter((url: string) => url && url.trim() !== '').length}개
               </span>
               <svg
                 className={`h-3 w-3 transition-transform duration-200 ${
@@ -149,24 +149,27 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
             
             {isExpanded && (
               <div className="mt-2 space-y-1">
-                {product.externalUrls.map((url: string, idx: number) => {
-                  // URL 인덱스에 따른 예약 사이트 이름 매핑
-                  const siteNames = ["마이리얼트립", "KLOOK", "KKDAY", "GYG", "트립닷컴"];
-                  const siteName = siteNames[idx] || `예약 링크 ${idx + 1}`;
-                  
-                  return (
-                    <a
-                      key={idx}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-xs text-gray-600 hover:text-blue-600 py-1 px-2 bg-gray-50 rounded hover:bg-blue-50 transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {siteName}
-                    </a>
-                  );
-                })}
+                {product.externalUrls
+                  .map((url: string, idx: number) => ({ url, idx }))
+                  .filter(({ url }: { url: string }) => url && url.trim() !== '')
+                  .map(({ url, idx }: { url: string; idx: number }) => {
+                    // URL 인덱스에 따른 예약 사이트 이름 매핑
+                    const siteNames = ["마이리얼트립", "KLOOK", "KKDAY", "GetYourGuide", "트립닷컴"];
+                    const siteName = siteNames[idx] || `예약 링크 ${idx + 1}`;
+                    
+                    return (
+                      <a
+                        key={idx}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-xs text-gray-600 hover:text-blue-600 py-1 px-2 bg-gray-50 rounded hover:bg-blue-50 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {siteName}
+                      </a>
+                    );
+                  })}
               </div>
             )}
           </div>
