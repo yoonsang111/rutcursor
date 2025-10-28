@@ -6,21 +6,14 @@ interface ProductCardProps {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) => {
-  const [isLiked, setIsLiked] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   
-  // 가격 정보 제거됨
-
   const handleCardClick = () => {
     if (onProductClick) {
       onProductClick(product.id);
     }
   };
 
-  const handleLikeClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsLiked(!isLiked);
-  };
 
   const handleExpandClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,81 +55,94 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
       {/* 구조화된 데이터 */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(structuredData)
+        }}
       />
       
-      <div
-        className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
-        onClick={handleCardClick}
-      >
-      <div className="p-4">
-        {/* 상단 헤더 */}
-        <div className="flex items-start justify-between mb-3">
-          {/* 카테고리 */}
-          <div className="flex gap-1">
-            {product.categories.slice(0, 1).map((category: string, idx: number) => (
-              <span key={idx} className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">
+      <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-blue-200 group cursor-pointer" onClick={handleCardClick}>
+        {/* 상품 정보 */}
+        <div className="p-4">
+          {/* 카테고리 태그 */}
+          <div className="flex gap-1.5 mb-2">
+            {product.categories.slice(0, 2).map((category: string, idx: number) => (
+              <span key={idx} className="text-xs bg-gradient-to-r from-red-100 to-red-200 text-red-700 px-2 py-1 rounded-lg font-medium">
                 {category}
               </span>
             ))}
           </div>
-          
-          {/* 찜 버튼 */}
-          <button
-            onClick={handleLikeClick}
-            className="p-1 bg-gray-50 rounded-full hover:bg-gray-100 transition-colors"
-          >
-            <svg 
-              className={`h-4 w-4 ${isLiked ? 'text-red-500 fill-current' : 'text-gray-400'}`} 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+
+          {/* 상품명 */}
+          <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-red-600 transition-colors">
+            {product.name}
+          </h3>
+
+          {/* 설명 */}
+          <p className="text-sm text-gray-600 mb-3 line-clamp-2 leading-relaxed">
+            {product.description}
+          </p>
+
+          {/* 위치 정보 */}
+          <div className="flex items-center gap-1.5 mb-3">
+            <svg className="h-3 w-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-          </button>
+            <span className="text-xs text-gray-500">{product.locations.join(", ")}</span>
+          </div>
+
+          {/* 태그 */}
+          <div className="flex flex-wrap gap-1 mb-3">
+            {product.tags.slice(0, 2).map((tag: string, idx: number) => (
+              <span key={idx} className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                #{tag}
+              </span>
+            ))}
+            {product.tags.length > 2 && (
+              <span className="text-xs text-gray-400 px-2 py-0.5">
+                +{product.tags.length - 2}개
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* 제목 */}
-        <h2 className="text-base font-bold text-gray-900 mb-2 line-clamp-2">
-          {product.name}
-        </h2>
-
-        {/* 설명 */}
-        <p className="text-xs text-gray-600 mb-3 line-clamp-2">
-          {product.description}
-        </p>
-
-        {/* 위치 */}
-        <div className="flex items-center gap-1 mb-2">
-          <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-xs text-gray-600">{product.locations[0]}</span>
-        </div>
-
-        {/* 태그 (해시태그 스타일) */}
-        <div className="flex flex-wrap gap-1 mb-3">
-          {product.tags.slice(0, 3).map((tag: string, idx: number) => (
-            <span key={idx} className="text-xs text-blue-600">
-              #{tag}
-            </span>
-          ))}
-        </div>
-
-        {/* 예약 링크 아코디언 */}
-        {product.externalUrls && product.externalUrls.length > 0 && (
-          <div className="border-t border-gray-100 pt-3">
+        {/* 예약 링크 섹션 */}
+        {(() => {
+          const externalUrls = [
+            (product as any).externalUrl1,
+            (product as any).externalUrl2,
+            (product as any).externalUrl3,
+            (product as any).externalUrl4,
+            (product as any).externalUrl5
+          ].filter(url => url && url.trim() !== '');
+          return externalUrls.length > 0;
+        })() && (
+          <div className="border-t border-gray-200/50 bg-gray-50/30">
             <button
               onClick={handleExpandClick}
-              className="flex items-center justify-between w-full text-left text-xs text-blue-600 hover:text-blue-700 transition-colors"
+              className="flex items-center justify-between w-full p-3 text-left hover:bg-gray-100/50 transition-colors"
             >
-              <span className="font-medium">
-                예약 링크 {product.externalUrls.filter((url: string) => url && url.trim() !== '').length}개
-              </span>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-gradient-to-r from-red-500 to-red-600 rounded-lg flex items-center justify-center">
+                  <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-900">
+                    예약 링크 {[
+                      (product as any).externalUrl1,
+                      (product as any).externalUrl2,
+                      (product as any).externalUrl3,
+                      (product as any).externalUrl4,
+                      (product as any).externalUrl5
+                    ].filter(url => url && url.trim() !== '').length}개
+                  </span>
+                  <p className="text-xs text-gray-500">클릭하여 확인</p>
+                </div>
+              </div>
               <svg
-                className={`h-3 w-3 transition-transform duration-200 ${
+                className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${
                   isExpanded ? 'rotate-180' : ''
                 }`}
                 fill="none"
@@ -148,36 +154,46 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
             </button>
             
             {isExpanded && (
-              <div className="mt-2 space-y-1">
-                {product.externalUrls
-                  .map((url: string, idx: number) => ({ url, idx }))
-                  .filter(({ url }: { url: string }) => url && url.trim() !== '')
-                  .map(({ url, idx }: { url: string; idx: number }) => {
-                    // URL 인덱스에 따른 예약 사이트 이름 매핑
-                    const siteNames = ["마이리얼트립", "KLOOK", "KKDAY", "GetYourGuide", "트립닷컴"];
-                    const siteName = siteNames[idx] || `예약 링크 ${idx + 1}`;
-                    
-                    return (
-                      <a
-                        key={idx}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block text-xs text-gray-600 hover:text-blue-600 py-1 px-2 bg-gray-50 rounded hover:bg-blue-50 transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {siteName}
-                      </a>
-                    );
-                  })}
+              <div className="px-3 pb-3 space-y-1.5">
+                {[
+                  { url: (product as any).externalUrl1, name: "마이리얼트립" },
+                  { url: (product as any).externalUrl2, name: "KLOOK" },
+                  { url: (product as any).externalUrl3, name: "KKDAY" },
+                  { url: (product as any).externalUrl4, name: "GetYourGuide" },
+                  { url: (product as any).externalUrl5, name: "트립닷컴" }
+                ]
+                .filter(({ url }) => url && url.trim() !== '')
+                .map(({ url, name }, idx) => (
+                  <a
+                    key={idx}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-2.5 bg-white rounded-lg border border-gray-200 hover:border-red-300 hover:shadow-md transition-all duration-200 group/link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 bg-gradient-to-r from-red-500 to-red-600 rounded-md flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">{name.charAt(0)}</span>
+                        </div>
+                        <span className="text-sm font-medium text-gray-900 group-hover/link:text-red-600 transition-colors">
+                          {name}
+                        </span>
+                      </div>
+                      <svg className="h-3 w-3 text-gray-400 group-hover/link:text-red-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </div>
+                  </a>
+                ))}
               </div>
             )}
           </div>
         )}
       </div>
-    </div>
     </>
   );
 };
 
-export default memo(ProductCard); 
+export default memo(ProductCard);

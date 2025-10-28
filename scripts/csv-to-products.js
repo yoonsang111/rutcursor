@@ -143,7 +143,6 @@ for (let i = 1; i < lines.length; i++) {
   const images = [];
   const categories = [];
   const locations = [];
-  const externalUrls = [];
   const tags = [];
   
   headers.forEach((header, index) => {
@@ -164,9 +163,9 @@ for (let i = 1; i < lines.length; i++) {
       locations.push(value);
     }
     
-    // 외부 URL 필드 수집
-    if (header.startsWith('externalUrl') && value) {
-      externalUrls.push(value);
+    // 외부 URL 필드 수집 - 각각의 칼럼으로 분리
+    if (header.startsWith('externalUrl')) {
+      product[header] = value && value.trim() !== '' ? value : '';
     }
     
     // 태그 필드 수집
@@ -194,7 +193,6 @@ for (let i = 1; i < lines.length; i++) {
   product.images = images.length > 0 ? images : ['/images/default.jpg'];
   product.categories = categories;
   product.locations = locations;
-  product.externalUrls = externalUrls;
   product.tags = tags;
 
   // 기본값 설정

@@ -110,48 +110,59 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50">
-      <div className="max-w-screen-md mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="min-h-screen bg-white">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* 헤더 */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-2" style={{ fontFamily: 'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 bg-clip-text text-transparent mb-3" style={{ fontFamily: 'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
             TourStream
           </h1>
+          <p className="text-base text-gray-600 font-medium">전국 최고의 액티비티를 한눈에 비교하고 예약하세요</p>
         </div>
 
-            {/* 검색바 */}
-            <div className="mb-4">
-              <SearchBar 
-                value={keyword} 
-                onChange={(value) => {
-                  setKeyword(value);
-                  handleSearch(value);
-                }} 
-              />
-            </div>
+        {/* 검색바 */}
+        <div className="mb-6">
+          <SearchBar 
+            value={keyword} 
+            onChange={(value) => {
+              setKeyword(value);
+              handleSearch(value);
+            }} 
+          />
+        </div>
 
         {/* 필터 및 정렬 */}
-        <div className="mb-4">
-          <FilterBar
-            selectedLocation={selectedLocation}
-            selectedCategory={selectedCategory}
-            onLocationChange={(location) => {
-              setSelectedLocation(location);
-              handleFilterChange('location', location);
-            }}
-            onCategoryChange={(category) => {
-              setSelectedCategory(category);
-              handleFilterChange('category', category);
-            }}
-          />
-          <SortSelector sortBy={sortBy} onSortChange={setSortBy} />
+        <div className="mb-6">
+          <div className="bg-gray-50 rounded-xl shadow-sm border border-gray-200 p-4">
+            <FilterBar
+              selectedLocation={selectedLocation}
+              selectedCategory={selectedCategory}
+              onLocationChange={(location) => {
+                setSelectedLocation(location);
+                handleFilterChange('location', location);
+              }}
+              onCategoryChange={(category) => {
+                setSelectedCategory(category);
+                handleFilterChange('category', category);
+              }}
+              allProducts={mockProducts}
+            />
+            <div className="mt-3">
+              <SortSelector sortBy={sortBy} onSortChange={setSortBy} />
+            </div>
+          </div>
         </div>
 
         {/* 추천 상품 섹션 */}
         {recommendedProducts.length > 0 && (
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-3">🔥 추천 상품</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-6 h-6 bg-gradient-to-r from-red-500 to-red-600 rounded-lg flex items-center justify-center">
+                <span className="text-white text-xs">🔥</span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">추천 액티비티</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {recommendedProducts.map((product) => (
                 <ProductCard 
                   key={product.id} 
@@ -164,12 +175,17 @@ export default function Home() {
         )}
 
         {/* 일반 상품 리스트 */}
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-3">
-            {filteredProducts.length > 0 ? "모든 상품" : "검색 결과"}
-          </h2>
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
+              <span className="text-white text-xs">✨</span>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900">
+              {filteredProducts.length > 0 ? "모든 액티비티" : "검색 결과"}
+            </h2>
+          </div>
           {regularProducts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {regularProducts.map((product) => (
                 <ProductCard 
                   key={product.id} 
@@ -179,10 +195,22 @@ export default function Home() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <div className="text-gray-400 text-base mb-2">🔍</div>
-              <p className="text-gray-500">검색 결과가 없습니다</p>
-              <p className="text-gray-400 text-sm">다른 키워드로 검색해보세요</p>
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <span className="text-gray-500 text-2xl">🔍</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">검색 결과가 없습니다</h3>
+              <p className="text-gray-600 mb-4">다른 키워드로 검색해보세요</p>
+              <button 
+                onClick={() => {
+                  setKeyword('');
+                  setSelectedLocation('전체');
+                  setSelectedCategory('전체');
+                }}
+                className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 font-medium shadow-md"
+              >
+                필터 초기화
+              </button>
             </div>
           )}
         </div>
