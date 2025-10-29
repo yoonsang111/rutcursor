@@ -6,7 +6,7 @@ import FilterBar from "../components/FilterBar";
 import SortSelector from "../components/SortSelector";
 import PartnerWidget from "../components/PartnerWidget";
 import Footer from "../components/Footer";
-import KakaoAdFit from "../components/KakaoAdFit";
+import AdWidget from "../components/ad-widgets/AdWidget";
 
 // Google Analytics 이벤트 추적 함수
 declare global {
@@ -164,12 +164,19 @@ export default function Home() {
               <h2 className="text-xl font-bold text-gray-900">추천 액티비티</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recommendedProducts.map((product) => (
-                <ProductCard 
-                  key={product.id} 
-                  product={product} 
-                  onProductClick={handleProductClick}
-                />
+              {recommendedProducts.map((product, index) => (
+                <React.Fragment key={product.id}>
+                  <ProductCard 
+                    product={product} 
+                    onProductClick={handleProductClick}
+                  />
+                  {/* 12개마다 가로형 광고 삽입 (5줄 = 3개×4줄) */}
+                  {(index + 1) % 12 === 0 && index + 1 < recommendedProducts.length && (
+                    <div className="col-span-full flex justify-center my-4">
+                      <AdWidget />
+                    </div>
+                  )}
+                </React.Fragment>
               ))}
             </div>
           </div>
@@ -187,12 +194,19 @@ export default function Home() {
           </div>
           {regularProducts.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {regularProducts.map((product) => (
-                <ProductCard 
-                  key={product.id} 
-                  product={product} 
-                  onProductClick={handleProductClick}
-                />
+              {regularProducts.map((product, index) => (
+                <React.Fragment key={product.id}>
+                  <ProductCard 
+                    product={product} 
+                    onProductClick={handleProductClick}
+                  />
+                  {/* 12개마다 가로형 광고 삽입 (5줄 = 3개×4줄) */}
+                  {(index + 1) % 12 === 0 && index + 1 < regularProducts.length && (
+                    <div className="col-span-full flex justify-center my-4">
+                      <AdWidget />
+                    </div>
+                  )}
+                </React.Fragment>
               ))}
             </div>
           ) : (
@@ -218,15 +232,6 @@ export default function Home() {
 
         {/* 제휴사 */}
         <PartnerWidget />
-
-        {/* 카카오애드핏 광고 */}
-        <div className="flex justify-center my-8">
-          <KakaoAdFit 
-            adUnit="DAN-LiVpm1LeY0Ut7fd9"
-            width={300}
-            height={250}
-          />
-        </div>
       </div>
       
       <Footer />
