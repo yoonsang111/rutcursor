@@ -6,6 +6,7 @@ import FilterBar from "../components/FilterBar";
 import SortSelector from "../components/SortSelector";
 import PartnerWidget from "../components/PartnerWidget";
 import Footer from "../components/Footer";
+import KakaoAdFit from "../components/KakaoAdFit";
 
 // Google Analytics 이벤트 추적 함수
 declare global {
@@ -217,6 +218,15 @@ export default function Home() {
 
         {/* 제휴사 */}
         <PartnerWidget />
+
+        {/* 카카오애드핏 광고 */}
+        <div className="flex justify-center my-8">
+          <KakaoAdFit 
+            adUnit="DAN-LiVpm1LeY0Ut7fd9"
+            width={300}
+            height={250}
+          />
+        </div>
       </div>
       
       <Footer />
