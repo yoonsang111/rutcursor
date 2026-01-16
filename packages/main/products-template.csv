@@ -1,0 +1,4 @@
+id,name,description,categories,locations,externalUrls,tags,price,discount,isRecommended,isAvailable,startDate,endDate,createdAt,views
+1,제주도 패러세일링,제주 바다 위를 날아보는 짜릿한 액티비티!,해양스포츠;패러세일링,제주도;서귀포시,https://example.com/product1;https://naver.com/product1,제주;바다;액티비티;패러글라이딩,45000,15,true,true,2025-01-01,2025-12-31,2025-01-01T00:00:00Z,1250
+2,서울 한강 요트투어,서울 도심에서 즐기는 럭셀리 요트 체험,도심체험;요트,서울;한강,https://example.com/product2,서울;요트;야경;한강,80000,0,false,true,2025-01-01,2025-12-31,2025-01-02T00:00:00Z,890
+3,부산 해운대 서핑,부산 해운대에서 즐기는 서핑 체험,해양스포츠;서핑,부산;해운대,https://example.com/product3,부산;서핑;해운대;액티비티,35000,20,true,true,2025-01-01,2025-12-31,2025-01-03T00:00:00Z,2100

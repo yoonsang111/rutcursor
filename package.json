@@ -1,45 +1,19 @@
 {
-  "name": "mocktourstream",
-  "version": "0.1.0",
+  "name": "tourstream-monorepo",
+  "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "ajv": "^8.17.1",
-    "ajv-keywords": "^5.1.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "main:start": "npm run start --workspace=packages/main",
+    "main:build": "npm run build --workspace=packages/main",
+    "admin:start": "npm run start --workspace=packages/admin",
+    "admin:build": "npm run build --workspace=packages/admin",
+    "install:all": "npm install",
+    "build:all": "npm run build --workspaces"
   },
   "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
-    "react-scripts": "^5.0.1",
-    "tailwindcss": "^3.3.0",
     "typescript": "^5.0.0"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "convert-csv": "node scripts/csv-to-products.js"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
   }
 }
