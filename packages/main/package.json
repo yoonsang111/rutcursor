@@ -7,8 +7,10 @@
     "@types/react-router-dom": "^5.3.3",
     "ajv": "^8.17.1",
     "ajv-keywords": "^5.1.0",
+    "lucide-react": "^1.11.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-router": "^7.12.0",
     "react-router-dom": "^7.12.0"
   },
   "devDependencies": {
@@ -23,6 +25,9 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "seo:generate-shells": "node ./scripts/generate-seo-route-shells.mjs",
+    "build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api react-scripts build",
+    "build:beta": "REACT_APP_API_URL=https://api-beta.tourstream.kr/api react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

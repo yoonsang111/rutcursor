@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { products as mockProducts } from "../../mock/products";
+import React, { useEffect, useState } from "react";
+import { api } from "../../utils/api";
 import Footer from "../../components/Footer";
 
 interface ProductDetailProps {
@@ -9,7 +9,42 @@ interface ProductDetailProps {
 }
 
 export default function ProductDetail({ params }: ProductDetailProps) {
-  const product = mockProducts.find(p => p.id === params.id);
+  const [product, setProduct] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProduct = async () => {
+      try {
+        setLoading(true);
+        const productData = await api.getProduct(params.id);
+        if (productData) {
+          setProduct({
+            ...productData,
+            images: []
+          });
+        }
+      } catch (error) {
+        console.error('상품 로드 실패:', error);
+        setProduct(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadProduct();
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">상품을 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (
@@ -123,17 +158,28 @@ export default function ProductDetail({ params }: ProductDetailProps) {
           </a>
         </div>
 
-        {/* 상품 이미지 */}
-        <div className="mb-6">
-          <img
-            src={product.images[0]}
-            alt={product.name}
-            className="w-full h-64 md:h-80 object-cover rounded-xl shadow-lg"
-            onError={(e) => {
-              e.currentTarget.src = 'https://via.placeholder.com/800x400/4F46E5/FFFFFF?text=Tour+Image';
-            }}
-          />
-        </div>
+        {/* 상품 이미지 (있는 경우만 표시) */}
+        {(() => {
+          const imageUrl = product.images && product.images.length > 0 ? product.images[0] : '';
+          // placeholder URL이나 빈 문자열은 제외
+          const isValidImage = imageUrl && 
+            imageUrl.trim() !== '' && 
+            !imageUrl.includes('via.placeholder.com') &&
+            !imageUrl.includes('placeholder.com');
+          
+          return isValidImage ? (
+            <div className="mb-6">
+              <img
+                src={imageUrl}
+                alt={product.name}
+                className="w-full h-64 md:h-80 object-cover rounded-xl shadow-lg"
+                onError={(e) => {
+                  e.currentTarget.parentElement?.remove();
+                }}
+              />
+            </div>
+          ) : null;
+        })()}
 
         {/* 상품 정보 */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-sm border border-gray-200/50 mb-6">

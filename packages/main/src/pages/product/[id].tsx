@@ -68,7 +68,7 @@ export default function ProductDetail({ params }: ProductDetailProps) {
 
     // 컴포넌트 언마운트 시 원래 제목으로 복원
     return () => {
-      document.title = "TourStream - 최고의 투어 상품 검색";
+      document.title = "TourStream - 전세계 투어 가격 비교 및 예약 플랫폼";
     };
   }, [seoData, product.id]);
 
@@ -78,34 +78,52 @@ export default function ProductDetail({ params }: ProductDetailProps) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "Product",
-            "name": product.name,
-            "description": product.description,
-            "category": product.categories.join(", "),
-            "brand": {
-              "@type": "Brand",
-              "name": "TourStream"
-            },
-            "offers": {
-              "@type": "Offer",
-              "availability": product.isAvailable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-              "seller": {
-                "@type": "Organization",
-                "name": "TourStream"
-              }
-            },
-            "locationCreated": {
-              "@type": "Place",
-              "name": product.locations.join(", "),
-              "address": {
-                "@type": "PostalAddress",
-                "addressCountry": "KR"
-              }
-            },
-            "keywords": product.tags.join(", ")
-          })
+          __html: JSON.stringify((() => {
+            const productPrice = (product as any).price ?? (product as any).minPrice ?? (product as any).salePrice;
+            const productImage = ((product as any).images && (product as any).images[0]) || (product as any).image || null;
+            const productDescription = product.description || `${product.name} 여행 상품을 여러 예약 사이트에서 최저가로 비교하세요.`;
+            return {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "name": product.name,
+              "description": productDescription,
+              "image": productImage,
+              "url": `https://tourstream.kr/product/${product.id}`,
+              "category": product.categories.join(", "),
+              "brand": { "@type": "Brand", "name": "TourStream" },
+              "offers": {
+                "@type": "Offer",
+                "priceCurrency": "KRW",
+                ...(productPrice != null ? { "price": productPrice } : {
+                  "priceSpecification": { "@type": "PriceSpecification", "priceCurrency": "KRW" }
+                }),
+                "availability": (product as any).isAvailable !== false
+                  ? "https://schema.org/InStock"
+                  : "https://schema.org/OutOfStock",
+                "url": `https://tourstream.kr/product/${product.id}`,
+                "seller": { "@type": "Organization", "name": "TourStream", "url": "https://tourstream.kr" },
+                "hasMerchantReturnPolicy": {
+                  "@type": "MerchantReturnPolicy",
+                  "applicableCountry": "KR",
+                  "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+                  "merchantReturnDays": 7,
+                  "returnMethod": "https://schema.org/ReturnByMail",
+                  "returnFees": "https://schema.org/FreeReturn"
+                },
+                "shippingDetails": {
+                  "@type": "OfferShippingDetails",
+                  "shippingRate": { "@type": "MonetaryAmount", "value": "0", "currency": "KRW" },
+                  "shippingDestination": { "@type": "DefinedRegion", "addressCountry": "KR" },
+                  "deliveryTime": {
+                    "@type": "ShippingDeliveryTime",
+                    "handlingTime": { "@type": "QuantitativeValue", "minValue": 0, "maxValue": 0, "unitCode": "DAY" },
+                    "transitTime": { "@type": "QuantitativeValue", "minValue": 0, "maxValue": 0, "unitCode": "DAY" }
+                  }
+                }
+              },
+              "keywords": product.tags.join(", ")
+            };
+          })())
         }}
       />
       
@@ -167,19 +185,6 @@ export default function ProductDetail({ params }: ProductDetailProps) {
             <div>
               <p className="text-xs text-gray-500">위치</p>
               <p className="text-gray-900 font-medium">{product.locations.join(", ")}</p>
-            </div>
-          </div>
-
-          {/* 운영 기간 */}
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-lg flex items-center justify-center">
-              <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">운영 기간</p>
-              <p className="text-gray-900 font-medium">상시 운영</p>
             </div>
           </div>
 

@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { storage } from "../utils/storage";
+import { getCategoryHierarchy, matchesLocation } from "../utils/filterHelpers";
+import { createProductSlug } from "../utils/slug";
+import { api } from "../utils/api";
 import ProductCard from "../components/ProductCard";
 import FilterBar from "../components/FilterBar";
 import SortSelector from "../components/SortSelector";
@@ -9,21 +12,52 @@ import AdWidget from "../components/ad-widgets/AdWidget";
 export default function CategoryPage() {
   const navigate = useNavigate();
   const { category } = useParams<{ category: string }>();
-  
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        console.log('[CategoryPage] 상품 로드 시작...');
+        const apiProducts = await api.getProducts();
+        console.log('[CategoryPage] API에서 받은 상품 수:', apiProducts.length);
+        // API에서 받은 상품만 사용 (mock 데이터 제거)
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        console.log('[CategoryPage] 상품 설정:', cleanedProducts.length, '개');
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('[CategoryPage] 상품 로드 실패:', error);
+        // API 실패 시 빈 배열
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+    const interval = setInterval(loadProducts, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
 
   // 카테고리별 상품 필터링
   const filteredProducts = useMemo(() => {
     if (!category) return [];
 
-    let filtered = mockProducts.filter((product) => {
-      // 카테고리 필터
-      const categoryMatch = product.categories.includes(decodeURIComponent(category));
+    const categoryName = decodeURIComponent(category);
+    const categoryHierarchy = getCategoryHierarchy(categoryName);
 
-      // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+    let filtered = allProducts.filter((product) => {
+      // 카테고리 필터 (계층구조 매칭)
+      const categoryMatch = product.categories.some(cat => 
+        categoryHierarchy.includes(cat)
+      );
+
+      // 지역 필터 (계층구조 매칭)
+      const locationMatch = matchesLocation(product.locations, selectedLocation);
 
       return categoryMatch && locationMatch;
     });
@@ -34,17 +68,35 @@ export default function CategoryPage() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          const aId = parseInt(a.id.split('_')[1]) || 0;
+          const bId = parseInt(b.id.split('_')[1]) || 0;
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [category, selectedLocation, sortBy]);
+  }, [category, selectedLocation, sortBy, allProducts]);
 
   const handleProductClick = (productId: string) => {
-    navigate(`/product/${productId}`);
+    const product = allProducts.find(p => p.id === productId);
+    if (!product) return;
+    
+    // ID를 무조건 6자리 번호로 변환
+    let slug: string;
+    if (/^\d{6}$/.test(product.id)) {
+      slug = product.id;
+    } else {
+      const num = product.id.replace(/[^0-9]/g, '');
+      if (num) {
+        slug = (100000 + parseInt(num, 10)).toString();
+      } else {
+        slug = '100001';
+      }
+    }
+    
+    navigate(`/product/${slug}`);
   };
 
   const categoryName = category ? decodeURIComponent(category) : '';
@@ -70,7 +122,6 @@ export default function CategoryPage() {
               selectedCategory={categoryName}
               onLocationChange={setSelectedLocation}
               onCategoryChange={() => {}}
-              allProducts={mockProducts}
             />
             <div className="mt-3">
               <SortSelector sortBy={sortBy} onSortChange={setSortBy} />

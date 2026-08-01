@@ -1,22 +1,47 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { api } from "../utils/api";
 
 export default function LocationsPage() {
   const navigate = useNavigate();
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        setAllProducts(apiProducts);
+      } catch (error) {
+        console.error("[LocationsPage] 상품 로드 실패:", error);
+        setAllProducts([]);
+      }
+    };
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    document.title = "지역별 투어 검색 | TourStream";
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.setAttribute("rel", "canonical");
+      document.head.appendChild(canonical);
+    }
+    canonical.setAttribute("href", "https://tourstream.kr/locations");
+  }, []);
 
   // 모든 지역 추출
   const locations = useMemo(() => {
     const allLocations = Array.from(new Set(
-      mockProducts.flatMap(product => product.locations || [])
+      allProducts.flatMap(product => product.locations || [])
     )).filter(Boolean);
 
     // 각 지역별 상품 개수 계산
     return allLocations.map(location => ({
       name: location,
-      count: mockProducts.filter(p => p.locations.includes(location)).length
+      count: allProducts.filter(p => (p.locations || []).includes(location)).length
     })).sort((a, b) => b.count - a.count);
-  }, []);
+  }, [allProducts]);
 
   return (
     <div className="min-h-screen bg-white">

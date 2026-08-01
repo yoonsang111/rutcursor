@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { storage } from "../utils/storage";
+import { matchesCategory, matchesLocation } from "../utils/filterHelpers";
+import { createProductSlug } from "../utils/slug";
+import { api } from "../utils/api";
 import ProductCard from "../components/ProductCard";
 import SearchBar from "../components/SearchBar";
 import FilterBar from "../components/FilterBar";
@@ -16,22 +19,44 @@ export default function ProductsPage() {
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        // API에서 받은 상품만 사용 (mock 데이터 제거)
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('상품 로드 실패:', error);
+        // API 실패 시 빈 배열
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+    const interval = setInterval(loadProducts, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // 필터링된 상품들 (검색어는 검색 버튼 클릭 시에만 적용)
   const filteredProducts = useMemo(() => {
-    let filtered = mockProducts.filter((product) => {
+    let filtered = allProducts.filter((product) => {
       // 추천 필터
       if (recommended && !product.isRecommended) {
         return false;
       }
 
-      // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+      // 지역 필터 (계층구조 매칭)
+      const locationMatch = matchesLocation(product.locations, selectedLocation);
 
-      // 카테고리 필터
-      const categoryMatch = selectedCategory === "전체" || 
-        product.categories.includes(selectedCategory);
+      // 카테고리 필터 (계층구조 매칭)
+      const categoryMatch = matchesCategory(product.categories, selectedCategory);
 
       return locationMatch && categoryMatch;
     });
@@ -42,17 +67,36 @@ export default function ProductsPage() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          // ID 순서로 정렬 (최신 등록 순) - 6자리 번호 기준
+          const aId = /^\d{6}$/.test(a.id) ? parseInt(a.id) : parseInt(a.id.replace(/[^0-9]/g, '') || '0');
+          const bId = /^\d{6}$/.test(b.id) ? parseInt(b.id) : parseInt(b.id.replace(/[^0-9]/g, '') || '0');
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [selectedLocation, selectedCategory, sortBy, recommended]);
+  }, [selectedLocation, selectedCategory, sortBy, recommended, allProducts]);
 
   const handleProductClick = (productId: string) => {
-    navigate(`/product/${productId}`);
+    const product = allProducts.find(p => p.id === productId);
+    if (!product) return;
+    
+    // ID를 무조건 6자리 번호로 변환
+    let slug: string;
+    if (/^\d{6}$/.test(product.id)) {
+      slug = product.id;
+    } else {
+      const num = product.id.replace(/[^0-9]/g, '');
+      if (num) {
+        slug = (100000 + parseInt(num, 10)).toString();
+      } else {
+        slug = '100001';
+      }
+    }
+    
+    navigate(`/product/${slug}`);
   };
 
   const handleSearch = (searchTerm: string) => {
@@ -91,7 +135,6 @@ export default function ProductsPage() {
               selectedCategory={selectedCategory}
               onLocationChange={setSelectedLocation}
               onCategoryChange={setSelectedCategory}
-              allProducts={mockProducts}
             />
             <div className="mt-3">
               <SortSelector sortBy={sortBy} onSortChange={setSortBy} />

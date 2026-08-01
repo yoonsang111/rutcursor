@@ -20,7 +20,7 @@ const AgodaWidget: React.FC<AgodaWidgetProps> = ({
       
       script.onload = () => {
         if ((window as any).AgdDynamic) {
-          const stg = new Object() as any;
+          const stg: any = {};
           stg.crt = "2637861088258";
           stg.version = "1.05";
           stg.id = stg.name = widgetId;
@@ -44,7 +44,7 @@ const AgodaWidget: React.FC<AgodaWidgetProps> = ({
     } else {
       // 스크립트가 이미 로드된 경우에도 초기화
       if ((window as any).AgdDynamic) {
-        const stg = new Object() as any;
+        const stg: any = {};
         stg.crt = "2637861088258";
         stg.version = "1.05";
         stg.id = stg.name = widgetId;

@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { api } from "../utils/api";
+import { matchesCategory, matchesLocation } from "../utils/filterHelpers";
 import ProductCard from "../components/ProductCard";
 import SearchBar from "../components/SearchBar";
 import FilterBar from "../components/FilterBar";
@@ -16,22 +17,66 @@ export default function ProductsPage() {
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error("[ProductsPage] 상품 로드 실패:", error);
+        setAllProducts([]);
+      }
+    };
+
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    const pageTitle = recommended ? "추천 액티비티 | TourStream" : "전체 상품 | TourStream";
+    const pageDescription = recommended
+      ? "TourStream 추천 액티비티를 한눈에 비교하고 예약하세요."
+      : "TourStream의 전체 상품을 카테고리/지역별로 비교하고 예약하세요.";
+    const canonicalUrl = recommended
+      ? "https://tourstream.kr/products?recommended=true"
+      : "https://tourstream.kr/products";
+
+    document.title = pageTitle;
+    let metaDescription = document.querySelector('meta[name="description"]');
+    if (!metaDescription) {
+      metaDescription = document.createElement("meta");
+      metaDescription.setAttribute("name", "description");
+      document.head.appendChild(metaDescription);
+    }
+    metaDescription.setAttribute("content", pageDescription);
+
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.setAttribute("rel", "canonical");
+      document.head.appendChild(canonical);
+    }
+    canonical.setAttribute("href", canonicalUrl);
+  }, [recommended]);
 
   // 필터링된 상품들 (검색어는 검색 버튼 클릭 시에만 적용)
   const filteredProducts = useMemo(() => {
-    let filtered = mockProducts.filter((product) => {
+    let filtered = allProducts.filter((product) => {
       // 추천 필터
       if (recommended && !product.isRecommended) {
         return false;
       }
 
       // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+      const locationMatch = matchesLocation(product.locations || [], selectedLocation);
 
       // 카테고리 필터
-      const categoryMatch = selectedCategory === "전체" || 
-        product.categories.includes(selectedCategory);
+      const categoryMatch = matchesCategory(product.categories || [], selectedCategory);
 
       return locationMatch && categoryMatch;
     });
@@ -42,14 +87,17 @@ export default function ProductsPage() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          // 숫자형/문자형 ID가 섞여 있어도 최신 순으로 정렬
+          const aId = /^\d{6}$/.test(a.id) ? parseInt(a.id, 10) : parseInt(String(a.id).replace(/[^0-9]/g, "") || "0", 10);
+          const bId = /^\d{6}$/.test(b.id) ? parseInt(b.id, 10) : parseInt(String(b.id).replace(/[^0-9]/g, "") || "0", 10);
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [selectedLocation, selectedCategory, sortBy, recommended]);
+  }, [allProducts, selectedLocation, selectedCategory, sortBy, recommended]);
 
   const handleProductClick = (productId: string) => {
     navigate(`/product/${productId}`);
@@ -91,7 +139,7 @@ export default function ProductsPage() {
               selectedCategory={selectedCategory}
               onLocationChange={setSelectedLocation}
               onCategoryChange={setSelectedCategory}
-              allProducts={mockProducts}
+              allProducts={allProducts}
             />
             <div className="mt-3">
               <SortSelector sortBy={sortBy} onSortChange={setSortBy} />

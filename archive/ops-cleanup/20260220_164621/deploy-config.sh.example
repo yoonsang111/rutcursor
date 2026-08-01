@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# 배포 설정 파일 예시
+# 이 파일을 복사하여 deploy-config.sh로 만들고 실제 정보를 입력하세요
+# 주의: deploy-config.sh는 .gitignore에 추가하여 Git에 커밋하지 마세요!
+
+# 베타 서버 설정
+BETA_HOST="beta.tourstream.kr"  # 또는 IP 주소
+BETA_USER="ubuntu"              # 서버 사용자명
+BETA_PATH="/var/www/beta"       # 베타 서버 경로
+
+# 라이브 서버 설정
+PRODUCTION_HOST="tourstream.kr"  # 또는 IP 주소
+PRODUCTION_USER="ubuntu"         # 서버 사용자명
+PRODUCTION_PATH="/var/www/production"  # 라이브 서버 경로

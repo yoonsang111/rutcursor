@@ -1,16 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
 import { Product } from '@tourstream/shared';
+import { api } from '../utils/api';
+
+const PARTNER_LINK_FIELDS = [
+  { key: 'externalUrl1', label: '마이리얼트립' },
+  { key: 'externalUrl2', label: 'KLOOK' },
+  { key: 'externalUrl3', label: 'KKday' },
+  { key: 'externalUrl4', label: 'GetYourGuide' },
+  { key: 'externalUrl5', label: '트립닷컴' },
+] as const;
+
+const parseOptionalNumber = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+function buildFormStateFromProduct(product: Product) {
+  const images = Array.isArray(product.images) ? product.images : [];
+  const categories = Array.isArray(product.categories) ? product.categories : [];
+  const locations = Array.isArray(product.locations) ? product.locations : [];
+  const tags = Array.isArray(product.tags) ? product.tags : [];
+  return {
+    name: product.name || '',
+    description: product.description || '',
+    price: product.price !== undefined ? String(product.price) : '',
+    rating: product.rating !== undefined ? String(product.rating) : '',
+    images: images.length > 0 ? images : [''],
+    categories,
+    locations,
+    tags,
+    isRecommended: Boolean(product.isRecommended),
+    isAvailable: product.isAvailable !== false,
+    externalUrl1: product.externalUrl1 || '',
+    externalUrl2: product.externalUrl2 || '',
+    externalUrl3: product.externalUrl3 || '',
+    externalUrl4: product.externalUrl4 || '',
+    externalUrl5: product.externalUrl5 || '',
+  };
+}
 
 export default function ProductFormPage() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
   const { addProduct, updateProduct, getProduct } = useProducts();
-  const { mainCategories, subCategories } = useCategories();
-  const { countries, regions } = useLocations();
+  const { mainCategories, getSubCategoriesByMain } = useCategories();
+  const { countries, getRegionsByCountry } = useLocations();
 
   const isEdit = !!id;
   const product = id ? getProduct(id) : null;
@@ -18,6 +58,8 @@ export default function ProductFormPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    price: '',
+    rating: '',
     images: [''],
     categories: [] as string[],
     locations: [] as string[],
@@ -32,33 +74,60 @@ export default function ProductFormPage() {
   });
 
   const [tagInput, setTagInput] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
+  const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
+  const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (product) {
-      setFormData({
-        name: product.name,
-        description: product.description,
-        images: product.images.length > 0 ? product.images : [''],
-        categories: product.categories,
-        locations: product.locations,
-        tags: product.tags,
-        isRecommended: product.isRecommended,
-        isAvailable: product.isAvailable,
-        externalUrl1: product.externalUrl1 || '',
-        externalUrl2: product.externalUrl2 || '',
-        externalUrl3: product.externalUrl3 || '',
-        externalUrl4: product.externalUrl4 || '',
-        externalUrl5: product.externalUrl5 || '',
-      });
+      setFormData(buildFormStateFromProduct(product));
     }
   }, [product, id]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 목록 로드 전에 상세 URL로 진입한 경우 등: 컨텍스트에 없으면 API에서 직접 로드
+  useEffect(() => {
+    if (!isEdit || !id || product) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = (await api.getProduct(id)) as Product;
+        if (!cancelled && p) {
+          setFormData(buildFormStateFromProduct(p));
+        }
+      } catch {
+        // 컨텍스트 동기화 후에도 없으면 사용자가 저장 시도 시 서버 메시지로 안내
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, id, product]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.categories.length === 0) {
+      alert('카테고리를 최소 1개 이상 선택해주세요.');
+      return;
+    }
+
+    if (formData.locations.length === 0) {
+      alert('지역을 최소 1개 이상 선택해주세요.');
+      return;
+    }
+
+    const hasAnyPartnerLink = PARTNER_LINK_FIELDS.some((field) => formData[field.key].trim() !== '');
+    if (!hasAnyPartnerLink) {
+      alert('예약 URL을 최소 1개 이상 입력해주세요.');
+      return;
+    }
 
     const productData: Omit<Product, 'id' | 'views'> = {
       name: formData.name,
       description: formData.description,
+      price: parseOptionalNumber(formData.price),
+      rating: parseOptionalNumber(formData.rating),
       images: formData.images.filter(img => img.trim() !== ''),
       categories: formData.categories,
       locations: formData.locations,
@@ -72,13 +141,20 @@ export default function ProductFormPage() {
       externalUrl5: formData.externalUrl5 || undefined,
     };
 
-    if (isEdit && id) {
-      updateProduct(id, productData);
-    } else {
-      addProduct(productData);
+    try {
+      if (isEdit && id) {
+        await updateProduct(id, productData);
+      } else {
+        await addProduct(productData);
+      }
+      navigate('/products');
+    } catch (error: any) {
+      console.error('상품 저장 실패:', error);
+      const message = typeof error?.message === 'string' && error.message.trim()
+        ? error.message
+        : '상품 저장에 실패했습니다. 다시 시도해주세요.';
+      alert(message);
     }
-
-    navigate('/products');
   };
 
   const addTag = () => {
@@ -108,15 +184,51 @@ export default function ProductFormPage() {
     }
   };
 
-  // 모든 카테고리와 지역 목록 생성
-  const allCategories = [
-    ...mainCategories.map(c => c.name),
-    ...subCategories.map(c => c.name),
-  ];
-  const allLocations = [
-    ...countries.map(c => c.name),
-    ...regions.map(r => r.name),
-  ];
+  const toggleMainCategory = (mainId: string) => {
+    const newExpanded = new Set(expandedMainCategories);
+    if (newExpanded.has(mainId)) {
+      newExpanded.delete(mainId);
+    } else {
+      newExpanded.add(mainId);
+    }
+    setExpandedMainCategories(newExpanded);
+  };
+
+  const toggleCountry = (countryId: string) => {
+    const newExpanded = new Set(expandedCountries);
+    if (newExpanded.has(countryId)) {
+      newExpanded.delete(countryId);
+    } else {
+      newExpanded.add(countryId);
+    }
+    setExpandedCountries(newExpanded);
+  };
+
+  // 검색 필터링된 카테고리
+  const filteredMainCategories = useMemo(() => {
+    if (!categorySearch.trim()) return mainCategories;
+    
+    const searchLower = categorySearch.toLowerCase();
+    return mainCategories.filter(main => {
+      const mainMatch = main.name.toLowerCase().includes(searchLower);
+      const subs = getSubCategoriesByMain(main.id);
+      const subMatch = subs.some(sub => sub.name.toLowerCase().includes(searchLower));
+      return mainMatch || subMatch;
+    });
+  }, [mainCategories, categorySearch, getSubCategoriesByMain]);
+
+  // 검색 필터링된 국가
+  const filteredCountries = useMemo(() => {
+    if (!locationSearch.trim()) return countries;
+    
+    const searchLower = locationSearch.toLowerCase();
+    return countries.filter(country => {
+      const countryMatch = country.name.toLowerCase().includes(searchLower);
+      const regs = getRegionsByCountry(country.id);
+      const regionMatch = regs.some(region => region.name.toLowerCase().includes(searchLower));
+      return countryMatch || regionMatch;
+    });
+  }, [countries, locationSearch, getRegionsByCountry]);
 
   return (
     <div>
@@ -153,97 +265,331 @@ export default function ProductFormPage() {
           />
         </div>
 
+        {/* 가격/평점 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">
+              대표 가격 (원)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={formData.price}
+              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="예: 55000"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">
+              평점 (선택)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="5"
+              step="0.1"
+              value={formData.rating}
+              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="예: 4.8"
+            />
+          </div>
+        </div>
+
         {/* 이미지 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-2">
-            이미지 URL
+            이미지
           </label>
-          {formData.images.map((image, index) => (
-            <div key={index} className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={image}
-                onChange={(e) => {
-                  const newImages = [...formData.images];
-                  newImages[index] = e.target.value;
-                  setFormData({ ...formData, images: newImages });
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="이미지 URL"
-              />
-              {formData.images.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newImages = formData.images.filter((_, i) => i !== index);
-                    setFormData({ ...formData, images: newImages });
-                  }}
-                  className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
-                >
-                  삭제
-                </button>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setFormData({ ...formData, images: [...formData.images, ''] })}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-          >
-            이미지 추가
-          </button>
+          <div className="space-y-3">
+            {formData.images.map((image, index) => (
+              <div key={index} className="border border-gray-300 rounded-lg p-4">
+                <div className="flex gap-2 mb-2">
+                  {/* 파일 업로드 */}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          const base64String = reader.result as string;
+                          const newImages = [...formData.images];
+                          newImages[index] = base64String;
+                          setFormData({ ...formData, images: newImages });
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                  />
+                  {formData.images.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newImages = formData.images.filter((_, i) => i !== index);
+                        setFormData({ ...formData, images: newImages });
+                      }}
+                      className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-xs"
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
+                {/* 이미지 미리보기 */}
+                {image && (
+                  <div className="mt-2">
+                    <img
+                      src={image}
+                      alt={`미리보기 ${index + 1}`}
+                      className="max-w-xs max-h-32 object-cover rounded border border-gray-200"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                {/* URL 입력 (선택사항) */}
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={image.startsWith('data:') ? '' : image}
+                    onChange={(e) => {
+                      const newImages = [...formData.images];
+                      newImages[index] = e.target.value;
+                      setFormData({ ...formData, images: newImages });
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                    placeholder="또는 이미지 URL 입력"
+                  />
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, images: [...formData.images, ''] })}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-xs"
+            >
+              이미지 추가
+            </button>
+          </div>
         </div>
 
-        {/* 카테고리 */}
+        {/* 카테고리 - 검색 + 아코디언 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-2">
             카테고리
           </label>
-          <div className="border border-gray-300 rounded-lg p-4 max-h-48 overflow-y-auto">
-            {allCategories.length > 0 ? (
+          <div className="mb-3">
+            <input
+              type="text"
+              value={categorySearch}
+              onChange={(e) => setCategorySearch(e.target.value)}
+              placeholder="카테고리 검색..."
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div className="border border-gray-300 rounded-lg p-4 max-h-96 overflow-y-auto">
+            {filteredMainCategories.length > 0 ? (
               <div className="space-y-2">
-                {allCategories.map((category) => (
-                  <label key={category} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.categories.includes(category)}
-                      onChange={() => toggleCategory(category)}
-                      className="mr-2"
-                    />
-                    <span className="text-xs text-gray-700">{category}</span>
-                  </label>
-                ))}
+                {filteredMainCategories.map((main) => {
+                  const subs = getSubCategoriesByMain(main.id);
+                  const isExpanded = expandedMainCategories.has(main.id);
+                  const searchLower = categorySearch.toLowerCase();
+                  const filteredSubs = subs.filter(sub =>
+                    !categorySearch || sub.name.toLowerCase().includes(searchLower)
+                  );
+                  const mainSelected = formData.categories.includes(main.name);
+
+                  return (
+                    <div key={main.id} className="border-b border-gray-200 last:border-b-0 pb-2 last:pb-0">
+                      {/* 대분류 */}
+                      <div className="flex items-center gap-2 mb-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleMainCategory(main.id)}
+                          className="flex items-center gap-2 flex-1 text-left hover:bg-gray-50 px-2 py-1 rounded"
+                        >
+                          <svg
+                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={mainSelected}
+                              onChange={() => toggleCategory(main.name)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mr-1"
+                            />
+                            <span className="text-sm font-medium text-gray-900">{main.name}</span>
+                            {filteredSubs.length > 0 && (
+                              <span className="text-xs text-gray-500">({filteredSubs.length}개 소분류)</span>
+                            )}
+                          </label>
+                        </button>
+                      </div>
+                      {/* 소분류 */}
+                      {isExpanded && filteredSubs.length > 0 && (
+                        <div className="ml-6 space-y-1 mt-1">
+                          {filteredSubs.map((sub) => (
+                            <label key={sub.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                              <input
+                                type="checkbox"
+                                checked={formData.categories.includes(sub.name)}
+                                onChange={() => toggleCategory(sub.name)}
+                                className="mr-1"
+                              />
+                              <span className="text-xs text-gray-700">{sub.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-xs text-gray-500">등록된 카테고리가 없습니다.</p>
             )}
           </div>
+          {/* 선택된 카테고리 표시 */}
+          {formData.categories.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 mb-2">선택된 카테고리:</div>
+              <div className="flex flex-wrap gap-2">
+                {formData.categories.map((cat) => (
+                  <span
+                    key={cat}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs"
+                  >
+                    {cat}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(cat)}
+                      className="text-blue-700 hover:text-blue-900"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 지역 */}
+        {/* 지역 - 검색 + 아코디언 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-2">
             지역
           </label>
-          <div className="border border-gray-300 rounded-lg p-4 max-h-48 overflow-y-auto">
-            {allLocations.length > 0 ? (
+          <div className="mb-3">
+            <input
+              type="text"
+              value={locationSearch}
+              onChange={(e) => setLocationSearch(e.target.value)}
+              placeholder="지역 검색..."
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div className="border border-gray-300 rounded-lg p-4 max-h-96 overflow-y-auto">
+            {filteredCountries.length > 0 ? (
               <div className="space-y-2">
-                {allLocations.map((location) => (
-                  <label key={location} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.locations.includes(location)}
-                      onChange={() => toggleLocation(location)}
-                      className="mr-2"
-                    />
-                    <span className="text-xs text-gray-700">{location}</span>
-                  </label>
-                ))}
+                {filteredCountries.map((country) => {
+                  const regs = getRegionsByCountry(country.id);
+                  const isExpanded = expandedCountries.has(country.id);
+                  const searchLower = locationSearch.toLowerCase();
+                  const filteredRegs = regs.filter(region =>
+                    !locationSearch || region.name.toLowerCase().includes(searchLower)
+                  );
+                  const countrySelected = formData.locations.includes(country.name);
+
+                  return (
+                    <div key={country.id} className="border-b border-gray-200 last:border-b-0 pb-2 last:pb-0">
+                      {/* 국가 */}
+                      <div className="flex items-center gap-2 mb-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleCountry(country.id)}
+                          className="flex items-center gap-2 flex-1 text-left hover:bg-gray-50 px-2 py-1 rounded"
+                        >
+                          <svg
+                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={countrySelected}
+                              onChange={() => toggleLocation(country.name)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mr-1"
+                            />
+                            <span className="text-sm font-medium text-gray-900">{country.name}</span>
+                            {filteredRegs.length > 0 && (
+                              <span className="text-xs text-gray-500">({filteredRegs.length}개 지역)</span>
+                            )}
+                          </label>
+                        </button>
+                      </div>
+                      {/* 지역 */}
+                      {isExpanded && filteredRegs.length > 0 && (
+                        <div className="ml-6 space-y-1 mt-1">
+                          {filteredRegs.map((region) => (
+                            <label key={region.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                              <input
+                                type="checkbox"
+                                checked={formData.locations.includes(region.name)}
+                                onChange={() => toggleLocation(region.name)}
+                                className="mr-1"
+                              />
+                              <span className="text-xs text-gray-700">{region.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-xs text-gray-500">등록된 지역이 없습니다.</p>
             )}
           </div>
+          {/* 선택된 지역 표시 */}
+          {formData.locations.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 mb-2">선택된 지역:</div>
+              <div className="flex flex-wrap gap-2">
+                {formData.locations.map((loc) => (
+                  <span
+                    key={loc}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs"
+                  >
+                    {loc}
+                    <button
+                      type="button"
+                      onClick={() => toggleLocation(loc)}
+                      className="text-green-700 hover:text-green-900"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 태그 */}
@@ -290,15 +636,17 @@ export default function ProductFormPage() {
         {/* 예약 URL */}
         <div className="space-y-3">
           <label className="block text-xs font-medium text-gray-700">예약 URL</label>
-          {[1, 2, 3, 4, 5].map((num) => (
-            <input
-              key={num}
-              type="url"
-              value={formData[`externalUrl${num}` as keyof typeof formData] as string}
-              onChange={(e) => setFormData({ ...formData, [`externalUrl${num}`]: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder={`예약 URL ${num}`}
-            />
+          {PARTNER_LINK_FIELDS.map((field) => (
+            <div key={field.key}>
+              <label className="block text-xs text-gray-600 mb-1">{field.label}</label>
+              <input
+                type="url"
+                value={formData[field.key]}
+                onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder={`${field.label} 예약 URL`}
+              />
+            </div>
           ))}
         </div>
 

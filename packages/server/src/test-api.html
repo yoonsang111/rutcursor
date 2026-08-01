@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API 연결 테스트</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>API 연결 테스트</h1>
+    
+    <div class="test-section">
+        <h2>1. API 서버 연결 테스트</h2>
+        <button onclick="testConnection()">연결 테스트</button>
+        <div id="connection-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 상품 목록 조회</h2>
+        <button onclick="getProducts()">상품 목록 가져오기</button>
+        <div id="products-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 상품 등록 테스트</h2>
+        <button onclick="createProduct()">테스트 상품 등록</button>
+        <div id="create-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 최신 상품 확인</h2>
+        <button onclick="getLatestProducts()">최신 상품 확인</button>
+        <div id="latest-result"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3002/api';
+        
+        async function testConnection() {
+            const resultDiv = document.getElementById('connection-result');
+            try {
+                const response = await fetch(`${API_URL}/products`);
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `<p class="success">✅ 연결 성공! 상품 ${data.length}개 발견</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p class="error">❌ 연결 실패: ${response.status} ${response.statusText}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 오류: ${error.message}</p>`;
+            }
+        }
+        
+        async function getProducts() {
+            const resultDiv = document.getElementById('products-result');
+            try {
+                const response = await fetch(`${API_URL}/products`);
+                const products = await response.json();
+                resultDiv.innerHTML = `
+                    <p class="success">✅ ${products.length}개 상품 로드됨</p>
+                    <pre>${JSON.stringify(products.slice(0, 3), null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 오류: ${error.message}</p>`;
+            }
+        }
+        
+        async function createProduct() {
+            const resultDiv = document.getElementById('create-result');
+            try {
+                const testProduct = {
+                    name: `테스트 상품 ${Date.now()}`,
+                    description: 'API 연결 테스트용 상품',
+                    images: [],
+                    categories: ['테스트'],
+                    locations: ['서울'],
+                    tags: ['테스트'],
+                    isRecommended: false,
+                    isAvailable: true
+                };
+                
+                const response = await fetch(`${API_URL}/products`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(testProduct)
+                });
+                
+                if (response.ok) {
+                    const product = await response.json();
+                    resultDiv.innerHTML = `
+                        <p class="success">✅ 상품 등록 성공!</p>
+                        <pre>${JSON.stringify(product, null, 2)}</pre>
+                    `;
+                } else {
+                    const error = await response.text();
+                    resultDiv.innerHTML = `<p class="error">❌ 등록 실패: ${response.status} ${error}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 오류: ${error.message}</p>`;
+            }
+        }
+        
+        async function getLatestProducts() {
+            const resultDiv = document.getElementById('latest-result');
+            try {
+                const response = await fetch(`${API_URL}/products`);
+                const products = await response.json();
+                const latest = products.slice(-5).reverse();
+                resultDiv.innerHTML = `
+                    <p class="success">✅ 최신 상품 5개:</p>
+                    <pre>${JSON.stringify(latest.map(p => ({ id: p.id, name: p.name })), null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ 오류: ${error.message}</p>`;
+            }
+        }
+        
+        // 페이지 로드 시 자동 테스트
+        window.onload = () => {
+            testConnection();
+        };
+    </script>
+</body>
+</html>

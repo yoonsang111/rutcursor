@@ -1,5 +1,9 @@
-import React, { useState, useMemo } from "react";
-import { products as mockProducts } from "../mock/products";
+import React, { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { storage } from "../utils/storage";
+import { matchesCategory, matchesLocation } from "../utils/filterHelpers";
+import { createProductSlug } from "../utils/slug";
+import { api } from "../utils/api";
 import ProductCard from "../components/ProductCard";
 import SearchBar from "../components/SearchBar";
 import FilterBar from "../components/FilterBar";
@@ -22,14 +26,45 @@ const trackEvent = (eventName: string, parameters?: any) => {
 };
 
 export default function Home() {
+  const navigate = useNavigate();
   const [keyword, setKeyword] = useState("");
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        console.log('[ProductsPage/index] 상품 로드 시작...');
+        const apiProducts = await api.getProducts();
+        console.log('[ProductsPage/index] API에서 받은 상품 수:', apiProducts.length);
+        // API에서 받은 상품만 사용 (mock 데이터 제거)
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        console.log('[ProductsPage/index] 상품 설정:', cleanedProducts.length, '개');
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('[ProductsPage/index] 상품 로드 실패:', error);
+        // API 실패 시 빈 배열
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+    
+    // 주기적으로 상품 새로고침 (30초마다)
+    const interval = setInterval(loadProducts, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
 
   // 필터링된 상품들 - 성능 최적화
   const filteredProducts = useMemo(() => {
-    let filtered = mockProducts.filter((product) => {
+    let filtered = allProducts.filter((product) => {
       // 검색어 필터
       const searchTarget = [
         product.name,
@@ -41,13 +76,11 @@ export default function Home() {
       
       const keywordMatch = keyword === "" || searchTarget.includes(keyword.toLowerCase());
 
-      // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+      // 지역 필터 (계층구조 매칭)
+      const locationMatch = matchesLocation(product.locations, selectedLocation);
 
-      // 카테고리 필터
-      const categoryMatch = selectedCategory === "전체" || 
-        product.categories.includes(selectedCategory);
+      // 카테고리 필터 (계층구조 매칭)
+      const categoryMatch = matchesCategory(product.categories, selectedCategory);
 
       return keywordMatch && locationMatch && categoryMatch;
     });
@@ -58,15 +91,17 @@ export default function Home() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          // ID 순서로 정렬 (최신 등록 순)
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          // ID 순서로 정렬 (최신 등록 순) - 6자리 번호 기준
+          const aId = /^\d{6}$/.test(a.id) ? parseInt(a.id) : parseInt(a.id.replace(/[^0-9]/g, '') || '0');
+          const bId = /^\d{6}$/.test(b.id) ? parseInt(b.id) : parseInt(b.id.replace(/[^0-9]/g, '') || '0');
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [keyword, selectedLocation, selectedCategory, sortBy]);
+  }, [keyword, selectedLocation, selectedCategory, sortBy, allProducts]);
 
   // 추천 상품들
   const recommendedProducts = useMemo(() => {
@@ -79,6 +114,12 @@ export default function Home() {
   }, [filteredProducts]);
 
   const handleProductClick = (productId: string) => {
+    // 상품 찾기
+    const product = allProducts.find(p => p.id === productId);
+    if (!product) {
+      return;
+    }
+    
     // Google Analytics 이벤트 추적
     trackEvent('product_click', {
       product_id: productId,
@@ -86,9 +127,21 @@ export default function Home() {
       event_label: 'product_card_click'
     });
     
-    // 실제로는 라우터를 사용하여 상품 상세 페이지로 이동
-    console.log(`상품 ${productId} 클릭됨`);
-    // window.location.href = `/product/${productId}`;
+    // ID를 무조건 6자리 번호로 변환
+    let slug: string;
+    if (/^\d{6}$/.test(product.id)) {
+      slug = product.id;
+    } else {
+      // product_X 형식에서 숫자 추출하여 변환
+      const num = product.id.replace(/[^0-9]/g, '');
+      if (num) {
+        slug = (100000 + parseInt(num, 10)).toString();
+      } else {
+        slug = '100001';
+      }
+    }
+    
+    navigate(`/product/${slug}`);
   };
 
   const handleSearch = (searchTerm: string) => {
@@ -146,7 +199,6 @@ export default function Home() {
                 setSelectedCategory(category);
                 handleFilterChange('category', category);
               }}
-              allProducts={mockProducts}
             />
             <div className="mt-3">
               <SortSelector sortBy={sortBy} onSortChange={setSortBy} />
@@ -237,4 +289,4 @@ export default function Home() {
       <Footer />
     </div>
   );
-} 
+}

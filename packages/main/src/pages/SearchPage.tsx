@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { api } from "../utils/api";
+import { matchesCategory, matchesLocation } from "../utils/filterHelpers";
 import ProductCard from "../components/ProductCard";
 import SearchBar from "../components/SearchBar";
 import FilterBar from "../components/FilterBar";
@@ -16,13 +17,67 @@ export default function SearchPage() {
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error("[SearchPage] 상품 로드 실패:", error);
+        setAllProducts([]);
+      }
+    };
+    loadProducts();
+  }, []);
 
   // URL 파라미터와 동기화
-  React.useEffect(() => {
-    if (queryParam && queryParam !== keyword) {
-      setKeyword(queryParam);
-    }
+  useEffect(() => {
+    setKeyword(queryParam);
   }, [queryParam]);
+
+  // 검색 페이지는 중복/무한 URL 생성을 막기 위해 noindex 처리
+  useEffect(() => {
+    document.title = keyword.trim()
+      ? `"${keyword}" 검색 결과 | TourStream`
+      : "상품 검색 | TourStream";
+
+    let metaDescription = document.querySelector('meta[name="description"]');
+    if (!metaDescription) {
+      metaDescription = document.createElement("meta");
+      metaDescription.setAttribute("name", "description");
+      document.head.appendChild(metaDescription);
+    }
+    metaDescription.setAttribute(
+      "content",
+      keyword.trim()
+        ? `"${keyword}" 검색 결과 페이지입니다. TourStream에서 관련 투어와 액티비티를 비교해보세요.`
+        : "TourStream 상품 검색 페이지입니다."
+    );
+
+    let robots = document.querySelector('meta[name="robots"]');
+    if (!robots) {
+      robots = document.createElement("meta");
+      robots.setAttribute("name", "robots");
+      document.head.appendChild(robots);
+    }
+    robots.setAttribute("content", keyword.trim() ? "noindex, follow" : "index, follow");
+
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.setAttribute("rel", "canonical");
+      document.head.appendChild(canonical);
+    }
+    canonical.setAttribute("href", keyword.trim()
+      ? `https://tourstream.kr/search?q=${encodeURIComponent(keyword.trim())}`
+      : "https://tourstream.kr/search");
+  }, [keyword]);
 
   // 필터링된 상품들
   const filteredProducts = useMemo(() => {
@@ -30,7 +85,7 @@ export default function SearchPage() {
       return [];
     }
 
-    let filtered = mockProducts.filter((product) => {
+    let filtered = allProducts.filter((product) => {
       // 검색어 필터
       const searchTarget = [
         product.name,
@@ -43,12 +98,10 @@ export default function SearchPage() {
       const keywordMatch = searchTarget.includes(keyword.toLowerCase());
 
       // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+      const locationMatch = matchesLocation(product.locations || [], selectedLocation);
 
       // 카테고리 필터
-      const categoryMatch = selectedCategory === "전체" || 
-        product.categories.includes(selectedCategory);
+      const categoryMatch = matchesCategory(product.categories || [], selectedCategory);
 
       return keywordMatch && locationMatch && categoryMatch;
     });
@@ -59,14 +112,16 @@ export default function SearchPage() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          const aId = /^\d{6}$/.test(String(a.id)) ? parseInt(String(a.id), 10) : parseInt(String(a.id).replace(/[^0-9]/g, "") || "0", 10);
+          const bId = /^\d{6}$/.test(String(b.id)) ? parseInt(String(b.id), 10) : parseInt(String(b.id).replace(/[^0-9]/g, "") || "0", 10);
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [keyword, selectedLocation, selectedCategory, sortBy]);
+  }, [allProducts, keyword, selectedLocation, selectedCategory, sortBy]);
 
   const handleProductClick = (productId: string) => {
     navigate(`/product/${productId}`);
@@ -110,7 +165,7 @@ export default function SearchPage() {
                 selectedCategory={selectedCategory}
                 onLocationChange={setSelectedLocation}
                 onCategoryChange={setSelectedCategory}
-                allProducts={mockProducts}
+                allProducts={allProducts}
               />
               <div className="mt-3">
                 <SortSelector sortBy={sortBy} onSortChange={setSortBy} />

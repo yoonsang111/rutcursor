@@ -1,6 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { storage } from "../utils/storage";
+import { matchesCategory, matchesLocation } from "../utils/filterHelpers";
+import { createProductSlug } from "../utils/slug";
+import { api } from "../utils/api";
 import ProductCard from "../components/ProductCard";
 import SearchBar from "../components/SearchBar";
 import FilterBar from "../components/FilterBar";
@@ -16,6 +19,47 @@ export default function SearchPage() {
   const [selectedLocation, setSelectedLocation] = useState("전체");
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [sortBy, setSortBy] = useState("popular");
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    console.log('[SearchPage] 컴포넌트 마운트됨 - useEffect 실행');
+    
+    const loadProducts = async () => {
+      try {
+        console.log('[SearchPage] 상품 로드 시작...');
+        console.log('[SearchPage] API 호출 전 - api 객체:', typeof api, api);
+        const apiProducts = await api.getProducts();
+        console.log('[SearchPage] API에서 받은 상품 수:', apiProducts.length);
+        // API에서 받은 상품만 사용 (mock 데이터 제거)
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        console.log('[SearchPage] 상품 설정:', cleanedProducts.length, '개');
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('[SearchPage] 상품 로드 실패:', error);
+        console.error('[SearchPage] 에러 상세:', error);
+        // API 실패 시 빈 배열
+        setAllProducts([]);
+      }
+    };
+    
+    // 즉시 실행
+    loadProducts();
+    
+    // 30초마다 새로고침
+    const interval = setInterval(() => {
+      console.log('[SearchPage] 주기적 새로고침 실행');
+      loadProducts();
+    }, 30000);
+    
+    return () => {
+      console.log('[SearchPage] 컴포넌트 언마운트 - cleanup');
+      clearInterval(interval);
+    };
+  }, []);
 
   // URL 파라미터와 동기화
   React.useEffect(() => {
@@ -30,7 +74,7 @@ export default function SearchPage() {
       return [];
     }
 
-    let filtered = mockProducts.filter((product) => {
+    let filtered = allProducts.filter((product) => {
       // 검색어 필터
       const searchTarget = [
         product.name,
@@ -42,13 +86,11 @@ export default function SearchPage() {
       
       const keywordMatch = searchTarget.includes(keyword.toLowerCase());
 
-      // 지역 필터
-      const locationMatch = selectedLocation === "전체" || 
-        product.locations.some(location => location.includes(selectedLocation));
+      // 지역 필터 (계층구조 매칭)
+      const locationMatch = matchesLocation(product.locations, selectedLocation);
 
-      // 카테고리 필터
-      const categoryMatch = selectedCategory === "전체" || 
-        product.categories.includes(selectedCategory);
+      // 카테고리 필터 (계층구조 매칭)
+      const categoryMatch = matchesCategory(product.categories, selectedCategory);
 
       return keywordMatch && locationMatch && categoryMatch;
     });
@@ -59,17 +101,35 @@ export default function SearchPage() {
         case "popular":
           return b.views - a.views;
         case "latest":
-          return parseInt(b.id.split('_')[1]) - parseInt(a.id.split('_')[1]);
+          const aId = parseInt(a.id.split('_')[1]) || 0;
+          const bId = parseInt(b.id.split('_')[1]) || 0;
+          return bId - aId;
         default:
           return 0;
       }
     });
 
     return filtered;
-  }, [keyword, selectedLocation, selectedCategory, sortBy]);
+  }, [keyword, selectedLocation, selectedCategory, sortBy, allProducts]);
 
   const handleProductClick = (productId: string) => {
-    navigate(`/product/${productId}`);
+    const product = allProducts.find(p => p.id === productId);
+    if (!product) return;
+    
+    // ID를 무조건 6자리 번호로 변환
+    let slug: string;
+    if (/^\d{6}$/.test(product.id)) {
+      slug = product.id;
+    } else {
+      const num = product.id.replace(/[^0-9]/g, '');
+      if (num) {
+        slug = (100000 + parseInt(num, 10)).toString();
+      } else {
+        slug = '100001';
+      }
+    }
+    
+    navigate(`/product/${slug}`);
   };
 
   const handleSearch = (searchTerm: string) => {
@@ -110,7 +170,6 @@ export default function SearchPage() {
                 selectedCategory={selectedCategory}
                 onLocationChange={setSelectedLocation}
                 onCategoryChange={setSelectedCategory}
-                allProducts={mockProducts}
               />
               <div className="mt-3">
                 <SortSelector sortBy={sortBy} onSortChange={setSortBy} />

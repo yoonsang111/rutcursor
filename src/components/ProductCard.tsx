@@ -61,6 +61,29 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
       />
       
       <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-blue-200 group cursor-pointer" onClick={handleCardClick}>
+        {/* 상품 이미지 (있는 경우만 표시) */}
+        {(() => {
+          const imageUrl = product.images && product.images.length > 0 ? product.images[0] : '';
+          // placeholder URL이나 빈 문자열은 제외
+          const isValidImage = imageUrl && 
+            imageUrl.trim() !== '' && 
+            !imageUrl.includes('via.placeholder.com') &&
+            !imageUrl.includes('placeholder.com');
+          
+          return isValidImage ? (
+            <div className="w-full h-48 overflow-hidden">
+              <img
+                src={imageUrl}
+                alt={product.name}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                onError={(e) => {
+                  e.currentTarget.parentElement?.remove();
+                }}
+              />
+            </div>
+          ) : null;
+        })()}
+        
         {/* 상품 정보 */}
         <div className="p-4">
           {/* 카테고리 태그 */}

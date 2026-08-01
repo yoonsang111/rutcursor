@@ -7,6 +7,11 @@ export interface Product {
   categories: string[];
   locations: string[];
   tags: string[];
+  price?: number;
+  minPrice?: number;
+  salePrice?: number;
+  rating?: number;
+  reviewCount?: number;
   isRecommended: boolean;
   isAvailable: boolean;
   views: number;
@@ -29,6 +34,11 @@ export interface ProductFormData {
   categories: string[];
   locations: string[];
   tags: string[];
+  price?: number;
+  minPrice?: number;
+  salePrice?: number;
+  rating?: number;
+  reviewCount?: number;
   isRecommended: boolean;
   isAvailable: boolean;
   externalUrl1?: string;

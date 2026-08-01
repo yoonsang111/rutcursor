@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /search?*
+
+# Sitemap
+Sitemap: https://tourstream.kr/sitemap.xml
+

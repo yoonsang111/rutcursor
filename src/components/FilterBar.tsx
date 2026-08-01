@@ -1,11 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { storage } from "../utils/storage";
 
 interface FilterBarProps {
   selectedLocation: string;
   selectedCategory: string;
   onLocationChange: (location: string) => void;
   onCategoryChange: (category: string) => void;
-  allProducts?: any[]; // 상품 데이터를 받아서 동적으로 필터 생성
 }
 
 const FilterBar: React.FC<FilterBarProps> = ({
@@ -13,20 +13,24 @@ const FilterBar: React.FC<FilterBarProps> = ({
   selectedCategory,
   onLocationChange,
   onCategoryChange,
-  allProducts = []
 }) => {
-  // 상품 데이터에서 실제 지역과 카테고리 추출
-  const allLocations = Array.from(new Set(
-    allProducts.flatMap(product => product.locations || [])
-  )).filter(Boolean);
-  
-  const allCategories = Array.from(new Set(
-    allProducts.flatMap(product => product.categories || [])
-  )).filter(Boolean);
+  // 어드민의 카테고리/지역 목록을 직접 참조
+  const mainCategories = storage.getMainCategories();
+  const subCategories = storage.getSubCategories();
+  const countries = storage.getCountries();
+  const regions = storage.getRegions();
 
-  // 기본값과 실제 데이터 결합
-  const locations = ["전체", ...allLocations.slice(0, 8)]; // 최대 8개
-  const categories = ["전체", ...allCategories.slice(0, 6)]; // 최대 6개
+  // 카테고리 목록 생성 (대분류만 표시, 소분류는 계층구조로 필터링에 사용)
+  const categories = useMemo(() => {
+    const mainCatNames = mainCategories.map(cat => cat.name);
+    return ["전체", ...mainCatNames.slice(0, 6)]; // 최대 6개
+  }, [mainCategories]);
+
+  // 지역 목록 생성 (국가만 표시, 지역은 계층구조로 필터링에 사용)
+  const locations = useMemo(() => {
+    const countryNames = countries.map(country => country.name);
+    return ["전체", ...countryNames.slice(0, 8)]; // 최대 8개
+  }, [countries]);
 
   return (
     <div className="space-y-4">
@@ -84,4 +88,4 @@ const FilterBar: React.FC<FilterBarProps> = ({
   );
 };
 
-export default FilterBar; 
+export default FilterBar;

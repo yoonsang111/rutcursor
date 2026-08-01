@@ -6,12 +6,23 @@
     "packages/*"
   ],
   "scripts": {
+    "server:start": "npm run start --workspace=packages/server",
+    "server:start:local-beta": "bash ./scripts/start-local-beta-api.sh",
     "main:start": "npm run start --workspace=packages/main",
+    "main:start:local-beta": "npm run main:start",
     "main:build": "npm run build --workspace=packages/main",
     "admin:start": "npm run start --workspace=packages/admin",
+    "admin:start:local-beta": "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true PORT=3001 npm run admin:start",
     "admin:build": "npm run build --workspace=packages/admin",
+    "data:normalize:local-beta": "node ./scripts/normalize-local-beta-data.mjs",
+    "qa:audit:local-beta": "node ./scripts/local-qa-audit.mjs",
     "install:all": "npm install",
-    "build:all": "npm run build --workspaces"
+    "build:all": "npm run build --workspaces",
+    "build:beta": "NODE_ENV=beta npm run build --workspaces",
+    "build:production": "NODE_ENV=production npm run build --workspaces",
+    "local-beta:help": "echo \"Local beta API: http://localhost:3102\" && echo \"1) npm run server:start:local-beta\" && echo \"2) npm run main:start:local-beta\" && echo \"3) npm run admin:start:local-beta\"",
+    "check": "bash ./scripts/pre-deploy-check.sh",
+    "main:build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api npm run build --workspace=packages/main"
   },
   "devDependencies": {
     "typescript": "^5.0.0"

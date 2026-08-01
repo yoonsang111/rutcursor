@@ -2,6 +2,8 @@
 
 const STORAGE_KEYS = {
   PRODUCTS: 'tourstream_products',
+  DELETED_PRODUCTS: 'tourstream_deleted_products', // 삭제된 상품 추적용
+  PRODUCT_COUNTER: 'tourstream_product_counter', // 다음 상품 번호
   MAIN_CATEGORIES: 'tourstream_main_categories',
   SUB_CATEGORIES: 'tourstream_sub_categories',
   COUNTRIES: 'tourstream_countries',
@@ -18,6 +20,29 @@ export const storage = {
   },
   saveProducts: (products: any[]) => {
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+  },
+
+  // Deleted Products (삭제된 상품 추적)
+  getDeletedProducts: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.DELETED_PRODUCTS);
+    return data ? JSON.parse(data) : [];
+  },
+  saveDeletedProduct: (product: any) => {
+    const deleted = storage.getDeletedProducts();
+    deleted.push(product);
+    localStorage.setItem(STORAGE_KEYS.DELETED_PRODUCTS, JSON.stringify(deleted));
+  },
+
+  // Product Counter (다음 상품 번호)
+  getProductCounter: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.PRODUCT_COUNTER);
+    return data ? parseInt(data, 10) : 100000; // 100000부터 시작 (100001이 첫 번째)
+  },
+  incrementProductCounter: () => {
+    const current = storage.getProductCounter();
+    const next = current + 1;
+    localStorage.setItem(STORAGE_KEYS.PRODUCT_COUNTER, next.toString());
+    return next;
   },
 
   // Main Categories

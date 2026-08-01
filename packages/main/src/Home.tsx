@@ -28,7 +28,7 @@ export default function Home() {
             투어 스트림
           </h1>
           <p className="text-gray-600 text-lg">
-            최고의 투어 상품을 찾아보세요
+            전세계 투어와 액티비티를 한눈에 가격 비교하고 예약하세요
           </p>
         </div>
 

@@ -31,3 +31,21 @@ yarn-error.log*
 packages/*/node_modules/
 packages/*/build/
 packages/*/dist/
+
+# Deployment config (민감한 정보 포함)
+deploy-config.sh
+packages/*/.env.beta
+packages/*/.env.production
+packages/*/.env.local
+
+# npm 캐시
+.npm-cache/
+
+# macOS
+.DS_Store
+
+# 데이터 파일 (로컬 및 프로덕션)
+packages/server/data/**/*.json
+packages/server/data/local/
+packages/server/data/beta/
+packages/server/data/production/

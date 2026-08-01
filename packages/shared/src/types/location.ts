@@ -2,6 +2,7 @@
 export interface Country {
   id: string;
   name: string;
+  image?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -10,6 +11,7 @@ export interface Region {
   id: string;
   name: string;
   countryId: string; // 국가 ID
+  image?: string;
   createdAt: string;
   updatedAt: string;
 }

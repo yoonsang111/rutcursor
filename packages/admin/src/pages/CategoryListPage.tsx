@@ -6,7 +6,6 @@ export default function CategoryListPage() {
   const navigate = useNavigate();
   const {
     mainCategories,
-    subCategories,
     deleteMainCategory,
     deleteSubCategory,
     updateMainCategory,
@@ -17,15 +16,26 @@ export default function CategoryListPage() {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
 
   const filteredMainCategories = mainCategories.filter(cat =>
-    cat.name.toLowerCase().includes(searchKeyword.toLowerCase())
-  );
-  const filteredSubCategories = subCategories.filter(cat =>
-    cat.name.toLowerCase().includes(searchKeyword.toLowerCase())
+    cat.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
+    getSubCategoriesByMain(cat.id).some(sub => 
+      sub.name.toLowerCase().includes(searchKeyword.toLowerCase())
+    )
   );
 
-  const handleEdit = (id: string, name: string, isMain: boolean) => {
+  const toggleMainCategory = (mainId: string) => {
+    const newExpanded = new Set(expandedMainCategories);
+    if (newExpanded.has(mainId)) {
+      newExpanded.delete(mainId);
+    } else {
+      newExpanded.add(mainId);
+    }
+    setExpandedMainCategories(newExpanded);
+  };
+
+  const handleEdit = (id: string, name: string) => {
     setEditingId(id);
     setEditName(name);
   };
@@ -40,7 +50,10 @@ export default function CategoryListPage() {
     setEditName('');
   };
 
-  const handleDelete = (id: string, isMain: boolean) => {
+  const handleDelete = (id: string, isMain: boolean, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     if (isMain) {
       const success = deleteMainCategory(id);
       if (!success) {
@@ -84,168 +97,165 @@ export default function CategoryListPage() {
         />
       </div>
 
-      {/* 대분류 목록 */}
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">대분류</h2>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          {filteredMainCategories.length > 0 ? (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">이름</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">소분류 수</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">작업</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredMainCategories.map((main) => {
-                  const subCount = getSubCategoriesByMain(main.id).length;
-                  const isEditing = editingId === main.id;
-                  return (
-                    <tr key={main.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            autoFocus
-                          />
-                        ) : (
-                          <div className="text-xs font-medium text-gray-900">{main.name}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-xs text-gray-500">{subCount}개</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-medium">
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveEdit(main.id, true)}
-                              className="text-blue-600 hover:text-blue-900 mr-4"
-                            >
-                              저장
-                            </button>
-                            <button
-                              onClick={() => setEditingId(null)}
-                              className="text-gray-600 hover:text-gray-900"
-                            >
-                              취소
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleEdit(main.id, main.name, true)}
-                              className="text-blue-600 hover:text-blue-900 mr-4"
-                            >
-                              수정
-                            </button>
-                            <button
-                              onClick={() => handleDelete(main.id, true)}
-                              className="text-red-600 hover:text-red-900"
-                              disabled={subCount > 0}
-                              title={subCount > 0 ? '소분류가 있어 삭제할 수 없습니다' : ''}
-                            >
-                              삭제
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-gray-500">등록된 대분류가 없습니다.</p>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* 아코디언 형태의 카테고리 목록 */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {filteredMainCategories.length > 0 ? (
+          <div className="divide-y divide-gray-200">
+            {filteredMainCategories.map((main) => {
+              const subCategoriesList = getSubCategoriesByMain(main.id);
+              const isExpanded = expandedMainCategories.has(main.id);
+              const isEditing = editingId === main.id;
+              const filteredSubs = subCategoriesList.filter(sub =>
+                !searchKeyword || sub.name.toLowerCase().includes(searchKeyword.toLowerCase())
+              );
 
-      {/* 소분류 목록 */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">소분류</h2>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          {filteredSubCategories.length > 0 ? (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">이름</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">대분류</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">작업</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredSubCategories.map((sub) => {
-                  const mainCategory = mainCategories.find(m => m.id === sub.mainCategoryId);
-                  const isEditing = editingId === sub.id;
-                  return (
-                    <tr key={sub.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            autoFocus
-                          />
-                        ) : (
-                          <div className="text-xs font-medium text-gray-900">{sub.name}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-xs text-gray-500">{mainCategory?.name || '-'}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-medium">
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={() => handleSaveEdit(sub.id, false)}
-                              className="text-blue-600 hover:text-blue-900 mr-4"
-                            >
-                              저장
-                            </button>
-                            <button
-                              onClick={() => setEditingId(null)}
-                              className="text-gray-600 hover:text-gray-900"
-                            >
-                              취소
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleEdit(sub.id, sub.name, false)}
-                              className="text-blue-600 hover:text-blue-900 mr-4"
-                            >
-                              수정
-                            </button>
-                            <button
-                              onClick={() => handleDelete(sub.id, false)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              삭제
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-gray-500">등록된 소분류가 없습니다.</p>
-            </div>
-          )}
-        </div>
+              return (
+                <div key={main.id} className="border-b border-gray-200 last:border-b-0">
+                  {/* 대분류 헤더 */}
+                  <div
+                    className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => !isEditing && toggleMainCategory(main.id)}
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <svg
+                        className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 flex-1"
+                          autoFocus
+                        />
+                      ) : (
+                        <div className="flex items-center gap-3 flex-1">
+                          <span className="text-sm font-medium text-gray-900">{main.name}</span>
+                          <span className="text-xs text-gray-500">({subCategoriesList.length}개 소분류)</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => handleSaveEdit(main.id, true)}
+                            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                          >
+                            저장
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                          >
+                            취소
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(main.id, main.name);
+                            }}
+                            className="px-3 py-1 text-xs text-blue-600 hover:text-blue-900"
+                          >
+                            수정
+                          </button>
+                          <button
+                            onClick={(e) => handleDelete(main.id, true, e)}
+                            disabled={subCategoriesList.length > 0}
+                            className="px-3 py-1 text-xs text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={subCategoriesList.length > 0 ? '소분류가 있어 삭제할 수 없습니다' : ''}
+                          >
+                            삭제
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 소분류 목록 (아코디언) */}
+                  {isExpanded && (
+                    <div className="bg-gray-50 border-t border-gray-200">
+                      {filteredSubs.length > 0 ? (
+                        <div className="divide-y divide-gray-200">
+                          {filteredSubs.map((sub) => {
+                            const isSubEditing = editingId === sub.id;
+                            return (
+                              <div key={sub.id} className="px-6 py-3 pl-14 hover:bg-gray-100">
+                                <div className="flex items-center justify-between">
+                                  {isSubEditing ? (
+                                    <input
+                                      type="text"
+                                      value={editName}
+                                      onChange={(e) => setEditName(e.target.value)}
+                                      className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 flex-1"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <span className="text-sm text-gray-700">{sub.name}</span>
+                                  )}
+                                  <div className="flex items-center gap-2 ml-4">
+                                    {isSubEditing ? (
+                                      <>
+                                        <button
+                                          onClick={() => handleSaveEdit(sub.id, false)}
+                                          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                        >
+                                          저장
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingId(null)}
+                                          className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                        >
+                                          취소
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => handleEdit(sub.id, sub.name)}
+                                          className="px-3 py-1 text-xs text-blue-600 hover:text-blue-900"
+                                        >
+                                          수정
+                                        </button>
+                                        <button
+                                          onClick={() => handleDelete(sub.id, false)}
+                                          className="px-3 py-1 text-xs text-red-600 hover:text-red-900"
+                                        >
+                                          삭제
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="px-6 py-4 pl-14 text-sm text-gray-500">
+                          {searchKeyword ? '검색 결과가 없습니다.' : '등록된 소분류가 없습니다.'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <p className="text-gray-500">등록된 대분류가 없습니다.</p>
+          </div>
+        )}
       </div>
     </div>
   );

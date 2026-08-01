@@ -1,0 +1,4 @@
+# 서버 터미널에서 실행하세요
+# PM2로 서버를 시작합니다
+
+cd /var/www/api && pm2 start ecosystem.config.js && pm2 save && pm2 startup && echo "✅ 서버가 시작되었습니다!" && pm2 status && echo "" && echo "서버 테스트:" && curl -s http://localhost:3002/ | head -10

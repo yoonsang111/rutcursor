@@ -1,12 +1,72 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { storage } from "../utils/storage";
+import { extractProductIdFromSlug } from "../utils/slug";
+import { api } from "../utils/api";
 import Footer from "../components/Footer";
 
 export default function ProductDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const product = mockProducts.find(p => p.id === id);
+  const [product, setProduct] = useState<any>(null);
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        console.log('[ProductDetailPage] 상품 로드 시작...');
+        const apiProducts = await api.getProducts();
+        console.log('[ProductDetailPage] API에서 받은 상품 수:', apiProducts.length);
+        // API에서 받은 상품만 사용 (mock 데이터 제거)
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        console.log('[ProductDetailPage] 상품 설정:', cleanedProducts.length, '개');
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('[ProductDetailPage] 상품 로드 실패:', error);
+        // API 실패 시 빈 배열
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+  }, []);
+
+  // 상품 찾기 (slug에서 ID 추출)
+  useEffect(() => {
+    if (slug && allProducts.length > 0) {
+      // slug는 URL 인코딩되어 있을 수 있으므로 디코딩
+      let decodedSlug = slug;
+      try {
+        decodedSlug = decodeURIComponent(slug);
+      } catch (e) {
+        // 디코딩 실패 시 원본 사용
+        decodedSlug = slug;
+      }
+      
+      // slug에서 ID 추출 (6자리 번호 또는 기존 형식)
+      let productId = extractProductIdFromSlug(decodedSlug);
+      
+      if (productId) {
+        // 6자리 번호로 상품 찾기
+        let foundProduct = allProducts.find(p => p.id === productId);
+        
+        // 기존 product_X 형식도 지원 (하위 호환성)
+        if (!foundProduct && decodedSlug.startsWith('product_')) {
+          foundProduct = allProducts.find(p => p.id === decodedSlug);
+        }
+        
+        setProduct(foundProduct);
+      } else {
+        // slug 전체를 ID로 시도 (하위 호환성)
+        const foundProduct = allProducts.find(p => p.id === decodedSlug || p.id === slug);
+        setProduct(foundProduct);
+      }
+    }
+  }, [slug, allProducts]);
 
   useEffect(() => {
     if (!product) {
@@ -57,7 +117,7 @@ export default function ProductDetailPage() {
     if (ogDescription) ogDescription.setAttribute('content', seoData.description);
     
     const ogUrl = document.querySelector('meta[property="og:url"]');
-    if (ogUrl) ogUrl.setAttribute('content', `https://tourstream.kr/product/${product.id}`);
+    if (ogUrl && slug) ogUrl.setAttribute('content', `https://tourstream.kr/product/${slug}`);
 
     // 컴포넌트 언마운트 시 원래 제목으로 복원
     return () => {
@@ -130,23 +190,36 @@ export default function ProductDetailPage() {
           </button>
         </div>
 
-        {/* 상품 이미지 */}
-        <div className="mb-6">
-          <img
-            src={product.images?.[0] || 'https://via.placeholder.com/800x400/4F46E5/FFFFFF?text=Tour+Image'}
-            alt={product.name}
-            className="w-full h-64 md:h-80 object-cover rounded-xl shadow-lg"
-            onError={(e) => {
-              e.currentTarget.src = 'https://via.placeholder.com/800x400/4F46E5/FFFFFF?text=Tour+Image';
-            }}
-          />
-        </div>
+        {/* 상품 이미지 (있는 경우만 표시) */}
+        {(() => {
+          const imageUrl = product.images && product.images.length > 0 ? product.images[0] : '';
+          // placeholder URL이나 빈 문자열은 제외
+          const isValidImage = imageUrl && 
+            imageUrl.trim() !== '' && 
+            !imageUrl.includes('via.placeholder.com') &&
+            !imageUrl.includes('placeholder.com');
+          
+          return isValidImage ? (
+            <div className="mb-6">
+              <div className="w-full h-64 md:h-80 bg-gradient-to-br from-blue-400 to-purple-500 rounded-xl shadow-lg overflow-hidden">
+                <img
+                  src={imageUrl}
+                  alt={product.name}
+                  className="w-full h-full object-cover rounded-xl"
+                  onError={(e) => {
+                    e.currentTarget.parentElement?.parentElement?.remove();
+                  }}
+                />
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {/* 상품 정보 */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-sm border border-gray-200/50 mb-6">
           {/* 카테고리 */}
           <div className="flex gap-2 mb-3">
-            {product.categories.map((category, idx) => (
+            {product.categories.map((category: string, idx: number) => (
               <Link
                 key={idx}
                 to={`/category/${encodeURIComponent(category)}`}
@@ -178,7 +251,7 @@ export default function ProductDetailPage() {
             <div>
               <p className="text-xs text-gray-500">위치</p>
               <div className="flex flex-wrap gap-1">
-                {product.locations.map((location, idx) => (
+                {product.locations.map((location: string, idx: number) => (
                   <Link
                     key={idx}
                     to={`/location/${encodeURIComponent(location)}`}
@@ -207,7 +280,7 @@ export default function ProductDetailPage() {
 
           {/* 태그 */}
           <div className="flex flex-wrap gap-1.5 mb-6">
-            {product.tags.map((tag, idx) => (
+            {product.tags.map((tag: string, idx: number) => (
               <span key={idx} className="text-sm text-sky-600 bg-sky-50 px-2.5 py-1 rounded-lg">
                 #{tag}
               </span>

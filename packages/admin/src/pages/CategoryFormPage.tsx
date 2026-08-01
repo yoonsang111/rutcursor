@@ -15,7 +15,6 @@ export default function CategoryFormPage() {
     addSubCategory,
     updateMainCategory,
     updateSubCategory,
-    getMainCategory,
   } = useCategories();
 
   const isEdit = !!id;

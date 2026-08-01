@@ -3,6 +3,7 @@ import { storage } from '../utils/storage';
 
 interface AuthContextType {
   isAuthenticated: boolean;
+  isAuthLoading: boolean;
   login: (password: string) => boolean;
   logout: () => void;
 }
@@ -14,6 +15,7 @@ const ADMIN_PASSWORD = 'admin123';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
     // 저장된 인증 정보 확인
@@ -21,6 +23,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (auth && auth.isAuthenticated) {
       setIsAuthenticated(true);
     }
+    setIsAuthLoading(false);
   }, []);
 
   const login = (password: string): boolean => {
@@ -38,7 +41,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isAuthLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

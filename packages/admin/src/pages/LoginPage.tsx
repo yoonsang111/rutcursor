@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -7,13 +7,15 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from || '/';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (login(password)) {
-      navigate('/');
+      navigate(from, { replace: true });
     } else {
       setError('비밀번호가 올바르지 않습니다.');
     }
@@ -60,9 +62,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-gray-500 text-center">
-          기본 비밀번호: admin123
-        </p>
       </div>
     </div>
   );

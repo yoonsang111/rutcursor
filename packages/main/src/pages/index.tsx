@@ -8,16 +8,10 @@ import PartnerWidget from "../components/PartnerWidget";
 import Footer from "../components/Footer";
 import AdWidget from "../components/ad-widgets/AdWidget";
 
-// Google Analytics 이벤트 추적 함수
-declare global {
-  interface Window {
-    gtag: (...args: any[]) => void;
-  }
-}
-
 const trackEvent = (eventName: string, parameters?: any) => {
-  if (typeof window !== 'undefined' && window.gtag) {
-    window.gtag('event', eventName, parameters);
+  const gtag = (window as any).gtag;
+  if (typeof gtag === 'function') {
+    gtag('event', eventName, parameters);
   }
 };
 
@@ -118,7 +112,7 @@ export default function Home() {
           <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-900 via-blue-800 to-blue-700 bg-clip-text text-transparent mb-3" style={{ fontFamily: 'Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
             TourStream
           </h1>
-          <p className="text-base text-gray-600 font-medium">전국 최고의 액티비티를 한눈에 비교하고 예약하세요</p>
+          <p className="text-base text-gray-600 font-medium">전세계 투어와 액티비티를 한눈에 가격 비교하고 예약하세요</p>
         </div>
 
         {/* 검색바 */}

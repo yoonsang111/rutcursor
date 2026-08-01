@@ -1,22 +1,42 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { api } from "../utils/api";
 
 export default function CategoriesPage() {
   const navigate = useNavigate();
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('상품 로드 실패:', error);
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+  }, []);
 
   // 모든 카테고리 추출
   const categories = useMemo(() => {
     const allCategories = Array.from(new Set(
-      mockProducts.flatMap(product => product.categories || [])
+      allProducts.flatMap(product => product.categories || [])
     )).filter(Boolean);
 
     // 각 카테고리별 상품 개수 계산
     return allCategories.map(category => ({
       name: category,
-      count: mockProducts.filter(p => p.categories.includes(category)).length
+      count: allProducts.filter(p => p.categories.includes(category)).length
     })).sort((a, b) => b.count - a.count);
-  }, []);
+  }, [allProducts]);
 
   return (
     <div className="min-h-screen bg-white">

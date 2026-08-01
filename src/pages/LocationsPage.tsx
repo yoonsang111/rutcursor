@@ -1,22 +1,42 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { products as mockProducts } from "../mock/products";
+import { api } from "../utils/api";
 
 export default function LocationsPage() {
   const navigate = useNavigate();
+  const [allProducts, setAllProducts] = useState<any[]>([]);
+
+  // API에서 상품 불러오기
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const apiProducts = await api.getProducts();
+        const cleanedProducts = apiProducts.map((product: any) => ({
+          ...product,
+          images: []
+        }));
+        setAllProducts(cleanedProducts);
+      } catch (error) {
+        console.error('상품 로드 실패:', error);
+        setAllProducts([]);
+      }
+    };
+    
+    loadProducts();
+  }, []);
 
   // 모든 지역 추출
   const locations = useMemo(() => {
     const allLocations = Array.from(new Set(
-      mockProducts.flatMap(product => product.locations || [])
+      allProducts.flatMap(product => product.locations || [])
     )).filter(Boolean);
 
     // 각 지역별 상품 개수 계산
     return allLocations.map(location => ({
       name: location,
-      count: mockProducts.filter(p => p.locations.includes(location)).length
+      count: allProducts.filter(p => p.locations.includes(location)).length
     })).sort((a, b) => b.count - a.count);
-  }, []);
+  }, [allProducts]);
 
   return (
     <div className="min-h-screen bg-white">

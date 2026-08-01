@@ -1,4 +1,5 @@
 import React, { useState, memo } from "react";
+import { Link } from "react-router-dom";
 
 interface ProductCardProps {
   product: any;
@@ -20,45 +21,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
     setIsExpanded(!isExpanded);
   };
 
-  // 구조화된 데이터 생성
-  const structuredData = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    "name": product.name,
-    "description": product.description,
-    "category": product.categories.join(", "),
-    "brand": {
-      "@type": "Brand",
-      "name": "TourStream"
-    },
-    "offers": {
-      "@type": "Offer",
-      "availability": product.isAvailable ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-      "seller": {
-        "@type": "Organization",
-        "name": "TourStream"
-      }
-    },
-    "locationCreated": {
-      "@type": "Place",
-      "name": product.locations.join(", "),
-      "address": {
-        "@type": "PostalAddress",
-        "addressCountry": "KR"
-      }
-    },
-    "keywords": product.tags.join(", ")
-  };
-
   return (
     <>
-      {/* 구조화된 데이터 */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(structuredData)
-        }}
-      />
       
       <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-blue-200 group cursor-pointer" onClick={handleCardClick}>
         {/* 상품 정보 */}
@@ -74,13 +38,27 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
 
           {/* 상품명 */}
           <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 group-hover:text-red-600 transition-colors">
-            {product.name}
+            <Link
+              to={`/product/${product.id}`}
+              className="hover:underline"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`${product.name} 상세 페이지로 이동`}
+            >
+              {product.name}
+            </Link>
           </h3>
 
           {/* 설명 */}
           <p className="text-sm text-gray-600 mb-3 line-clamp-2 leading-relaxed">
             {product.description}
           </p>
+          <Link
+            to={`/product/${product.id}`}
+            className="text-xs text-blue-600 hover:text-blue-700 hover:underline inline-block mb-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            상품 상세 보기
+          </Link>
 
           {/* 위치 정보 */}
           <div className="flex items-center gap-1.5 mb-3">
@@ -91,19 +69,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onProductClick }) =>
             <span className="text-xs text-gray-500">{product.locations.join(", ")}</span>
           </div>
 
-          {/* 태그 */}
-          <div className="flex flex-wrap gap-1 mb-3">
-            {product.tags.slice(0, 2).map((tag: string, idx: number) => (
-              <span key={idx} className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                #{tag}
-              </span>
-            ))}
-            {product.tags.length > 2 && (
-              <span className="text-xs text-gray-400 px-2 py-0.5">
-                +{product.tags.length - 2}개
-              </span>
-            )}
-          </div>
         </div>
 
         {/* 예약 링크 섹션 */}

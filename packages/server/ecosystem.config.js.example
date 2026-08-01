@@ -1,0 +1,41 @@
+// PM2 Ecosystem 설정 파일
+// 이 파일을 ecosystem.config.js로 복사하고 실제 값으로 수정하세요
+
+module.exports = {
+  apps: [{
+    name: 'tourstream-api',
+    script: './src/index.js',
+    cwd: '/var/www/api',
+    env: {
+      NODE_ENV: 'production',
+      PORT: 3002,
+      CORS_ORIGIN: 'https://tourstream.kr,https://admin.tourstream.kr',
+      DATA_DIR: '/var/www/api/data/production'
+    },
+    // 로컬 개발 환경
+    env_development: {
+      NODE_ENV: 'development',
+      PORT: 3002,
+      CORS_ORIGIN: 'http://localhost:3000,http://localhost:3001',
+      DATA_DIR: './data/local'
+    },
+    // 베타 환경
+    env_beta: {
+      NODE_ENV: 'beta',
+      PORT: 3002,
+      CORS_ORIGIN: 'https://beta.tourstream.kr,https://admin-beta.tourstream.kr',
+      DATA_DIR: '/var/www/api/data/beta'
+    },
+    instances: 1,
+    exec_mode: 'fork',
+    watch: false,
+    max_memory_restart: '500M',
+    error_file: './logs/err.log',
+    out_file: './logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
+    autorestart: true,
+    max_restarts: 10,
+    min_uptime: '10s'
+  }]
+};
