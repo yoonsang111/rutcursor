@@ -54,7 +54,7 @@ jobs:
       - run: npm ci
 
       - name: Build admin (production)
-        run: npm run admin:build:production
+        run: npm run build:production --workspace=packages/admin
 
       - uses: webfactory/ssh-agent@v0.9.0
         with:
