@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  EC2_HOST: 43.201.66.181
+  EC2_USER: ubuntu
+  S3_BUCKET: tourstream-website-1758807132
+  CLOUDFRONT_DISTRIBUTION_ID: E1MZSJK9IGD3MP
+
+jobs:
+  deploy-main:
+    name: Deploy main site (S3 + CloudFront)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Build main (production)
+        run: npm run main:build:production
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Sync to S3
+        run: aws s3 sync packages/main/build/ s3://${{ env.S3_BUCKET }}/ --delete
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id ${{ env.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+
+  deploy-admin:
+    name: Deploy admin site (EC2 static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Build admin (production)
+        run: npm run admin:build:production
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Trust EC2 host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Upload build to server
+        run: rsync -avz --delete packages/admin/build/ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/var/www/admin/
+
+  deploy-api:
+    name: Deploy API (EC2 + PM2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: Trust EC2 host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Upload server code (data/logs/config on server are preserved)
+        run: |
+          rsync -avz --delete \
+            --exclude 'data' \
+            --exclude 'logs' \
+            --exclude 'backups' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            --exclude 'ecosystem.config.cjs' \
+            --exclude 'ecosystem.config.js' \
+            packages/server/ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/var/www/api/
+
+      - name: Install deps and reload PM2
+        run: |
+          ssh ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload tourstream-api"
