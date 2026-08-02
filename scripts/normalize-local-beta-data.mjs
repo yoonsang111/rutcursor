@@ -27,6 +27,16 @@ const backupFile = path.join(dataDir, `products.backup.${Date.now()}.json`);
 
 const normalize = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const arr = (value) => (Array.isArray(value) ? value.map((x) => String(x || '').trim()).filter(Boolean) : []);
+
+// 레거시 externalUrl1~5 필드가 남아있는 데이터를 만나도 partnerLinks로 변환
+const LEGACY_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴'];
+const toPartnerLinks = (product) => {
+  if (Array.isArray(product.partnerLinks)) return product.partnerLinks;
+  const legacyUrls = [product.externalUrl1, product.externalUrl2, product.externalUrl3, product.externalUrl4, product.externalUrl5];
+  return legacyUrls
+    .map((url, idx) => ({ partner: LEGACY_PARTNER_NAMES[idx], url: String(url || '').trim(), source: 'manual' }))
+    .filter((link) => link.url);
+};
 const COUNTRY_NAME_SET = new Set([
   '한국',
   '일본',
@@ -60,15 +70,17 @@ const bySignature = new Map();
 for (const product of rawProducts) {
   const categories = arr(product.categories).sort();
   const locations = arr(product.locations).sort();
+  const partnerLinks = toPartnerLinks(product);
   const signature = [
     normalize(product.name),
     JSON.stringify(categories),
     JSON.stringify(locations),
-    normalize(product.externalUrl1),
+    normalize(partnerLinks[0]?.url),
   ].join('::');
 
+  const { externalUrl1, externalUrl2, externalUrl3, externalUrl4, externalUrl5, ...rest } = product;
   const normalizedProduct = {
-    ...product,
+    ...rest,
     name: String(product.name || '').trim(),
     description: String(product.description || '').trim(),
     categories: categories.length > 0 ? categories : ['미분류'],
@@ -77,11 +89,8 @@ for (const product of rawProducts) {
     images: arr(product.images),
     isRecommended: Boolean(product.isRecommended),
     isAvailable: product.isAvailable !== false,
+    partnerLinks,
   };
-  const primary = [product.externalUrl1, product.externalUrl2, product.externalUrl3, product.externalUrl4, product.externalUrl5]
-    .map((x) => String(x || '').trim())
-    .find(Boolean);
-  if (primary) normalizedProduct.externalUrl1 = primary;
 
   const existing = bySignature.get(signature);
   if (!existing) {
@@ -91,8 +100,8 @@ for (const product of rawProducts) {
 
   const existingViews = Number(existing.views || 0);
   const currentViews = Number(normalizedProduct.views || 0);
-  const existingScore = existingViews + (existing.externalUrl1 ? 10 : 0) + (existing.categories.length > 0 ? 5 : 0) + (existing.locations.length > 0 ? 5 : 0);
-  const currentScore = currentViews + (normalizedProduct.externalUrl1 ? 10 : 0) + (normalizedProduct.categories.length > 0 ? 5 : 0) + (normalizedProduct.locations.length > 0 ? 5 : 0);
+  const existingScore = existingViews + (existing.partnerLinks.length > 0 ? 10 : 0) + (existing.categories.length > 0 ? 5 : 0) + (existing.locations.length > 0 ? 5 : 0);
+  const currentScore = currentViews + (normalizedProduct.partnerLinks.length > 0 ? 10 : 0) + (normalizedProduct.categories.length > 0 ? 5 : 0) + (normalizedProduct.locations.length > 0 ? 5 : 0);
   if (currentScore > existingScore) {
     bySignature.set(signature, normalizedProduct);
   }

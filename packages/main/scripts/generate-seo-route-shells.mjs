@@ -105,7 +105,7 @@ function buildProductJsonLd(product) {
     priceCurrency: "KRW",
     priceValidUntil,
     availability: product.isAvailable !== false ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-    url: product.externalUrl1 || `${SITE_URL}/product/${product.id}`,
+    url: product.partnerLinks?.[0]?.url || `${SITE_URL}/product/${product.id}`,
     seller: { "@type": "Organization", name: "TourStream", url: SITE_URL },
     hasMerchantReturnPolicy: {
       "@type": "MerchantReturnPolicy",

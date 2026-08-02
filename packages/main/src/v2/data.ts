@@ -30,7 +30,7 @@ export interface Product {
   reviews: number;
   image: string;
   url: string;
-  partnerLinks: Array<{ name: string; url: string }>;
+  partnerLinks: Array<{ name: string; url: string; price?: number; priceDisplay?: string }>;
   isPopular: boolean;
   isRecommended: boolean;
 }

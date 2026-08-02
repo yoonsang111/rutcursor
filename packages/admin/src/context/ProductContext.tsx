@@ -10,7 +10,7 @@ const productSignature = (product: Partial<Product>) => {
   const name = normalizeValue(product.name || '');
   const categories = [...(product.categories || [])].map(normalizeValue).sort().join('|');
   const locations = [...(product.locations || [])].map(normalizeValue).sort().join('|');
-  const url = normalizeValue(product.externalUrl1 || '');
+  const url = normalizeValue(product.partnerLinks?.[0]?.url || '');
   return [name, categories, locations, url].join('::');
 };
 

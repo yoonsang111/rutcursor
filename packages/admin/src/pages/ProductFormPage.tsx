@@ -3,16 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
-import { Product } from '@tourstream/shared';
+import { Product, PartnerLink } from '@tourstream/shared';
 import { api } from '../utils/api';
 
-const PARTNER_LINK_FIELDS = [
-  { key: 'externalUrl1', label: '마이리얼트립' },
-  { key: 'externalUrl2', label: 'KLOOK' },
-  { key: 'externalUrl3', label: 'KKday' },
-  { key: 'externalUrl4', label: 'GetYourGuide' },
-  { key: 'externalUrl5', label: '트립닷컴' },
-] as const;
+const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴'];
+
+const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
 
 const parseOptionalNumber = (value: string) => {
   const trimmed = value.trim();
@@ -37,11 +33,9 @@ function buildFormStateFromProduct(product: Product) {
     tags,
     isRecommended: Boolean(product.isRecommended),
     isAvailable: product.isAvailable !== false,
-    externalUrl1: product.externalUrl1 || '',
-    externalUrl2: product.externalUrl2 || '',
-    externalUrl3: product.externalUrl3 || '',
-    externalUrl4: product.externalUrl4 || '',
-    externalUrl5: product.externalUrl5 || '',
+    partnerLinks: Array.isArray(product.partnerLinks) && product.partnerLinks.length > 0
+      ? product.partnerLinks
+      : [emptyPartnerLink()],
   };
 }
 
@@ -66,11 +60,7 @@ export default function ProductFormPage() {
     tags: [] as string[],
     isRecommended: false,
     isAvailable: true,
-    externalUrl1: '',
-    externalUrl2: '',
-    externalUrl3: '',
-    externalUrl4: '',
-    externalUrl5: '',
+    partnerLinks: [emptyPartnerLink()] as PartnerLink[],
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -117,8 +107,10 @@ export default function ProductFormPage() {
       return;
     }
 
-    const hasAnyPartnerLink = PARTNER_LINK_FIELDS.some((field) => formData[field.key].trim() !== '');
-    if (!hasAnyPartnerLink) {
+    const partnerLinks = formData.partnerLinks
+      .map((link) => ({ ...link, partner: link.partner.trim(), url: link.url.trim() }))
+      .filter((link) => link.url !== '');
+    if (partnerLinks.length === 0) {
       alert('예약 URL을 최소 1개 이상 입력해주세요.');
       return;
     }
@@ -134,11 +126,7 @@ export default function ProductFormPage() {
       tags: formData.tags,
       isRecommended: formData.isRecommended,
       isAvailable: formData.isAvailable,
-      externalUrl1: formData.externalUrl1 || undefined,
-      externalUrl2: formData.externalUrl2 || undefined,
-      externalUrl3: formData.externalUrl3 || undefined,
-      externalUrl4: formData.externalUrl4 || undefined,
-      externalUrl5: formData.externalUrl5 || undefined,
+      partnerLinks,
     };
 
     try {
@@ -166,6 +154,26 @@ export default function ProductFormPage() {
 
   const removeTag = (tag: string) => {
     setFormData({ ...formData, tags: formData.tags.filter(t => t !== tag) });
+  };
+
+  const addPartnerLink = () => {
+    setFormData({ ...formData, partnerLinks: [...formData.partnerLinks, emptyPartnerLink()] });
+  };
+
+  const removePartnerLink = (index: number) => {
+    setFormData({ ...formData, partnerLinks: formData.partnerLinks.filter((_, i) => i !== index) });
+  };
+
+  const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price', value: string) => {
+    const partnerLinks = formData.partnerLinks.map((link, i) => {
+      if (i !== index) return link;
+      if (field === 'price') {
+        const parsed = parseOptionalNumber(value);
+        return { ...link, price: parsed };
+      }
+      return { ...link, [field]: value };
+    });
+    setFormData({ ...formData, partnerLinks });
   };
 
   const toggleCategory = (category: string) => {
@@ -633,21 +641,60 @@ export default function ProductFormPage() {
           </div>
         </div>
 
-        {/* 예약 URL */}
+        {/* 예약 URL (파트너 링크) */}
         <div className="space-y-3">
           <label className="block text-xs font-medium text-gray-700">예약 URL</label>
-          {PARTNER_LINK_FIELDS.map((field) => (
-            <div key={field.key}>
-              <label className="block text-xs text-gray-600 mb-1">{field.label}</label>
-              <input
-                type="url"
-                value={formData[field.key]}
-                onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder={`${field.label} 예약 URL`}
-              />
-            </div>
-          ))}
+          <datalist id="known-partner-names">
+            {KNOWN_PARTNER_NAMES.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <div className="space-y-3">
+            {formData.partnerLinks.map((link, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    list="known-partner-names"
+                    value={link.partner}
+                    onChange={(e) => updatePartnerLink(index, 'partner', e.target.value)}
+                    className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                    placeholder="파트너명"
+                  />
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={(e) => updatePartnerLink(index, 'url', e.target.value)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="예약 URL"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePartnerLink(index)}
+                    className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-xs shrink-0"
+                  >
+                    삭제
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={link.price !== undefined ? String(link.price) : ''}
+                  onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
+                  className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                  placeholder="가격(원, 선택) - 알고 있으면 입력"
+                />
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={addPartnerLink}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-xs"
+          >
+            파트너 추가
+          </button>
         </div>
 
         {/* 옵션 */}

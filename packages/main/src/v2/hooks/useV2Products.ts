@@ -2,17 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../utils/api";
 import { Category, Country, Product } from "../data";
 
+type RawPartnerLink = {
+  partner?: string;
+  url?: string;
+  source?: string;
+  price?: number | string;
+  priceDisplay?: string;
+};
+
 type RawProduct = {
   id?: string;
   name?: string;
   description?: string;
   categories?: string[];
   locations?: string[];
-  externalUrl1?: string;
-  externalUrl2?: string;
-  externalUrl3?: string;
-  externalUrl4?: string;
-  externalUrl5?: string;
+  partnerLinks?: RawPartnerLink[];
   images?: string[];
   price?: number | string;
   minPrice?: number | string;
@@ -106,7 +110,6 @@ const COUNTRY_NAME_CANDIDATES = new Set([
   "마카오",
 ]);
 
-const PARTNER_NAMES = ["마이리얼트립", "KLOOK", "KKDAY", "GetYourGuide", "트립닷컴"];
 const DEFAULT_IMAGE =
   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 const DEFAULT_COUNTRY_IMAGE =
@@ -327,12 +330,35 @@ function inferImage(raw: RawProduct): string {
 }
 
 function inferPartners(raw: RawProduct, fallbackUrl: string) {
-  const urls = [raw.externalUrl1, raw.externalUrl2, raw.externalUrl3, raw.externalUrl4, raw.externalUrl5];
-  const partners = urls
-    .map((url, idx) => ({ name: PARTNER_NAMES[idx] || `파트너 ${idx + 1}`, url: typeof url === "string" ? url.trim() : "" }))
+  const links = Array.isArray(raw.partnerLinks) ? raw.partnerLinks : [];
+  const partners = links
+    .map((link) => {
+      const url = typeof link.url === "string" ? link.url.trim() : "";
+      const price = toNumber(link.price);
+      return {
+        name: (link.partner || "").trim() || "파트너",
+        url,
+        price: price !== null && price > 0 ? price : undefined,
+        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim() : undefined,
+      };
+    })
     .filter((p) => p.url !== "");
-  if (partners.length > 0) return partners;
-  return [{ name: "공식 링크", url: fallbackUrl }];
+
+  if (partners.length === 0) return [{ name: "공식 링크", url: fallbackUrl }];
+
+  // 가격 정보가 있는 파트너끼리는 실제 최저가 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
+  const priced = partners.filter((p) => p.price !== undefined).sort((a, b) => a.price! - b.price!);
+  const unpriced = partners.filter((p) => p.price === undefined);
+  return [...priced, ...unpriced];
+}
+
+function inferPartnerMinPrice(links: RawPartnerLink[] | undefined): number | null {
+  if (!Array.isArray(links)) return null;
+  const prices = links
+    .map((link) => toNumber(link.price))
+    .filter((price): price is number => price !== null && price > 0);
+  if (prices.length === 0) return null;
+  return Math.min(...prices);
 }
 
 function dedupeProducts(items: Product[]) {
@@ -415,7 +441,7 @@ function toV2Product(
   const id = String(raw.id || `p-${Math.random().toString(36).slice(2, 9)}`);
   const locations = (Array.isArray(raw.locations) ? raw.locations : []).map((loc) => String(loc || "").trim()).filter(Boolean);
   const categories = (Array.isArray(raw.categories) ? raw.categories : []).map((cat) => String(cat || "").trim()).filter(Boolean);
-  const fallbackUrl = raw.externalUrl1 || "https://tourstream.kr";
+  const fallbackUrl = raw.partnerLinks?.[0]?.url || "https://tourstream.kr";
   const countryId = inferCountryId(locations, countryNameToId, regionNameToCountryId, fallbackCountryId);
   const categoryId = inferCategoryId(categories, mainNameToId, subNameToMainId, fallbackCategoryId);
   const views = Math.max(0, Number(raw.views || 0));
@@ -430,7 +456,7 @@ function toV2Product(
     countryId,
     region: inferRegion(locations, countryId, regionsByCountryId),
     categoryId,
-    price: inferPrice(raw),
+    price: inferPartnerMinPrice(raw.partnerLinks) ?? inferPrice(raw),
     views,
     recentViews7d,
     recentViews30d,

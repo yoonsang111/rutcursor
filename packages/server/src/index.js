@@ -90,12 +90,38 @@ if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR) {
   });
 }
 
+// 레거시 externalUrl1~5 고정 필드 -> partnerLinks 배열 자동 변환 (예전 위치별 파트너 매핑 유지)
+const LEGACY_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴'];
+
+const migrateLegacyPartnerLinks = (product) => {
+  if (Array.isArray(product.partnerLinks)) return product;
+  const { externalUrl1, externalUrl2, externalUrl3, externalUrl4, externalUrl5, ...rest } = product;
+  const legacyUrls = [externalUrl1, externalUrl2, externalUrl3, externalUrl4, externalUrl5];
+  const partnerLinks = legacyUrls
+    .map((url, idx) => ({
+      partner: LEGACY_PARTNER_NAMES[idx],
+      url: typeof url === 'string' ? url.trim() : '',
+      source: 'manual',
+    }))
+    .filter((link) => link.url);
+  return { ...rest, partnerLinks };
+};
+
 // 파일에서 데이터 읽기
 const readProducts = () => {
   try {
     if (fs.existsSync(PRODUCTS_FILE)) {
       const data = fs.readFileSync(PRODUCTS_FILE, 'utf8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      const hasLegacyData = Array.isArray(parsed) && parsed.some((p) => !Array.isArray(p.partnerLinks));
+      if (hasLegacyData) {
+        console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
+        const migrated = parsed.map(migrateLegacyPartnerLinks);
+        writeProducts(migrated);
+        console.log(`[API] partnerLinks 마이그레이션 완료: ${migrated.length}개 상품`);
+        return migrated;
+      }
+      return parsed;
     }
   } catch (error) {
     console.error('상품 데이터 읽기 오류:', error);
@@ -273,16 +299,30 @@ const COUNTRY_NAME_SET = new Set([
   '독일',
 ]);
 
+const normalizePartnerLinks = (rawLinks) => {
+  if (!Array.isArray(rawLinks)) return [];
+  return rawLinks
+    .map((link) => {
+      const url = typeof link?.url === 'string' ? link.url.trim() : '';
+      if (!url) return null;
+      const normalizedLink = {
+        partner: typeof link?.partner === 'string' ? link.partner.trim() : '',
+        url,
+        source: link?.source === 'api' ? 'api' : 'manual',
+      };
+      const price = toNumberOrUndefined(link?.price, { min: 0 });
+      if (price !== undefined) normalizedLink.price = price;
+      if (typeof link?.priceDisplay === 'string' && link.priceDisplay.trim()) normalizedLink.priceDisplay = link.priceDisplay.trim();
+      if (typeof link?.externalId === 'string' && link.externalId.trim()) normalizedLink.externalId = link.externalId.trim();
+      if (typeof link?.updatedAt === 'string' && link.updatedAt.trim()) normalizedLink.updatedAt = link.updatedAt.trim();
+      return normalizedLink;
+    })
+    .filter(Boolean);
+};
+
 const normalizeProductPayload = (payload = {}) => {
   const categories = toTrimmedStringArray(payload.categories);
   const locations = toTrimmedStringArray(payload.locations);
-  const externalUrl2 = typeof payload.externalUrl2 === 'string' ? payload.externalUrl2.trim() : '';
-  const externalUrl3 = typeof payload.externalUrl3 === 'string' ? payload.externalUrl3.trim() : '';
-  const externalUrl4 = typeof payload.externalUrl4 === 'string' ? payload.externalUrl4.trim() : '';
-  const externalUrl5 = typeof payload.externalUrl5 === 'string' ? payload.externalUrl5.trim() : '';
-  const primaryLinkFallback = [payload.externalUrl1, externalUrl2, externalUrl3, externalUrl4, externalUrl5]
-    .map((item) => String(item || '').trim())
-    .find(Boolean);
 
   const normalized = {
     ...payload,
@@ -308,13 +348,7 @@ const normalizeProductPayload = (payload = {}) => {
   if (rating !== undefined) normalized.rating = rating;
   if (reviewCount !== undefined) normalized.reviewCount = reviewCount;
 
-  ['externalUrl1', 'externalUrl2', 'externalUrl3', 'externalUrl4', 'externalUrl5'].forEach((field) => {
-    const raw = payload[field];
-    const value = typeof raw === 'string' ? raw.trim() : '';
-    if (value) normalized[field] = value;
-    else delete normalized[field];
-  });
-  if (primaryLinkFallback) normalized.externalUrl1 = primaryLinkFallback;
+  normalized.partnerLinks = normalizePartnerLinks(payload.partnerLinks);
 
   return normalized;
 };

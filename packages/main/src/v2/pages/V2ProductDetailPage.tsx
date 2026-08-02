@@ -234,8 +234,15 @@ export default function V2ProductDetailPage() {
                   <div className="flex flex-col">
                     <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       {partner.name}
-                      {idx === 0 && <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">최저가</span>}
+                      {idx === 0 && partner.price !== undefined && (
+                        <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">최저가</span>
+                      )}
                     </span>
+                    {(partner.priceDisplay || partner.price !== undefined) && (
+                      <span className="text-xs text-slate-500 mt-0.5">
+                        {partner.priceDisplay || `${partner.price!.toLocaleString()}원~`}
+                      </span>
+                    )}
                   </div>
                   <a
                     href={partner.url}

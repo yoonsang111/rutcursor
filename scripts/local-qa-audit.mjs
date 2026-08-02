@@ -16,7 +16,7 @@ const run = async () => {
       normalize(p.name),
       JSON.stringify(arr(p.categories).slice().sort()),
       JSON.stringify(arr(p.locations).slice().sort()),
-      normalize(p.externalUrl1),
+      normalize(p.partnerLinks?.[0]?.url),
     ].join('|');
     dupSig.set(signature, (dupSig.get(signature) || 0) + 1);
   }
@@ -24,7 +24,7 @@ const run = async () => {
   const duplicateGroups = [...dupSig.values()].filter((n) => n > 1).length;
   const missingCategories = products.filter((p) => arr(p.categories).length === 0).length;
   const missingLocations = products.filter((p) => arr(p.locations).length === 0).length;
-  const missingPrimaryLink = products.filter((p) => !String(p.externalUrl1 || '').trim()).length;
+  const missingPrimaryLink = products.filter((p) => arr(p.partnerLinks).length === 0).length;
   const missingPrice = products.filter((p) => p.price === undefined && p.minPrice === undefined && p.salePrice === undefined).length;
 
   const report = {

@@ -1,4 +1,14 @@
 // 상품 타입 정의
+export interface PartnerLink {
+  partner: string;
+  url: string;
+  source: 'api' | 'manual';
+  externalId?: string;
+  price?: number;
+  priceDisplay?: string;
+  updatedAt?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -15,11 +25,7 @@ export interface Product {
   isRecommended: boolean;
   isAvailable: boolean;
   views: number;
-  externalUrl1?: string;
-  externalUrl2?: string;
-  externalUrl3?: string;
-  externalUrl4?: string;
-  externalUrl5?: string;
+  partnerLinks: PartnerLink[];
   seo?: {
     title: string;
     description: string;
@@ -41,9 +47,5 @@ export interface ProductFormData {
   reviewCount?: number;
   isRecommended: boolean;
   isAvailable: boolean;
-  externalUrl1?: string;
-  externalUrl2?: string;
-  externalUrl3?: string;
-  externalUrl4?: string;
-  externalUrl5?: string;
+  partnerLinks: PartnerLink[];
 }
