@@ -56,17 +56,15 @@ jobs:
       - name: Build admin (production)
         run: npm run build:production --workspace=packages/admin
 
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-
-      - name: Trust EC2 host key
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
 
       - name: Upload build to server
-        run: rsync -avz --delete packages/admin/build/ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/var/www/admin/
+        run: rsync -avz --delete -e "ssh -i ~/.ssh/deploy_key" packages/admin/build/ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/var/www/admin/
 
   deploy-api:
     name: Deploy API (EC2 + PM2)
@@ -74,18 +72,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-
-      - name: Trust EC2 host key
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
 
       - name: Upload server code (data/logs/config on server are preserved)
         run: |
-          rsync -avz --delete \
+          rsync -avz --delete -e "ssh -i ~/.ssh/deploy_key" \
             --exclude 'data' \
             --exclude 'logs' \
             --exclude 'backups' \
@@ -97,4 +93,4 @@ jobs:
 
       - name: Install deps and reload PM2
         run: |
-          ssh ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload tourstream-api"
+          ssh -i ~/.ssh/deploy_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload tourstream-api"
