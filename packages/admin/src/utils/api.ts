@@ -393,4 +393,39 @@ export const api = {
     if (!response.ok) throw new Error('지역을 저장할 수 없습니다');
     return response.json();
   },
+
+  // Partner integrations
+  searchPartnerProducts: async (partner: string, keyword: string) => {
+    const params = new URLSearchParams({ partner, keyword });
+    const response = await fetch(`${API_BASE_URL}/admin/partner-search?${params.toString()}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || '파트너 상품 검색에 실패했습니다');
+    }
+    const data = await response.json();
+    return (data.results || []) as Array<{
+      externalId: string;
+      name: string;
+      price?: number;
+      priceDisplay?: string;
+      url: string;
+      thumbnail?: string;
+      rating?: number;
+      reviewCount?: number;
+    }>;
+  },
+
+  createPartnerTrackedLink: async (partner: string, url: string) => {
+    const response = await fetch(`${API_BASE_URL}/admin/partner-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ partner, url }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || '추적 링크 생성에 실패했습니다');
+    }
+    const data = await response.json();
+    return data.url as string;
+  },
 };

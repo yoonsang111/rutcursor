@@ -8,7 +8,30 @@ import { api } from '../utils/api';
 
 const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴'];
 
+// API 연동으로 검색 가능한 파트너 목록. 나중에 파트너가 늘어나면 여기에만 추가하면 됨.
+const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }];
+
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
+
+interface PartnerSearchResult {
+  externalId: string;
+  name: string;
+  price?: number;
+  priceDisplay?: string;
+  url: string;
+  thumbnail?: string;
+  rating?: number;
+  reviewCount?: number;
+}
+
+interface PartnerSearchState {
+  index: number;
+  partnerKey: string;
+  keyword: string;
+  results: PartnerSearchResult[];
+  loading: boolean;
+  error: string;
+}
 
 const parseOptionalNumber = (value: string) => {
   const trimmed = value.trim();
@@ -68,6 +91,7 @@ export default function ProductFormPage() {
   const [locationSearch, setLocationSearch] = useState('');
   const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
   const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
+  const [partnerSearch, setPartnerSearch] = useState<PartnerSearchState | null>(null);
 
   useEffect(() => {
     if (product) {
@@ -172,6 +196,61 @@ export default function ProductFormPage() {
         return { ...link, price: parsed };
       }
       return { ...link, [field]: value };
+    });
+    setFormData({ ...formData, partnerLinks });
+  };
+
+  const openPartnerSearch = (index: number, partnerKey: string) => {
+    setPartnerSearch({ index, partnerKey, keyword: formData.partnerLinks[index]?.partner || '', results: [], loading: false, error: '' });
+  };
+
+  const closePartnerSearch = () => setPartnerSearch(null);
+
+  const runPartnerSearch = async () => {
+    if (!partnerSearch || !partnerSearch.keyword.trim()) return;
+    setPartnerSearch({ ...partnerSearch, loading: true, error: '' });
+    try {
+      const results = await api.searchPartnerProducts(partnerSearch.partnerKey, partnerSearch.keyword.trim());
+      setPartnerSearch((prev) => (prev ? { ...prev, results, loading: false } : prev));
+    } catch (error: any) {
+      setPartnerSearch((prev) => (prev ? { ...prev, loading: false, error: error?.message || '검색에 실패했습니다' } : prev));
+    }
+  };
+
+  const selectPartnerSearchResult = async (result: PartnerSearchResult) => {
+    if (!partnerSearch) return;
+    const { index, partnerKey } = partnerSearch;
+    const partnerLabel = PARTNER_API_OPTIONS.find((option) => option.key === partnerKey)?.label || partnerKey;
+
+    let trackedUrl = result.url;
+    try {
+      trackedUrl = await api.createPartnerTrackedLink(partnerKey, result.url);
+    } catch (error) {
+      console.error('[ProductFormPage] 추적 링크 생성 실패, 원본 URL 사용:', error);
+    }
+
+    const partnerLinks = formData.partnerLinks.map((link, i) =>
+      i === index
+        ? {
+            partner: partnerLabel,
+            url: trackedUrl,
+            source: 'api' as const,
+            externalId: result.externalId,
+            price: result.price,
+            priceDisplay: result.priceDisplay,
+            updatedAt: new Date().toISOString(),
+          }
+        : link,
+    );
+    setFormData({ ...formData, partnerLinks });
+    closePartnerSearch();
+  };
+
+  const disconnectPartnerApi = (index: number) => {
+    const partnerLinks = formData.partnerLinks.map((link, i) => {
+      if (i !== index) return link;
+      const { source, externalId, price, priceDisplay, updatedAt, ...rest } = link;
+      return { ...rest, source: 'manual' as const };
     });
     setFormData({ ...formData, partnerLinks });
   };
@@ -652,39 +731,131 @@ export default function ProductFormPage() {
           <div className="space-y-3">
             {formData.partnerLinks.map((link, index) => (
               <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    list="known-partner-names"
-                    value={link.partner}
-                    onChange={(e) => updatePartnerLink(index, 'partner', e.target.value)}
-                    className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                    placeholder="파트너명"
-                  />
-                  <input
-                    type="url"
-                    value={link.url}
-                    onChange={(e) => updatePartnerLink(index, 'url', e.target.value)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="예약 URL"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removePartnerLink(index)}
-                    className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-xs shrink-0"
-                  >
-                    삭제
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={link.price !== undefined ? String(link.price) : ''}
-                  onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
-                  className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                  placeholder="가격(원, 선택) - 알고 있으면 입력"
-                />
+                {link.source === 'api' ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-gray-900">{link.partner}</span>
+                        <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">API 연동됨</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        {link.priceDisplay || (link.price !== undefined ? `${link.price.toLocaleString()}원` : '가격 정보 없음')}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => disconnectPartnerApi(index)}
+                        className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-xs"
+                      >
+                        연동 해제
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removePartnerLink(index)}
+                        className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-xs"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        list="known-partner-names"
+                        value={link.partner}
+                        onChange={(e) => updatePartnerLink(index, 'partner', e.target.value)}
+                        className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                        placeholder="파트너명"
+                      />
+                      <input
+                        type="url"
+                        value={link.url}
+                        onChange={(e) => updatePartnerLink(index, 'url', e.target.value)}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="예약 URL"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePartnerLink(index)}
+                        className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 text-xs shrink-0"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={link.price !== undefined ? String(link.price) : ''}
+                      onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
+                      className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                      placeholder="가격(원, 선택) - 알고 있으면 입력"
+                    />
+                    <div className="flex gap-2 flex-wrap">
+                      {PARTNER_API_OPTIONS.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => openPartnerSearch(index, option.key)}
+                          className="px-3 py-1.5 bg-cyan-50 text-cyan-700 rounded-lg hover:bg-cyan-100 text-xs font-medium"
+                        >
+                          {option.label} API로 검색해서 연결
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {partnerSearch?.index === index && (
+                  <div className="mt-2 border border-cyan-200 bg-cyan-50/50 rounded-lg p-3 space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={partnerSearch.keyword}
+                        onChange={(e) => setPartnerSearch({ ...partnerSearch, keyword: e.target.value })}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), runPartnerSearch())}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                        placeholder="검색 키워드 (예: 오사카 유니버설 스튜디오)"
+                      />
+                      <button
+                        type="button"
+                        onClick={runPartnerSearch}
+                        disabled={partnerSearch.loading}
+                        className="px-3 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 text-xs disabled:opacity-50"
+                      >
+                        {partnerSearch.loading ? '검색 중...' : '검색'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closePartnerSearch}
+                        className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-xs"
+                      >
+                        닫기
+                      </button>
+                    </div>
+                    {partnerSearch.error && <p className="text-xs text-red-600">{partnerSearch.error}</p>}
+                    {partnerSearch.results.length > 0 && (
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                        {partnerSearch.results.map((result) => (
+                          <button
+                            key={result.externalId}
+                            type="button"
+                            onClick={() => selectPartnerSearchResult(result)}
+                            className="w-full flex items-center justify-between gap-2 p-2 bg-white border border-gray-200 rounded-lg hover:border-cyan-300 text-left"
+                          >
+                            <span className="text-xs text-gray-800 truncate">{result.name}</span>
+                            <span className="text-xs font-semibold text-gray-900 shrink-0">
+                              {result.priceDisplay || (result.price !== undefined ? `${result.price.toLocaleString()}원` : '-')}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

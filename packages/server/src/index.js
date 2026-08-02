@@ -3,6 +3,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getPartnerIntegration } from './integrations/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -688,6 +689,47 @@ app.delete('/api/products/:id', (req, res) => {
   res.json({ message: '상품이 삭제되었습니다', product: deletedProduct });
 });
 
+// 어드민 - 파트너 API 상품 검색 (등록 폼에서 API 연동 링크를 고를 때 사용)
+app.get('/api/admin/partner-search', async (req, res) => {
+  const { partner, keyword } = req.query;
+  if (!partner || typeof partner !== 'string') {
+    return res.status(400).json({ error: 'partner 쿼리 파라미터가 필요합니다' });
+  }
+  if (!keyword || typeof keyword !== 'string' || !keyword.trim()) {
+    return res.status(400).json({ error: 'keyword 쿼리 파라미터가 필요합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration(partner);
+    const results = await integration.search(keyword.trim());
+    res.json({ results });
+  } catch (error) {
+    console.error('[API] partner-search 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// 어드민 - 선택한 파트너 상품 URL을 어필리에이트 추적 링크로 변환
+app.post('/api/admin/partner-link', async (req, res) => {
+  const { partner, url } = req.body || {};
+  if (!partner || typeof partner !== 'string') {
+    return res.status(400).json({ error: 'partner가 필요합니다' });
+  }
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'url이 필요합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration(partner);
+    if (typeof integration.createTrackedLink !== 'function') {
+      return res.json({ url });
+    }
+    const trackedUrl = await integration.createTrackedLink(url);
+    res.json({ url: trackedUrl });
+  } catch (error) {
+    console.error('[API] partner-link 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
 // 카운터 조회
 app.get('/api/counter', (req, res) => {
   const counter = readCounter();
@@ -965,6 +1007,8 @@ app.use((req, res) => {
       'GET /api/locations',
       'POST /api/locations',
       'GET /api/counter',
+      'GET /api/admin/partner-search',
+      'POST /api/admin/partner-link',
       'GET /sitemap.xml'
     ]
   });
