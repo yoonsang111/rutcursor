@@ -115,7 +115,12 @@ const DEFAULT_IMAGE =
 const DEFAULT_COUNTRY_IMAGE =
   "https://images.unsplash.com/photo-1469474968028-56623f02e42e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080";
 
+// 캐시가 이 시간(ms)보다 오래되면, 캐시를 먼저 보여준 뒤 백그라운드에서 최신 데이터로 조용히 갱신한다.
+// (없으면 세션 내내 최초 로드 시점 데이터만 계속 보여주게 됨 - 어드민에서 상품을 바꿔도 새로고침 전까진 안 보이는 문제)
+const STALE_MS = 30_000;
+
 let cachedData: CachedV2Data | null = null;
+let cachedAt = 0;
 let inflightPromise: Promise<CachedV2Data> | null = null;
 
 function normalizeName(value?: string) {
@@ -471,6 +476,96 @@ function toV2Product(
   };
 }
 
+async function runV2ProductsFetch(): Promise<CachedV2Data> {
+  const [productsResult, categoriesResult, locationsResult] = await Promise.allSettled([
+    api.getProducts(),
+    api.getCategories(),
+    api.getLocations(),
+  ]);
+
+  const rawProducts =
+    productsResult.status === "fulfilled" && Array.isArray(productsResult.value) ? (productsResult.value as RawProduct[]) : [];
+
+  const rawCategories =
+    categoriesResult.status === "fulfilled"
+      ? (categoriesResult.value as RawCategoriesResponse)
+      : ({ mainCategories: [], subCategories: [] } as RawCategoriesResponse);
+
+  const rawLocations =
+    locationsResult.status === "fulfilled"
+      ? (locationsResult.value as RawLocationsResponse)
+      : ({ countries: [], regions: [] } as RawLocationsResponse);
+
+  const { categories, mainNameToId, subNameToMainId } = buildCategories(rawCategories);
+  const { countries, countryNameToId, regionNameToCountryId, regionsByCountryId, regionImageByKey } = buildCountries(rawLocations);
+
+  const finalCategories = categories.length > 0 ? categories : deriveCategoriesFromProducts(rawProducts);
+  const finalCountries = countries.length > 0 ? countries : deriveCountriesFromProducts(rawProducts);
+
+  const finalMainNameToId =
+    categories.length > 0
+      ? mainNameToId
+      : new Map<string, string>(finalCategories.map((category) => [normalizeName(category.name), category.id]));
+
+  const finalCountryNameToId =
+    countries.length > 0
+      ? countryNameToId
+      : new Map<string, string>(finalCountries.map((country) => [normalizeName(country.name), country.id]));
+
+  const finalRegionNameToCountryId =
+    countries.length > 0
+      ? regionNameToCountryId
+      : new Map<string, string>(
+          finalCountries.flatMap((country) => country.regions.map((region) => [normalizeName(region), country.id] as [string, string])),
+        );
+
+  const finalRegionsByCountryId =
+    countries.length > 0
+      ? regionsByCountryId
+      : new Map<string, string[]>(finalCountries.map((country) => [country.id, country.regions]));
+
+  const fallbackCategoryId = finalCategories[0]?.id || "uncategorized";
+  const fallbackCountryId = finalCountries[0]?.id || "unknown-country";
+
+  const mappedItems = rawProducts.map((raw) =>
+    toV2Product(
+      raw,
+      finalMainNameToId,
+      subNameToMainId,
+      fallbackCategoryId,
+      finalCountryNameToId,
+      finalRegionNameToCountryId,
+      fallbackCountryId,
+      finalRegionsByCountryId,
+    ),
+  );
+
+  const adminProductCountByCountryId = mappedItems.reduce((acc, item) => {
+    acc.set(item.countryId, (acc.get(item.countryId) || 0) + 1);
+    return acc;
+  }, new Map<string, number>());
+
+  const items = dedupeProducts(mappedItems);
+  const countriesWithCounts = finalCountries.map((country) => ({
+    ...country,
+    productCount: adminProductCountByCountryId.get(country.id) || 0,
+  }));
+
+  return { items, categories: finalCategories, countries: countriesWithCounts, regionImageByKey };
+}
+
+function fetchFreshV2Products(): Promise<CachedV2Data> {
+  if (!inflightPromise) {
+    inflightPromise = runV2ProductsFetch().then((result) => {
+      cachedData = result;
+      cachedAt = Date.now();
+      inflightPromise = null;
+      return result;
+    });
+  }
+  return inflightPromise;
+}
+
 export function useV2Products() {
   const [items, setItems] = useState<Product[]>(cachedData?.items || []);
   const [categories, setCategories] = useState<Category[]>(cachedData?.categories || []);
@@ -506,85 +601,34 @@ export function useV2Products() {
     });
   }, []);
 
+  const applyResult = useCallback((result: CachedV2Data) => {
+    setItems(result.items);
+    setCategories(result.categories);
+    setCountries(result.countries);
+    setRegionImageByKey(result.regionImageByKey);
+  }, []);
+
+  const refreshIfStale = useCallback(() => {
+    if (Date.now() - cachedAt > STALE_MS) {
+      fetchFreshV2Products().then(applyResult);
+    }
+  }, [applyResult]);
+
+  // 다른 탭(어드민)에서 상품을 바꾸고 이 탭으로 돌아왔을 때도, 새로고침 없이 최신 데이터로 갱신되도록
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshIfStale();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshIfStale]);
+
   useEffect(() => {
     let active = true;
-    const runFetch = async () => {
-      const [productsResult, categoriesResult, locationsResult] = await Promise.allSettled([
-        api.getProducts(),
-        api.getCategories(),
-        api.getLocations(),
-      ]);
-
-      const rawProducts =
-        productsResult.status === "fulfilled" && Array.isArray(productsResult.value) ? (productsResult.value as RawProduct[]) : [];
-
-      const rawCategories =
-        categoriesResult.status === "fulfilled"
-          ? (categoriesResult.value as RawCategoriesResponse)
-          : ({ mainCategories: [], subCategories: [] } as RawCategoriesResponse);
-
-      const rawLocations =
-        locationsResult.status === "fulfilled"
-          ? (locationsResult.value as RawLocationsResponse)
-          : ({ countries: [], regions: [] } as RawLocationsResponse);
-
-      const { categories, mainNameToId, subNameToMainId } = buildCategories(rawCategories);
-      const { countries, countryNameToId, regionNameToCountryId, regionsByCountryId, regionImageByKey } = buildCountries(rawLocations);
-
-      const finalCategories = categories.length > 0 ? categories : deriveCategoriesFromProducts(rawProducts);
-      const finalCountries = countries.length > 0 ? countries : deriveCountriesFromProducts(rawProducts);
-
-      const finalMainNameToId =
-        categories.length > 0
-          ? mainNameToId
-          : new Map<string, string>(finalCategories.map((category) => [normalizeName(category.name), category.id]));
-
-      const finalCountryNameToId =
-        countries.length > 0
-          ? countryNameToId
-          : new Map<string, string>(finalCountries.map((country) => [normalizeName(country.name), country.id]));
-
-      const finalRegionNameToCountryId =
-        countries.length > 0
-          ? regionNameToCountryId
-          : new Map<string, string>(
-              finalCountries.flatMap((country) => country.regions.map((region) => [normalizeName(region), country.id] as [string, string])),
-            );
-
-      const finalRegionsByCountryId =
-        countries.length > 0
-          ? regionsByCountryId
-          : new Map<string, string[]>(finalCountries.map((country) => [country.id, country.regions]));
-
-      const fallbackCategoryId = finalCategories[0]?.id || "uncategorized";
-      const fallbackCountryId = finalCountries[0]?.id || "unknown-country";
-
-      const mappedItems = rawProducts.map((raw) =>
-        toV2Product(
-          raw,
-          finalMainNameToId,
-          subNameToMainId,
-          fallbackCategoryId,
-          finalCountryNameToId,
-          finalRegionNameToCountryId,
-          fallbackCountryId,
-          finalRegionsByCountryId,
-        ),
-      );
-
-      const adminProductCountByCountryId = mappedItems.reduce((acc, item) => {
-        acc.set(item.countryId, (acc.get(item.countryId) || 0) + 1);
-        return acc;
-      }, new Map<string, number>());
-
-      const items = dedupeProducts(mappedItems);
-      const countriesWithCounts = finalCountries.map((country) => ({
-        ...country,
-        productCount: adminProductCountByCountryId.get(country.id) || 0,
-      }));
-
-      return { items, categories: finalCategories, countries: countriesWithCounts, regionImageByKey } satisfies CachedV2Data;
-    };
 
     const load = async () => {
       if (cachedData) {
@@ -595,23 +639,12 @@ export function useV2Products() {
           setRegionImageByKey(cachedData.regionImageByKey);
           setLoading(false);
         }
+        refreshIfStale();
         return;
       }
 
-      if (!inflightPromise) {
-        inflightPromise = runFetch().then((result) => {
-          cachedData = result;
-          inflightPromise = null;
-          return result;
-        });
-      }
-
-      const loaded = await inflightPromise;
-      if (!active) return;
-      setItems(loaded.items);
-      setCategories(loaded.categories);
-      setCountries(loaded.countries);
-      setRegionImageByKey(loaded.regionImageByKey);
+      const loaded = await fetchFreshV2Products();
+      if (active) applyResult(loaded);
       setLoading(false);
     };
 
@@ -619,7 +652,7 @@ export function useV2Products() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyResult, refreshIfStale]);
 
   const byId = useMemo(() => {
     const map = new Map<string, Product>();

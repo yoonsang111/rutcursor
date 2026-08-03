@@ -242,7 +242,12 @@ export default function ProductFormPage() {
           }
         : link,
     );
-    setFormData({ ...formData, partnerLinks });
+
+    // 아직 이미지를 하나도 안 넣었으면 검색 결과의 썸네일을 기본값으로 채워줌 (직접 입력한 이미지는 덮어쓰지 않음)
+    const hasImage = formData.images.some((img) => img.trim() !== '');
+    const images = !hasImage && result.thumbnail ? [result.thumbnail] : formData.images;
+
+    setFormData({ ...formData, partnerLinks, images });
     closePartnerSearch();
   };
 
