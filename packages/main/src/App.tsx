@@ -9,6 +9,10 @@ import V2EventPage from "./v2/pages/V2EventPage";
 import V2CountryPage from "./v2/pages/V2CountryPage";
 import V2RegionPage from "./v2/pages/V2RegionPage";
 import V2CategoryPage from "./v2/pages/V2CategoryPage";
+import V2FlightSearchPage from "./v2/pages/V2FlightSearchPage";
+import V2PrivacyPolicyPage from "./v2/pages/V2PrivacyPolicyPage";
+import V2TermsPage from "./v2/pages/V2TermsPage";
+import V2NotFoundPage from "./v2/pages/V2NotFoundPage";
 
 function AnalyticsTracker() {
   const location = useLocation();
@@ -117,6 +121,30 @@ function App() {
             </LayoutV2>
           }
         />
+        <Route
+          path="/flights"
+          element={
+            <LayoutV2>
+              <V2FlightSearchPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="/privacy"
+          element={
+            <LayoutV2>
+              <V2PrivacyPolicyPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="/terms"
+          element={
+            <LayoutV2>
+              <V2TermsPage />
+            </LayoutV2>
+          }
+        />
         <Route path="/admin/*" element={<AdminRedirect />} />
         {/* /v2 경로도 당분간 동일 화면으로 유지 (북마크/외부 링크 호환) */}
         <Route
@@ -180,6 +208,14 @@ function App() {
           element={
             <LayoutV2>
               <V2CategoryPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <LayoutV2>
+              <V2NotFoundPage />
             </LayoutV2>
           }
         />

@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ProductCardV2 } from "../components/ProductCardV2";
+import { ProductListRow } from "../components/ProductListRow";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
@@ -8,7 +8,8 @@ import { useV2Seo } from "../hooks/useV2Seo";
 export default function V2PopularPage() {
   const [visibleCount, setVisibleCount] = useState(12);
   const [isLoading, setIsLoading] = useState(false);
-  const { items } = useV2Products();
+  const { items, countries } = useV2Products();
+  const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
   const flaggedPopular = items.filter((p) => p.isPopular);
   const popularProducts = (flaggedPopular.length > 0 ? flaggedPopular : items)
@@ -55,9 +56,9 @@ export default function V2PopularPage() {
         <p className="text-slate-500 text-base">수많은 여행자들이 선택한 베스트셀러 상품입니다.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {popularProducts.slice(0, visibleCount).map((product) => (
-          <ProductCardV2 key={product.id} product={product} />
+      <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
+        {popularProducts.slice(0, visibleCount).map((product, idx) => (
+          <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} rank={idx + 1} />
         ))}
       </div>
       {popularProducts.length === 0 && <div className="text-sm text-slate-500 mt-6">노출할 인기 상품이 없습니다.</div>}

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
-import { ProductCardV2 } from "../components/ProductCardV2";
+import { ProductListRow } from "../components/ProductListRow";
 import { useV2Products } from "../hooks/useV2Products";
 import * as Icons from "lucide-react";
 import { useV2Seo } from "../hooks/useV2Seo";
@@ -167,9 +167,9 @@ export default function V2CountryPage() {
               <span className="text-cyan-600">{country.name}</span> 인기 특가
             </h2>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {popularProducts.map((p) => (
-              <ProductCardV2 key={p.id} product={p} />
+          <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
+            {popularProducts.map((p, idx) => (
+              <ProductListRow key={p.id} product={p} countryName={country.name} rank={idx + 1} />
             ))}
           </div>
         </section>
@@ -178,11 +178,11 @@ export default function V2CountryPage() {
       <section className="px-6 py-8 bg-slate-50 rounded-3xl mx-6 mb-8">
         <h2 className="text-xl font-bold mb-2 px-2">전체 상품</h2>
         <div className="font-bold text-sm text-slate-900 mb-6 px-2">
-          총 <span className="text-cyan-600">{filteredProducts.length}</span>개의 상품
+          총 <span className="text-brand">{filteredProducts.length}</span>개의 상품
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 px-2">
+        <div className="flex flex-col rounded-2xl bg-white border border-slate-100 px-4 md:px-6">
           {filteredProducts.map((p) => (
-            <ProductCardV2 key={p.id} product={p} />
+            <ProductListRow key={p.id} product={p} countryName={country.name} />
           ))}
         </div>
         {filteredProducts.length === 0 && <div className="text-sm text-slate-500 px-2 mt-4">검색/필터 조건에 맞는 상품이 없습니다.</div>}

@@ -223,6 +223,12 @@ async function main() {
       description: "지금 가장 많이 조회된 여행 액티비티, 투어, 입장권 인기 상품을 확인하세요. 실시간 인기 순위 기준으로 정렬됩니다.",
       ogType: "website",
     },
+    {
+      path: "/flights",
+      title: "항공권 검색 | TourStream",
+      description: "출발지와 도착지, 날짜를 입력하고 마이리얼트립 항공권 검색결과를 확인하세요.",
+      ogType: "website",
+    },
   ];
 
   for (const product of Array.isArray(products) ? products : []) {
@@ -273,7 +279,7 @@ async function main() {
       ogType: "website",
     });
 
-    // 지역(region) 라우트도 생성
+    // 지역(region) 라우트도 생성 - 실제 클라이언트 라우트는 /region/:slug (국가 하위 경로가 아님)
     const countryRegions = regions.filter((r) => {
       const rCountryId = typeof r === "string" ? "" : r?.countryId || "";
       const cId = typeof country === "string" ? "" : country?.id || "";
@@ -284,7 +290,7 @@ async function main() {
       if (!regionName) continue;
       const regionSlug = toSlug(regionName);
       routes.push({
-        path: `/country/${slug}/${regionSlug}`,
+        path: `/region/${regionSlug}`,
         title: `${regionName} 여행 액티비티 가격비교 | TourStream`,
         description: `${countryName ? countryName + " " : ""}${regionName} 여행 액티비티, 투어, 입장권 가격을 비교하세요. 제휴사별 최저가 링크를 제공합니다.`,
         ogType: "website",

@@ -26,8 +26,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "seo:generate-shells": "node ./scripts/generate-seo-route-shells.mjs",
-    "build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api react-scripts build",
-    "build:beta": "REACT_APP_API_URL=https://api-beta.tourstream.kr/api react-scripts build",
+    "build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api react-scripts build && npm run seo:generate-shells",
+    "build:beta": "REACT_APP_API_URL=https://api-beta.tourstream.kr/api react-scripts build && npm run seo:generate-shells",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

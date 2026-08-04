@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { ProductCardV2 } from "../components/ProductCardV2";
+import { ProductListRow } from "../components/ProductListRow";
 import { Search } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
@@ -13,6 +13,7 @@ export default function V2CategoryPage() {
   const regionSlug = searchParams.get("region");
   const [searchTerm, setSearchTerm] = useState("");
   const { items, categories, countries } = useV2Products();
+  const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
   const category = findCategoryBySlug(categories, categorySlug);
   const selectedCountry = findCountryBySlug(countries, countrySlug);
@@ -81,11 +82,11 @@ export default function V2CategoryPage() {
 
       <section className="py-4">
         <div className="font-bold text-sm text-slate-900 mb-6">
-          총 <span className="text-cyan-600">{filteredProducts.length}</span>개의 상품
+          총 <span className="text-brand">{filteredProducts.length}</span>개의 상품
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
           {filteredProducts.map((p) => (
-            <ProductCardV2 key={p.id} product={p} />
+            <ProductListRow key={p.id} product={p} countryName={countryNameById.get(p.countryId)} />
           ))}
         </div>
         {filteredProducts.length === 0 && <div className="text-sm text-slate-500">검색 조건에 맞는 상품이 없습니다.</div>}

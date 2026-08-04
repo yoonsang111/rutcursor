@@ -101,4 +101,51 @@ export const api = {
       return { countries: [], regions: [] };
     }
   },
+
+  searchFlightAirports: async (keyword: string): Promise<FlightAirport[]> => {
+    try {
+      const response = await fetchWithFallback(`/flights/airports?keyword=${encodeURIComponent(keyword)}`);
+      if (!response) return [];
+      const data = await response.json();
+      return Array.isArray(data.airports) ? data.airports : [];
+    } catch (error) {
+      console.warn('[api] 공항 검색에 실패했습니다:', error);
+      return [];
+    }
+  },
+
+  getFlightSearchLink: async (params: FlightSearchParams): Promise<string | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/flights/search-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return typeof data.url === 'string' ? data.url : null;
+    } catch (error) {
+      console.warn('[api] 항공권 검색 링크 생성에 실패했습니다:', error);
+      return null;
+    }
+  },
 };
+
+export interface FlightAirport {
+  code: string;
+  name: string;
+  cityName?: string;
+  countryName?: string;
+}
+
+export interface FlightSearchParams {
+  depAirportCd: string;
+  arrAirportCd: string;
+  tripTypeCd: 'OW' | 'RT' | 'MT';
+  depDate?: string;
+  arrDate?: string;
+  adult?: number;
+  child?: number;
+  infant?: number;
+  cabinClass?: 'FIRST' | 'BUSINESS' | 'PREMIUM_ECONOMY' | 'ECONOMY';
+}

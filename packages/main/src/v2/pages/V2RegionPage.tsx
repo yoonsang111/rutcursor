@@ -1,6 +1,6 @@
 import React from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { ProductCardV2 } from "../components/ProductCardV2";
+import { ProductListRow } from "../components/ProductListRow";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
@@ -65,9 +65,9 @@ export default function V2RegionPage() {
       </section>
 
       <section className="pb-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
           {regionProducts.map((p) => (
-            <ProductCardV2 key={p.id} product={p} />
+            <ProductListRow key={p.id} product={p} countryName={resolvedCountry?.name} />
           ))}
         </div>
         {regionProducts.length === 0 && <div className="text-sm text-slate-500">해당 지역의 상품이 아직 없습니다.</div>}

@@ -51,3 +51,36 @@ export const getTourTicketOptions = (gid, selectedDate) =>
 // 마이리얼트립 URL을 트래킹용 단축 링크로 변환
 export const createMyLink = (targetUrl) =>
   request('POST', '/v1/mylink', { targetUrl });
+
+// 항공권: 키워드로 공항/도시 자동완성 (응답의 airport.code를 출발/도착 입력값으로 사용)
+export const searchFlightAirports = (keyword, size) =>
+  request('POST', '/v1/products/flight/airport-autocomplete', {
+    keyword,
+    ...(size !== undefined ? { size } : {}),
+  });
+
+// 항공권: 운임 조회 랜딩 URL 생성 (이 URL을 createMyLink의 targetUrl로 다시 넘기면 추적 가능한 단축링크가 됨)
+export const getFlightFareQueryLandingUrl = ({
+  depAirportCd,
+  arrAirportCd,
+  tripTypeCd,
+  depDate,
+  arrDate,
+  adult,
+  child,
+  infant,
+  airline,
+  cabinClass,
+}) =>
+  request('POST', '/v1/products/flight/fare-query-landing-url', {
+    depAirportCd,
+    arrAirportCd,
+    tripTypeCd,
+    ...(depDate ? { depDate } : {}),
+    ...(arrDate ? { arrDate } : {}),
+    ...(adult !== undefined ? { adult } : {}),
+    ...(child !== undefined ? { child } : {}),
+    ...(infant !== undefined ? { infant } : {}),
+    ...(airline ? { airline } : {}),
+    ...(cabinClass ? { cabinClass } : {}),
+  });

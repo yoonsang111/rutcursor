@@ -53,6 +53,27 @@ const myrealtripIntegration = {
     const data = await myrealtrip.createMyLink(targetUrl);
     return data?.mylink || targetUrl;
   },
+
+  // 항공권 전용: 투어/티켓과 API 모양이 달라 공통 규격에는 넣지 않고 별도 메서드로 노출
+  async searchFlightAirports(keyword) {
+    const data = await myrealtrip.searchFlightAirports(keyword, 10);
+    const airports = Array.isArray(data?.airports) ? data.airports : [];
+    return airports.map((entry) => ({
+      code: entry.airport?.code,
+      name: entry.airport?.koName,
+      cityName: entry.city?.koName,
+      countryName: entry.country?.koName,
+    }));
+  },
+
+  async createFlightSearchLink(params) {
+    const landingUrl = await myrealtrip.getFlightFareQueryLandingUrl(params);
+    if (!landingUrl || typeof landingUrl !== 'string') {
+      throw new Error('항공 운임 조회 랜딩 URL을 받지 못했습니다');
+    }
+    const linkData = await myrealtrip.createMyLink(landingUrl);
+    return linkData?.mylink || landingUrl;
+  },
 };
 
 export const PARTNER_INTEGRATIONS = {

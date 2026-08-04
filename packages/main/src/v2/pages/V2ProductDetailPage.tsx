@@ -1,9 +1,10 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { Share, Heart, MapPin, ArrowUpRight, CheckCircle2, ShieldCheck, Zap } from "lucide-react";
+import { Share, Heart, MapPin, ArrowUpRight, Zap } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
+import { trackEvent } from "../../utils/analytics";
 
 const VIEW_THROTTLE_MS = 12 * 60 * 60 * 1000; // 12시간
 const VIEW_STORAGE_PREFIX = "tourstream_v2_view_";
@@ -18,6 +19,17 @@ export default function V2ProductDetailPage() {
   const hasPrice = Number(product?.price || 0) > 0;
   const safePrice = hasPrice ? product!.price : 0;
   const hasRating = Number(product?.rating || 0) > 0 && Number(product?.reviews || 0) > 0;
+  const pricedLinks = partnerLinks.filter((p) => p.price !== undefined) as Array<{ price: number }>;
+  const savings =
+    pricedLinks.length >= 2
+      ? (() => {
+          const lowest = Math.min(...pricedLinks.map((p) => p.price));
+          const highest = Math.max(...pricedLinks.map((p) => p.price));
+          const diff = highest - lowest;
+          if (diff <= 0) return null;
+          return { diff, percent: Math.round((diff / highest) * 100) };
+        })()
+      : null;
   const priceValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
   const canonicalPath = `/product/${id || ""}`;
   const safeName = product?.name || "상품";
@@ -117,7 +129,7 @@ export default function V2ProductDetailPage() {
   if (loading && !product) {
     return (
       <div className="w-full max-w-[1200px] mx-auto px-4 pt-16 pb-32 flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin" />
         <p className="text-slate-500 text-sm">상품 정보를 불러오는 중...</p>
       </div>
     );
@@ -128,12 +140,12 @@ export default function V2ProductDetailPage() {
   return (
     <div className="w-full max-w-[1200px] mx-auto pb-32 md:pb-12 pt-0 md:pt-8 px-0 md:px-6 relative">
       <div className="hidden md:flex items-center gap-2 text-sm text-slate-500 font-medium mb-6">
-        <Link to="/" className="hover:text-cyan-600 cursor-pointer transition-colors">
+        <Link to="/" className="hover:text-brand cursor-pointer transition-colors">
           홈
         </Link>
         <span>/</span>
         {country ? (
-          <Link to={`/country/${getCountrySlug(country)}`} className="hover:text-cyan-600 cursor-pointer transition-colors">
+          <Link to={`/country/${getCountrySlug(country)}`} className="hover:text-brand cursor-pointer transition-colors">
             {country.name}
           </Link>
         ) : (
@@ -142,14 +154,14 @@ export default function V2ProductDetailPage() {
         {product.region && (
           <>
             <span>/</span>
-            <Link to={`/region/${getRegionSlug(product.region)}${country ? `?country=${encodeURIComponent(getCountrySlug(country))}` : ""}`} className="hover:text-cyan-600 cursor-pointer transition-colors">
+            <Link to={`/region/${getRegionSlug(product.region)}${country ? `?country=${encodeURIComponent(getCountrySlug(country))}` : ""}`} className="hover:text-brand cursor-pointer transition-colors">
               {product.region}
             </Link>
           </>
         )}
         <span>/</span>
         {category ? (
-          <Link to={`/category/${getCategorySlug(category)}`} className="hover:text-cyan-600 cursor-pointer transition-colors">
+          <Link to={`/category/${getCategorySlug(category)}`} className="hover:text-brand cursor-pointer transition-colors">
             {category.name}
           </Link>
         ) : (
@@ -162,7 +174,7 @@ export default function V2ProductDetailPage() {
           <div className="relative w-full h-[280px] md:h-[400px] md:rounded-3xl overflow-hidden mb-6 shadow-sm">
             <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
             <div className="absolute top-4 right-4 flex gap-2">
-              <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-cyan-600 transition-colors shadow-md">
+              <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-brand transition-colors shadow-md">
                 <Share className="w-4 h-4" />
               </button>
               <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-rose-500 transition-colors shadow-md">
@@ -187,28 +199,6 @@ export default function V2ProductDetailPage() {
               <p className="text-slate-600 leading-relaxed whitespace-pre-line">{product.description}</p>
             </div>
 
-            <div className="mt-8 p-6 bg-slate-50/80 rounded-2xl border border-slate-100">
-              <h2 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-cyan-600" />
-                TOURSTREAM 가격 비교
-              </h2>
-              <div className="flex flex-col gap-3">
-                <div className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-bold text-sm text-slate-700 mb-0.5">믿을 수 있는 공식 파트너사</div>
-                    <div className="text-xs text-slate-500">검증된 공식 예약 플랫폼의 가격을 한눈에 비교합니다.</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                  <div>
-                    <div className="font-bold text-sm text-slate-700 mb-0.5">실시간 최저가 안내</div>
-                    <div className="text-xs text-slate-500">환율 및 예약 시점에 따라 실제 결제 가격이 달라질 수 있습니다.</div>
-                  </div>
-                </div>
-              </div>
-            </div>
 
           </div>
         </div>
@@ -217,7 +207,7 @@ export default function V2ProductDetailPage() {
           <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 lg:sticky lg:top-28 lg:bg-white lg:border lg:rounded-3xl lg:shadow-xl lg:p-6 lg:z-10">
             <div className="flex justify-between items-end mb-4 gap-3">
               <div className="flex flex-col">
-                <div className="text-cyan-600 text-xs font-bold mb-1 flex items-center gap-1">
+                <div className="text-brand text-xs font-bold mb-1 flex items-center gap-1">
                   <Zap className="w-3.5 h-3.5" /> 실시간 최저가
                 </div>
                 <div className="flex items-baseline gap-1">
@@ -228,6 +218,12 @@ export default function V2ProductDetailPage() {
               <div className="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md mb-1">{partnerLinks.length}개 파트너사 비교</div>
             </div>
 
+            {savings && (
+              <div className="text-xs font-bold text-save bg-save-tint px-2.5 py-1.5 rounded-lg inline-block mb-4">
+                최고가 대비 {savings.diff.toLocaleString()}원(-{savings.percent}%) 절약
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               {partnerLinks.map((partner, idx) => (
                 <div key={`${partner.name}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100 transition-colors group">
@@ -235,7 +231,7 @@ export default function V2ProductDetailPage() {
                     <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       {partner.name}
                       {idx === 0 && partner.price !== undefined && (
-                        <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">최저가</span>
+                        <span className="text-[10px] bg-brand-tint text-brand px-1.5 py-0.5 rounded-sm font-bold">최저가</span>
                       )}
                     </span>
                     {(partner.priceDisplay || partner.price !== undefined) && (
@@ -248,6 +244,16 @@ export default function V2ProductDetailPage() {
                     href={partner.url}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() =>
+                      trackEvent("partner_link_click", {
+                        partner: partner.name,
+                        product_id: product.id,
+                        product_name: product.name,
+                        price: partner.price,
+                        is_best_price: idx === 0 && partner.price !== undefined,
+                        placement: "product_detail",
+                      })
+                    }
                     className={`flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold transition-all ${
                       idx === 0 ? "bg-slate-900 text-white hover:bg-slate-800 shadow-md" : "bg-white border border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
@@ -258,6 +264,7 @@ export default function V2ProductDetailPage() {
                 </div>
               ))}
             </div>
+            <p className="text-[11px] text-slate-400 mt-3">환율 및 예약 시점에 따라 실제 결제 가격이 달라질 수 있어요.</p>
           </div>
         </div>
       </div>

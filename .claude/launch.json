@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tourstream-main",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "main:start"],
+      "port": 3000
+    },
+    {
+      "name": "tourstream-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "admin:start"],
+      "port": 3001
+    }
+  ]
+}

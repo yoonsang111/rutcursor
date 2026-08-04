@@ -730,6 +730,51 @@ app.post('/api/admin/partner-link', async (req, res) => {
   }
 });
 
+// 항공권 검색 - 공항 자동완성 (메인 사이트 항공권 탭에서 공개 호출)
+app.get('/api/flights/airports', async (req, res) => {
+  const { keyword } = req.query;
+  if (!keyword || typeof keyword !== 'string' || !keyword.trim()) {
+    return res.status(400).json({ error: 'keyword 쿼리 파라미터가 필요합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration('myrealtrip');
+    const airports = await integration.searchFlightAirports(keyword.trim());
+    res.json({ airports });
+  } catch (error) {
+    console.error('[API] flights/airports 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// 항공권 검색 - 조건에 맞는 마이리얼트립 항공권 검색결과 링크 생성
+app.post('/api/flights/search-link', async (req, res) => {
+  const { depAirportCd, arrAirportCd, tripTypeCd, depDate, arrDate, adult, child, infant, cabinClass } = req.body || {};
+  if (!depAirportCd || !arrAirportCd) {
+    return res.status(400).json({ error: 'depAirportCd, arrAirportCd가 필요합니다' });
+  }
+  if (!['OW', 'RT', 'MT'].includes(tripTypeCd)) {
+    return res.status(400).json({ error: 'tripTypeCd는 OW, RT, MT 중 하나여야 합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration('myrealtrip');
+    const url = await integration.createFlightSearchLink({
+      depAirportCd,
+      arrAirportCd,
+      tripTypeCd,
+      depDate,
+      arrDate,
+      adult,
+      child,
+      infant,
+      cabinClass,
+    });
+    res.json({ url });
+  } catch (error) {
+    console.error('[API] flights/search-link 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
 // 카운터 조회
 app.get('/api/counter', (req, res) => {
   const counter = readCounter();
@@ -797,7 +842,10 @@ app.get('/sitemap.xml', (req, res) => {
 
     // 인기 페이지
     appendUrl(`${baseUrl}/popular`, 'daily', '0.85');
-    
+
+    // 항공권 검색 페이지
+    appendUrl(`${baseUrl}/flights`, 'weekly', '0.8');
+
     // 모든 상품 페이지
     products.forEach(product => {
       if (!product?.id) return;
@@ -826,7 +874,17 @@ app.get('/sitemap.xml', (req, res) => {
       const slug = COUNTRY_ENGLISH[name] || toSlug(name);
       if (slug) appendUrl(`${baseUrl}/country/${escapeXml(slug)}`, 'weekly', '0.7');
     });
-    
+
+    // 지역 페이지 (/region/:name 라우트 - 국가 하위 경로가 아닌 독립 경로)
+    const regions = Array.isArray(locationsData.regions) ? locationsData.regions : [];
+    regions.forEach(region => {
+      if (!region) return;
+      const name = typeof region === 'string' ? region : String(region.name || '').trim();
+      if (!name) return;
+      const slug = toSlug(name);
+      if (slug) appendUrl(`${baseUrl}/region/${escapeXml(slug)}`, 'weekly', '0.65');
+    });
+
     xml += '</urlset>';
     
     res.set('Content-Type', 'application/xml');

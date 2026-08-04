@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ProductCardV2 } from "../components/ProductCardV2";
+import { ProductListRow } from "../components/ProductListRow";
 import { useV2Products } from "../hooks/useV2Products";
 import { Search } from "lucide-react";
 import { useV2Seo } from "../hooks/useV2Seo";
 
 export default function V2ProductsPage() {
-  const { items, loading } = useV2Products();
+  const { items, countries, loading } = useV2Products();
+  const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
   const [searchParams, setSearchParams] = useSearchParams();
   const queryKeyword = searchParams.get("q") || "";
   const [keyword, setKeyword] = useState(queryKeyword);
@@ -76,7 +77,7 @@ export default function V2ProductsPage() {
     <div className="w-full max-w-[1400px] mx-auto px-6 py-8 md:py-12">
       <div className="mb-10">
         <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">전체 상품</h1>
-        <p className="text-slate-500 text-base">피그마 리디자인 기준의 상품 카드/그리드 레이아웃입니다.</p>
+        <p className="text-slate-500 text-base">파트너사 가격을 한눈에 비교해보세요.</p>
       </div>
 
       <div className="mb-6 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
@@ -102,9 +103,9 @@ export default function V2ProductsPage() {
 
       {loading && <div className="text-sm text-slate-500 mb-4">상품 불러오는 중...</div>}
       {!loading && filtered.length === 0 && <div className="text-sm text-slate-500 mb-4">조건에 맞는 상품이 없습니다.</div>}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
         {filtered.map((product) => (
-          <ProductCardV2 key={product.id} product={product} />
+          <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} />
         ))}
       </div>
     </div>
