@@ -2,8 +2,10 @@ import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ProductListRow } from "../components/ProductListRow";
 import { useV2Products } from "../hooks/useV2Products";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useV2Seo } from "../hooks/useV2Seo";
+
+const PAGE_SIZE = 20;
 
 export default function V2ProductsPage() {
   const { items, countries, loading } = useV2Products();
@@ -12,6 +14,8 @@ export default function V2ProductsPage() {
   const queryKeyword = searchParams.get("q") || "";
   const [keyword, setKeyword] = useState(queryKeyword);
   const [sort, setSort] = useState<"popular" | "price-low" | "price-high">("popular");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   React.useEffect(() => {
     setKeyword(queryKeyword);
@@ -53,6 +57,21 @@ export default function V2ProductsPage() {
     return list;
   }, [items, keyword, sort]);
 
+  React.useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [keyword, sort]);
+
+  const visibleProducts = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
+
+  const handleLoadMore = () => {
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount((prev) => prev + PAGE_SIZE);
+      setIsLoadingMore(false);
+    }, 300);
+  };
+
   useV2Seo({
     title: keyword.trim() ? `"${keyword.trim()}" 검색 결과 | TourStream` : "전체 상품 | TourStream",
     description: keyword.trim()
@@ -87,7 +106,7 @@ export default function V2ProductsPage() {
             value={keyword}
             onChange={(e) => handleKeywordChange(e.target.value)}
             placeholder="상품명, 지역명으로 검색"
-            className="w-full h-11 rounded-full border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none focus:border-cyan-400"
+            className="w-full h-11 rounded-full border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none focus:border-brand"
           />
         </div>
         <select
@@ -104,10 +123,29 @@ export default function V2ProductsPage() {
       {loading && <div className="text-sm text-slate-500 mb-4">상품 불러오는 중...</div>}
       {!loading && filtered.length === 0 && <div className="text-sm text-slate-500 mb-4">조건에 맞는 상품이 없습니다.</div>}
       <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-        {filtered.map((product) => (
+        {visibleProducts.map((product) => (
           <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} />
         ))}
       </div>
+
+      {hasMore && (
+        <div className="mt-10 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={isLoadingMore}
+            className="flex items-center gap-2 px-8 py-3.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-full shadow-sm hover:bg-slate-50 hover:text-brand disabled:opacity-70 transition-all duration-300"
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-brand" />
+                <span>상품 불러오는 중...</span>
+              </>
+            ) : (
+              `더 많은 상품 보기 (${filtered.length - visibleCount}개 남음)`
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -208,7 +208,7 @@ export default function V2ProductDetailPage() {
             <div className="flex justify-between items-end mb-4 gap-3">
               <div className="flex flex-col">
                 <div className="text-brand text-xs font-bold mb-1 flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5" /> 실시간 최저가
+                  <Zap className="w-3.5 h-3.5" /> 최근 갱신 최저가
                 </div>
                 <div className="flex items-baseline gap-1">
                   <div className="text-xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">{hasPrice ? product.price.toLocaleString() : "가격 확인 필요"}</div>

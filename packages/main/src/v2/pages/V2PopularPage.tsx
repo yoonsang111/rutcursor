@@ -44,7 +44,7 @@ export default function V2PopularPage() {
   return (
     <div className="w-full max-w-[1400px] mx-auto px-6 py-8 md:py-12">
       <div className="flex items-center gap-2 text-sm text-slate-500 font-medium mb-8">
-        <Link to="/" className="hover:text-cyan-600 transition-colors">
+        <Link to="/" className="hover:text-brand transition-colors">
           홈
         </Link>
         <ChevronRight className="w-4 h-4" />
@@ -68,11 +68,11 @@ export default function V2PopularPage() {
           <button
             onClick={handleLoadMore}
             disabled={isLoading}
-            className="flex items-center gap-2 px-8 py-3.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-full shadow-sm hover:bg-slate-50 hover:text-cyan-600 disabled:opacity-70 transition-all duration-300"
+            className="flex items-center gap-2 px-8 py-3.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-full shadow-sm hover:bg-slate-50 hover:text-brand disabled:opacity-70 transition-all duration-300"
           >
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />
+                <Loader2 className="w-4 h-4 animate-spin text-brand" />
                 <span>상품 불러오는 중...</span>
               </>
             ) : (

@@ -7,7 +7,7 @@ import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 
 export default function V2HomePage() {
-  const { items, categories, countries } = useV2Products();
+  const { items, categories, countries, loading } = useV2Products();
   const [selectedCountryId, setSelectedCountryId] = useState("all");
   const [selectedCategoryId, setSelectedCategoryId] = useState("all");
 
@@ -133,7 +133,11 @@ export default function V2HomePage() {
             <span className="text-[11px] font-extrabold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">HOT</span>
           </div>
         </div>
-        {popularProducts.length === 0 ? (
+        {loading ? (
+          <div className="py-10 flex justify-center">
+            <div className="w-7 h-7 border-[3px] border-brand border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : popularProducts.length === 0 ? (
           <div className="py-8 text-sm text-slate-400">선택하신 국가/카테고리에 해당하는 인기 상품이 아직 없습니다.</div>
         ) : (
           <div className="flex flex-col">
@@ -151,7 +155,11 @@ export default function V2HomePage() {
             <span className="text-[11px] font-extrabold text-brand bg-brand-tint px-2 py-0.5 rounded-full">에디터 픽</span>
           </div>
         </div>
-        {recommendedProducts.length === 0 ? (
+        {loading ? (
+          <div className="py-10 flex justify-center">
+            <div className="w-7 h-7 border-[3px] border-brand border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : recommendedProducts.length === 0 ? (
           <div className="py-8 text-sm text-slate-400">선택하신 국가/카테고리에 해당하는 추천 상품이 아직 없습니다.</div>
         ) : (
           <div className="flex flex-col">
