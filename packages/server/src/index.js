@@ -300,9 +300,13 @@ const COUNTRY_NAME_SET = new Set([
   '독일',
 ]);
 
-const normalizePartnerLinks = (rawLinks) => {
+// 검색 API 없이 URL 파라미터 조합만으로 트래킹 링크가 되는 파트너.
+// 이름이 일치하면 저장 시 자동으로 변환하고, 어드민에서 별도 버튼을 누를 필요가 없음.
+const AUTO_TRACKED_PARTNER_KEYS = { klook: 'klook', kkday: 'kkday' };
+
+const normalizePartnerLinks = async (rawLinks) => {
   if (!Array.isArray(rawLinks)) return [];
-  return rawLinks
+  const links = rawLinks
     .map((link) => {
       const url = typeof link?.url === 'string' ? link.url.trim() : '';
       if (!url) return null;
@@ -319,9 +323,24 @@ const normalizePartnerLinks = (rawLinks) => {
       return normalizedLink;
     })
     .filter(Boolean);
+
+  await Promise.all(
+    links.map(async (link) => {
+      const partnerKey = AUTO_TRACKED_PARTNER_KEYS[link.partner.toLowerCase()];
+      if (!partnerKey) return;
+      try {
+        const integration = getPartnerIntegration(partnerKey);
+        link.url = await integration.createTrackedLink(link.url);
+      } catch (error) {
+        console.warn(`[normalizePartnerLinks] ${link.partner} 트래킹 링크 변환 실패, 원본 URL 유지:`, error.message);
+      }
+    }),
+  );
+
+  return links;
 };
 
-const normalizeProductPayload = (payload = {}) => {
+const normalizeProductPayload = async (payload = {}) => {
   const categories = toTrimmedStringArray(payload.categories);
   const locations = toTrimmedStringArray(payload.locations);
 
@@ -349,7 +368,7 @@ const normalizeProductPayload = (payload = {}) => {
   if (rating !== undefined) normalized.rating = rating;
   if (reviewCount !== undefined) normalized.reviewCount = reviewCount;
 
-  normalized.partnerLinks = normalizePartnerLinks(payload.partnerLinks);
+  normalized.partnerLinks = await normalizePartnerLinks(payload.partnerLinks);
 
   return normalized;
 };
@@ -625,15 +644,15 @@ app.get('/api/metrics/views', (req, res) => {
 });
 
 // 상품 등록
-app.post('/api/products', (req, res) => {
+app.post('/api/products', async (req, res) => {
   const products = readProducts();
   let counter = readCounter();
-  
+
   // 다음 상품 번호 생성
   counter++;
   const productId = counter.toString();
-  
-  const normalizedPayload = normalizeProductPayload(req.body);
+
+  const normalizedPayload = await normalizeProductPayload(req.body);
   
   const newProduct = {
     ...normalizedPayload,
@@ -650,15 +669,15 @@ app.post('/api/products', (req, res) => {
 });
 
 // 상품 수정
-app.put('/api/products/:id', (req, res) => {
+app.put('/api/products/:id', async (req, res) => {
   const products = readProducts();
   const index = findProductIndex(products, req.params.id);
-  
+
   if (index === -1) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
-  
-  const normalizedPayload = normalizeProductPayload({
+
+  const normalizedPayload = await normalizeProductPayload({
     ...products[index],
     ...req.body
   });

@@ -11,6 +11,9 @@ const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGui
 // API 연동으로 검색 가능한 파트너 목록. 나중에 파트너가 늘어나면 여기에만 추가하면 됨.
 const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }];
 
+// KLOOK/KKday는 검색 API는 없지만, URL에 고정 파라미터만 붙이면 트래킹 링크가 되어서
+// 서버가 상품 저장 시 파트너명을 보고 자동으로 변환해줌 (어드민에서 따로 버튼 누를 필요 없음).
+
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
 
 interface PartnerSearchResult {

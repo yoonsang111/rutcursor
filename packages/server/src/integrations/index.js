@@ -76,8 +76,36 @@ const myrealtripIntegration = {
   },
 };
 
+// KLOOK/KKday는 검색·가격 조회 API가 없고, 어필리에이트 링크가 "원본 URL + 고정 쿼리파라미터"
+// 형태라서 API 호출 없이 URL을 조립하는 것만으로 트래킹 링크를 만들 수 있음.
+const klookIntegration = {
+  displayName: 'KLOOK',
+
+  async createTrackedLink(targetUrl) {
+    const url = new URL(targetUrl);
+    // s.klook.com(모바일 공유 링크)은 트래킹되지 않으므로 www.klook.com으로 정규화
+    if (url.hostname === 's.klook.com') {
+      url.hostname = 'www.klook.com';
+    }
+    url.searchParams.set('aid', '65706');
+    return url.toString();
+  },
+};
+
+const kkdayIntegration = {
+  displayName: 'KKday',
+
+  async createTrackedLink(targetUrl) {
+    const url = new URL(targetUrl);
+    url.searchParams.set('cid', '19400');
+    return url.toString();
+  },
+};
+
 export const PARTNER_INTEGRATIONS = {
   myrealtrip: myrealtripIntegration,
+  klook: klookIntegration,
+  kkday: kkdayIntegration,
 };
 
 export const getPartnerIntegration = (partnerKey) => {
