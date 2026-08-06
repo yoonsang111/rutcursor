@@ -727,6 +727,28 @@ app.get('/api/admin/partner-search', async (req, res) => {
   }
 });
 
+// 어드민 - 검색 결과 선택 시 상세 설명/추가 이미지 조회 (지원하는 파트너만)
+app.get('/api/admin/partner-detail', async (req, res) => {
+  const { partner, externalId } = req.query;
+  if (!partner || typeof partner !== 'string') {
+    return res.status(400).json({ error: 'partner 쿼리 파라미터가 필요합니다' });
+  }
+  if (!externalId || typeof externalId !== 'string') {
+    return res.status(400).json({ error: 'externalId 쿼리 파라미터가 필요합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration(partner);
+    if (typeof integration.getProductDetail !== 'function') {
+      return res.json({ description: '', images: [] });
+    }
+    const detail = await integration.getProductDetail(externalId);
+    res.json(detail);
+  } catch (error) {
+    console.error('[API] partner-detail 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
 // 어드민 - 선택한 파트너 상품 URL을 어필리에이트 추적 링크로 변환
 app.post('/api/admin/partner-link', async (req, res) => {
   const { partner, url } = req.body || {};

@@ -248,9 +248,23 @@ export default function ProductFormPage() {
 
     // 아직 이미지를 하나도 안 넣었으면 검색 결과의 썸네일을 기본값으로 채워줌 (직접 입력한 이미지는 덮어쓰지 않음)
     const hasImage = formData.images.some((img) => img.trim() !== '');
-    const images = !hasImage && result.thumbnail ? [result.thumbnail] : formData.images;
+    let images = !hasImage && result.thumbnail ? [result.thumbnail] : formData.images;
+    // 설명도 비어있을 때만 채움 (직접 입력한 설명은 덮어쓰지 않음)
+    let description = formData.description;
 
-    setFormData({ ...formData, partnerLinks, images });
+    try {
+      const detail = await api.getPartnerProductDetail(partnerKey, result.externalId);
+      if (!description.trim() && detail.description) {
+        description = detail.description;
+      }
+      if (!hasImage && detail.images.length > 0) {
+        images = Array.from(new Set([...images, ...detail.images]));
+      }
+    } catch (error) {
+      console.error('[ProductFormPage] 상세 정보 조회 실패, 검색 결과만 사용:', error);
+    }
+
+    setFormData({ ...formData, partnerLinks, images, description });
     closePartnerSearch();
   };
 
