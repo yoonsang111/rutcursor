@@ -105,6 +105,9 @@ const LayoutV2: React.FC<LayoutV2Props> = ({ children }) => {
               <p>© 2026 TOURSTREAM Inc. All rights reserved.</p>
             </div>
           </div>
+          <p className="mt-8 pt-6 border-t border-slate-100 text-[12px] text-slate-400">
+            이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+          </p>
         </div>
       </footer>
     </div>

@@ -16,6 +16,7 @@ export default function V2ProductDetailPage() {
   const country = countries.find((c) => c.id === product?.countryId);
   const category = categories.find((c) => c.id === product?.categoryId);
   const partnerLinks = product?.partnerLinks.length ? product.partnerLinks : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
+  const hasCoupangLink = partnerLinks.some((p) => p.name.trim() === "쿠팡");
   const hasPrice = Number(product?.price || 0) > 0;
   const safePrice = hasPrice ? product!.price : 0;
   const hasRating = Number(product?.rating || 0) > 0 && Number(product?.reviews || 0) > 0;
@@ -265,6 +266,11 @@ export default function V2ProductDetailPage() {
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-3">환율 및 예약 시점에 따라 실제 결제 가격이 달라질 수 있어요.</p>
+            {hasCoupangLink && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+              </p>
+            )}
           </div>
         </div>
       </div>
