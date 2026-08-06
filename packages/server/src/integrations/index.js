@@ -54,46 +54,6 @@ const myrealtripIntegration = {
     return data?.mylink || targetUrl;
   },
 
-  // 검색 결과 선택 시 상세 설명/포함사항/추가 이미지를 채우기 위한 상세 조회.
-  // description 필드가 순수 텍스트가 아니라 <img> 태그가 섞인 HTML이라 여기서 분리해준다.
-  async getProductDetail(externalId) {
-    const detail = await myrealtrip.getTourTicketDetail(externalId);
-    const rawHtml = typeof detail?.description === 'string' ? detail.description : '';
-
-    const images = Array.from(rawHtml.matchAll(/<img[^>]+src="([^"]+)"/g)).map((m) => m[1]);
-
-    const text = rawHtml
-      .replace(/<figure[^>]*>|<\/figure>/g, '')
-      .replace(/<img[^>]*>/g, '')
-      .replace(/<\/p>|<br\s*\/?>/g, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join('\n');
-
-    const decodeEntities = (value) =>
-      value
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
-
-    const included = Array.isArray(detail?.included) ? decodeEntities(detail.included.filter(Boolean).join('\n')) : '';
-    const excluded = Array.isArray(detail?.excluded) ? decodeEntities(detail.excluded.filter(Boolean).join('\n')) : '';
-
-    const descriptionParts = [decodeEntities(text)];
-    if (included) descriptionParts.push(`[포함사항]\n${included}`);
-    if (excluded) descriptionParts.push(`[불포함사항]\n${excluded}`);
-
-    return {
-      description: descriptionParts.filter(Boolean).join('\n\n'),
-      images,
-    };
-  },
-
   // 항공권 전용: 투어/티켓과 API 모양이 달라 공통 규격에는 넣지 않고 별도 메서드로 노출
   async searchFlightAirports(keyword) {
     const data = await myrealtrip.searchFlightAirports(keyword, 10);

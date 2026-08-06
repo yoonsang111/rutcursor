@@ -428,15 +428,4 @@ export const api = {
     const data = await response.json();
     return data.url as string;
   },
-
-  getPartnerProductDetail: async (partner: string, externalId: string) => {
-    const params = new URLSearchParams({ partner, externalId });
-    const response = await fetch(`${API_BASE_URL}/admin/partner-detail?${params.toString()}`);
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || '상세 정보 조회에 실패했습니다');
-    }
-    const data = await response.json();
-    return data as { description: string; images: string[] };
-  },
 };
