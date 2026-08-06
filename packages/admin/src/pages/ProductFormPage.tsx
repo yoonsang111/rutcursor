@@ -6,7 +6,7 @@ import { useLocations } from '../context/LocationContext';
 import { Product, PartnerLink } from '@tourstream/shared';
 import { api } from '../utils/api';
 
-const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴'];
+const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', 'GetYourGuide', '트립닷컴', '쿠팡'];
 
 // API 연동으로 검색 가능한 파트너 목록. 나중에 파트너가 늘어나면 여기에만 추가하면 됨.
 const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }];
