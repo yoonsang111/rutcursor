@@ -22,7 +22,7 @@
     "build:production": "NODE_ENV=production npm run build --workspaces",
     "local-beta:help": "echo \"Local beta API: http://localhost:3102\" && echo \"1) npm run server:start:local-beta\" && echo \"2) npm run main:start:local-beta\" && echo \"3) npm run admin:start:local-beta\"",
     "check": "bash ./scripts/pre-deploy-check.sh",
-    "main:build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api npm run build --workspace=packages/main"
+    "main:build:production": "REACT_APP_API_URL=https://api.tourstream.kr/api npm run build:production --workspace=packages/main"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
