@@ -156,6 +156,26 @@ function buildProductJsonLd(product) {
   return jsonLd;
 }
 
+function buildItemListJsonLd(routePath, products, listName) {
+  const items = products.slice(0, 20).map((product, index) => ({
+    "@type": "ListItem",
+    position: index + 1,
+    url: `${SITE_URL}/product/${product.id}`,
+    name: product.name,
+  }));
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: listName,
+    url: `${SITE_URL}${routePath}`,
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: items,
+    },
+  };
+}
+
 function buildRouteHtml(baseHtml, meta) {
   let html = baseHtml;
   const canonicalUrl = `${SITE_URL}${meta.path}`;
@@ -181,6 +201,13 @@ function buildRouteHtml(baseHtml, meta) {
   // 상품 페이지에 Product JSON-LD 삽입 (크롤러용 - JS 렌더링 전에 보임)
   if (meta.product) {
     const jsonLd = buildProductJsonLd(meta.product);
+    const scriptTag = `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`;
+    html = html.replace("</head>", `  ${scriptTag}\n</head>`);
+  }
+
+  // 목록 페이지(전체/인기/카테고리/국가/지역)에 CollectionPage+ItemList JSON-LD 삽입
+  if (Array.isArray(meta.itemListProducts) && meta.itemListProducts.length > 0) {
+    const jsonLd = buildItemListJsonLd(meta.path, meta.itemListProducts, meta.title);
     const scriptTag = `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`;
     html = html.replace("</head>", `  ${scriptTag}\n</head>`);
   }
@@ -216,12 +243,16 @@ async function main() {
       title: "여행 액티비티·투어·입장권 전체 상품 | TourStream",
       description: "국내·해외여행 액티비티, 투어, 패스, 입장권 전체 상품 목록을 확인하세요. KKday, Klook, 트립닷컴 등 제휴사별 최저가 링크를 비교할 수 있습니다.",
       ogType: "website",
+      itemListProducts: Array.isArray(products) ? products : [],
     },
     {
       path: "/popular",
       title: "인기 여행 액티비티·투어 TOP | TourStream",
       description: "지금 가장 많이 조회된 여행 액티비티, 투어, 입장권 인기 상품을 확인하세요. 실시간 인기 순위 기준으로 정렬됩니다.",
       ogType: "website",
+      itemListProducts: (Array.isArray(products) ? [...products] : []).sort(
+        (a, b) => (Number(b.recentViews7d) || Number(b.views) || 0) - (Number(a.recentViews7d) || Number(a.views) || 0),
+      ),
     },
     {
       path: "/flights",
@@ -260,6 +291,9 @@ async function main() {
       title: `${categoryName || "카테고리"} 액티비티 가격비교 | TourStream`,
       description: `${categoryName || "카테고리"} 관련 국내·해외여행 액티비티와 투어 상품을 한눈에 비교하세요. KKday, Klook 등 제휴사 최저가 링크를 제공합니다.`,
       ogType: "website",
+      itemListProducts: (Array.isArray(products) ? products : []).filter((p) =>
+        Array.isArray(p.categories) && p.categories.includes(categoryName),
+      ),
     });
   }
 
@@ -277,6 +311,9 @@ async function main() {
       title: `${countryName || "국가"} 여행 액티비티·투어 가격비교 | TourStream`,
       description: `${countryName || "국가"} 여행 액티비티, 투어, 입장권을 최저가로 비교하세요. KKday, Klook, 트립닷컴 등 제휴사 최저가 링크를 한눈에 확인할 수 있습니다.`,
       ogType: "website",
+      itemListProducts: (Array.isArray(products) ? products : []).filter((p) =>
+        Array.isArray(p.locations) && p.locations.includes(countryName),
+      ),
     });
 
     // 지역(region) 라우트도 생성 - 실제 클라이언트 라우트는 /region/:slug (국가 하위 경로가 아님)
@@ -294,6 +331,9 @@ async function main() {
         title: `${regionName} 여행 액티비티 가격비교 | TourStream`,
         description: `${countryName ? countryName + " " : ""}${regionName} 여행 액티비티, 투어, 입장권 가격을 비교하세요. 제휴사별 최저가 링크를 제공합니다.`,
         ogType: "website",
+        itemListProducts: (Array.isArray(products) ? products : []).filter((p) =>
+          Array.isArray(p.locations) && p.locations.includes(regionName),
+        ),
       });
     }
   }
