@@ -45,7 +45,14 @@ const myrealtripIntegration = {
       .map((option) => Number(option.salePrice))
       .filter((price) => Number.isFinite(price) && price > 0);
     if (prices.length === 0) return null;
-    const price = Math.min(...prices);
+    // 단순 최저가를 쓰면 마이리얼트립 옵션 중 이름은 비슷한데 가격만 비정상적으로 낮은
+    // 이상치 옵션 하나 때문에 실제 판매가와 동떨어진 가격이 뽑힐 수 있어서,
+    // 옵션들 중 가장 많이 등장하는(가장 대표적인) 가격을 사용한다. 동률이면 더 저렴한 쪽 선택.
+    const counts = new Map();
+    for (const p of prices) {
+      counts.set(p, (counts.get(p) || 0) + 1);
+    }
+    const [price] = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
     return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원` };
   },
 
