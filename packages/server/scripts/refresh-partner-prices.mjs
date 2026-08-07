@@ -27,8 +27,15 @@ if (!Array.isArray(products)) {
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
+// 파트너사 응답 데이터 자체에 섞여있는 이상치 옵션(오탈자/오등록된 가격 등) 때문에
+// 가격이 이전 대비 비정상적으로 급등/급락하면 자동 반영하지 않고 보류한다.
+// (기존 가격의 절반 미만으로 떨어지거나 2배를 넘게 오르면 의심스러운 것으로 간주)
+const SUSPICIOUS_DROP_RATIO = 0.5;
+const SUSPICIOUS_RISE_RATIO = 2;
+
 let refreshed = 0;
 let skipped = 0;
+let flagged = 0;
 let failed = 0;
 
 for (const product of products) {
@@ -53,6 +60,18 @@ for (const product of products) {
         continue;
       }
 
+      const previousPrice = Number(link.price);
+      if (Number.isFinite(previousPrice) && previousPrice > 0) {
+        const ratio = result.price / previousPrice;
+        if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
+          flagged += 1;
+          console.warn(
+            `[refresh-partner-prices] 의심스러운 가격 변동으로 보류 (상품 ${product.id} ${product.name}, ${link.partner}): ${previousPrice.toLocaleString('ko-KR')}원 -> ${result.price.toLocaleString('ko-KR')}원`
+          );
+          continue;
+        }
+      }
+
       link.price = result.price;
       link.priceDisplay = result.priceDisplay;
       link.updatedAt = new Date().toISOString();
@@ -67,4 +86,4 @@ for (const product of products) {
 
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
 
-console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 실패: ${failed}`);
+console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}`);
