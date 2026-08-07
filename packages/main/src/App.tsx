@@ -9,6 +9,7 @@ import V2EventPage from "./v2/pages/V2EventPage";
 import V2CountryPage from "./v2/pages/V2CountryPage";
 import V2RegionPage from "./v2/pages/V2RegionPage";
 import V2CategoryPage from "./v2/pages/V2CategoryPage";
+import V2DestinationPage from "./v2/pages/V2DestinationPage";
 import V2FlightSearchPage from "./v2/pages/V2FlightSearchPage";
 import V2PrivacyPolicyPage from "./v2/pages/V2PrivacyPolicyPage";
 import V2TermsPage from "./v2/pages/V2TermsPage";
@@ -118,6 +119,14 @@ function App() {
           element={
             <LayoutV2>
               <V2CategoryPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="/destination/:region/:category"
+          element={
+            <LayoutV2>
+              <V2DestinationPage />
             </LayoutV2>
           }
         />

@@ -904,6 +904,31 @@ app.get('/sitemap.xml', (req, res) => {
       if (slug) appendUrl(`${baseUrl}/region/${escapeXml(slug)}`, 'weekly', '0.65');
     });
 
+    // 목적지 조합 페이지 (/destination/:region/:category) - 실제 겹치는 상품이 3개 이상인(인덱싱 대상) 조합만 포함
+    // shell 생성 스크립트의 noindex 기준(MIN_PRODUCTS_TO_INDEX=3)과 동일하게 맞춤
+    const MIN_PRODUCTS_TO_INDEX = 3;
+    regions.forEach(region => {
+      const regionName = typeof region === 'string' ? region : String(region?.name || '').trim();
+      if (!regionName) return;
+      const regionSlug = toSlug(regionName);
+      if (!regionSlug) return;
+
+      mainCats.forEach(category => {
+        const categoryName = typeof category === 'string' ? category : String(category?.name || '').trim();
+        if (!categoryName) return;
+        const categorySlug = toSlug(categoryName);
+        if (!categorySlug) return;
+
+        const comboCount = products.filter(p =>
+          Array.isArray(p.locations) && p.locations.includes(regionName) &&
+          Array.isArray(p.categories) && p.categories.includes(categoryName)
+        ).length;
+        if (comboCount < MIN_PRODUCTS_TO_INDEX) return;
+
+        appendUrl(`${baseUrl}/destination/${escapeXml(regionSlug)}/${escapeXml(categorySlug)}`, 'weekly', '0.7');
+      });
+    });
+
     xml += '</urlset>';
     
     res.set('Content-Type', 'application/xml');

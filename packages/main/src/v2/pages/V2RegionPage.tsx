@@ -56,7 +56,7 @@ export default function V2RegionPage() {
       <section className="pb-6">
         <div className="flex flex-wrap gap-2">
           {regionCategories.map((cat) => (
-            <Link key={cat.id} to={`/category/${getCategorySlug(cat)}?region=${encodeURIComponent(getRegionSlug(safeRegionName))}`} className="px-3 py-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors text-xs font-medium text-slate-700">
+            <Link key={cat.id} to={`/destination/${getRegionSlug(safeRegionName)}/${getCategorySlug(cat)}`} className="px-3 py-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors text-xs font-medium text-slate-700">
               {cat.name}
             </Link>
           ))}

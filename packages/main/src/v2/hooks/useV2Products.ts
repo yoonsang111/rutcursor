@@ -18,6 +18,7 @@ type RawProduct = {
   locations?: string[];
   partnerLinks?: RawPartnerLink[];
   images?: string[];
+  tags?: string[];
   price?: number | string;
   minPrice?: number | string;
   salePrice?: number | string;
@@ -471,6 +472,7 @@ function toV2Product(
     image: inferImage(raw),
     url: fallbackUrl,
     partnerLinks: inferPartners(raw, fallbackUrl),
+    tags: (Array.isArray(raw.tags) ? raw.tags : []).map((tag) => String(tag || "").trim()).filter(Boolean),
     isPopular: popularityScore >= 20 || Boolean(raw.isRecommended),
     isRecommended: Boolean(raw.isRecommended),
   };

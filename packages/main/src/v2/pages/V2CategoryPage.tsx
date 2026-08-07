@@ -32,12 +32,13 @@ export default function V2CategoryPage() {
   if (selectedCountry) filteredProducts = filteredProducts.filter((p) => p.countryId === selectedCountry.id);
   if (regionName) filteredProducts = filteredProducts.filter((p) => p.region === regionName);
   if (searchTerm) filteredProducts = filteredProducts.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  const canonicalQuery = selectedCountry
-    ? `?country=${encodeURIComponent(getCountrySlug(selectedCountry))}`
-    : regionName
-      ? `?region=${encodeURIComponent(getRegionSlug(regionName))}`
-      : "";
-  const canonicalPath = `/category/${category ? getCategorySlug(category) : categorySlug || ""}${canonicalQuery}`;
+  // 지역으로 필터링된 경우, /destination/:region/:category 가 정규 URL이므로 그쪽을 canonical로 지정해
+  // 두 URL이 같은 상품 목록을 보여주는 중복 콘텐츠로 잡히지 않도록 한다.
+  const canonicalPath = regionName
+    ? `/destination/${getRegionSlug(regionName)}/${category ? getCategorySlug(category) : categorySlug || ""}`
+    : `/category/${category ? getCategorySlug(category) : categorySlug || ""}${
+        selectedCountry ? `?country=${encodeURIComponent(getCountrySlug(selectedCountry))}` : ""
+      }`;
 
   useV2Seo({
     title: `${safeCategoryName} 카테고리 | TourStream`,

@@ -31,6 +31,7 @@ export interface Product {
   image: string;
   url: string;
   partnerLinks: Array<{ name: string; url: string; price?: number; priceDisplay?: string }>;
+  tags: string[];
   isPopular: boolean;
   isRecommended: boolean;
 }

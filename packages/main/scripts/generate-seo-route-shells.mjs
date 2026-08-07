@@ -89,9 +89,21 @@ function upsertTag(html, regex, tag) {
   return html.replace("</head>", `  ${tag}\n</head>`);
 }
 
+function resolvePrice(product) {
+  // 상품 대부분이 최상위 price/minPrice/salePrice가 비어있고 실제 가격은 partnerLinks[].price에만 있음
+  // (실제 상품 상세 페이지/최저가 정렬도 partnerLinks 최저가 기준이므로 동일하게 맞춤).
+  const partnerPrices = (Array.isArray(product.partnerLinks) ? product.partnerLinks : [])
+    .map((link) => Number(link.price))
+    .filter((p) => Number.isFinite(p) && p > 0);
+  if (partnerPrices.length > 0) return Math.min(...partnerPrices);
+
+  const price = product.price ?? product.minPrice ?? product.salePrice ?? null;
+  return price != null && Number(price) > 0 ? Number(price) : Infinity;
+}
+
 function buildProductJsonLd(product) {
-  const productPrice = product.price ?? product.minPrice ?? product.salePrice ?? null;
-  const safePrice = (productPrice != null && Number(productPrice) > 0) ? productPrice : 0;
+  const resolvedPrice = resolvePrice(product);
+  const safePrice = Number.isFinite(resolvedPrice) ? resolvedPrice : 0;
   const productImage = (Array.isArray(product.images) && product.images[0]) || product.image || null;
   const description = product.description
     ? product.description.slice(0, 200)
@@ -156,13 +168,36 @@ function buildProductJsonLd(product) {
   return jsonLd;
 }
 
-function buildItemListJsonLd(routePath, products, listName) {
-  const items = products.slice(0, 20).map((product, index) => ({
-    "@type": "ListItem",
-    position: index + 1,
-    url: `${SITE_URL}/product/${product.id}`,
-    name: product.name,
-  }));
+function buildItemListJsonLd(routePath, products, listName, options = {}) {
+  const { includeOffers = false } = options;
+
+  const items = products.slice(0, 20).map((product, index) => {
+    const item = {
+      "@type": "ListItem",
+      position: index + 1,
+      url: `${SITE_URL}/product/${product.id}`,
+      name: product.name,
+    };
+
+    if (includeOffers) {
+      const price = resolvePrice(product);
+      if (Number.isFinite(price)) {
+        item.item = {
+          "@type": "Product",
+          name: product.name,
+          url: `${SITE_URL}/product/${product.id}`,
+          offers: {
+            "@type": "Offer",
+            price,
+            priceCurrency: "KRW",
+            url: `${SITE_URL}/product/${product.id}`,
+          },
+        };
+      }
+    }
+
+    return item;
+  });
 
   return {
     "@context": "https://schema.org",
@@ -174,6 +209,40 @@ function buildItemListJsonLd(routePath, products, listName) {
       itemListElement: items,
     },
   };
+}
+
+// 조합 페이지들끼리 설명 문구가 판박이가 되지 않도록, 해당 조합 상품들의 tags 중
+// 전체 상품 기준으로 너무 흔한(변별력 없는) 태그는 제외하고 이 조합에서 두드러지는 태그 1~2개를 고른다.
+function pickDistinctiveTags(comboProducts, allProducts) {
+  const totalCount = allProducts.length || 1;
+  const globalCounts = new Map();
+  allProducts.forEach((product) => {
+    const seen = new Set(Array.isArray(product.tags) ? product.tags : []);
+    seen.forEach((tag) => {
+      const trimmed = String(tag || "").trim();
+      if (!trimmed) return;
+      globalCounts.set(trimmed, (globalCounts.get(trimmed) || 0) + 1);
+    });
+  });
+  const genericTags = new Set(
+    Array.from(globalCounts.entries())
+      .filter(([, count]) => count / totalCount > 0.3)
+      .map(([tag]) => tag),
+  );
+
+  const localCounts = new Map();
+  comboProducts.forEach((product) => {
+    (Array.isArray(product.tags) ? product.tags : []).forEach((tag) => {
+      const trimmed = String(tag || "").trim();
+      if (!trimmed || genericTags.has(trimmed)) return;
+      localCounts.set(trimmed, (localCounts.get(trimmed) || 0) + 1);
+    });
+  });
+
+  return Array.from(localCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([tag]) => tag);
 }
 
 function buildRouteHtml(baseHtml, meta) {
@@ -197,6 +266,7 @@ function buildRouteHtml(baseHtml, meta) {
     `<meta name="twitter:description" content="${meta.description}" />`,
   );
   html = upsertTag(html, /<link[^>]*rel=["']canonical["'][^>]*>/i, `<link rel="canonical" href="${canonicalUrl}" />`);
+  html = upsertTag(html, /<meta[^>]*name=["']robots["'][^>]*>/i, `<meta name="robots" content="${meta.robots || "index, follow"}" />`);
 
   // 상품 페이지에 Product JSON-LD 삽입 (크롤러용 - JS 렌더링 전에 보임)
   if (meta.product) {
@@ -205,9 +275,11 @@ function buildRouteHtml(baseHtml, meta) {
     html = html.replace("</head>", `  ${scriptTag}\n</head>`);
   }
 
-  // 목록 페이지(전체/인기/카테고리/국가/지역)에 CollectionPage+ItemList JSON-LD 삽입
+  // 목록 페이지(전체/인기/카테고리/국가/지역/목적지 조합)에 CollectionPage+ItemList JSON-LD 삽입
   if (Array.isArray(meta.itemListProducts) && meta.itemListProducts.length > 0) {
-    const jsonLd = buildItemListJsonLd(meta.path, meta.itemListProducts, meta.title);
+    const jsonLd = buildItemListJsonLd(meta.path, meta.itemListProducts, meta.title, {
+      includeOffers: Boolean(meta.itemListIncludeOffers),
+    });
     const scriptTag = `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`;
     html = html.replace("</head>", `  ${scriptTag}\n</head>`);
   }
@@ -334,6 +406,42 @@ async function main() {
         itemListProducts: (Array.isArray(products) ? products : []).filter((p) =>
           Array.isArray(p.locations) && p.locations.includes(regionName),
         ),
+      });
+    }
+  }
+
+  // 프로그래매틱 SEO 랜딩페이지: 지역 × 카테고리 조합. 실제 겹치는 상품이 1개 이상인 조합만 페이지를 만들고,
+  // 3개 미만인 조합은 저품질 인덱싱을 막기 위해 noindex로 생성한다 (페이지 자체는 만들어서 내부링크는 살아있게 함).
+  const MIN_PRODUCTS_TO_INDEX = 3;
+  const allProducts = Array.isArray(products) ? products : [];
+  for (const region of regions) {
+    const regionName = typeof region === "string" ? region : region?.name || "";
+    if (!regionName) continue;
+    const regionSlug = toSlug(regionName);
+
+    for (const category of mainCategories) {
+      const categoryName = typeof category === "string" ? category : category?.name || "";
+      if (!categoryName) continue;
+      const categorySlug = toSlug(categoryName);
+
+      const comboProducts = allProducts.filter(
+        (p) => Array.isArray(p.locations) && p.locations.includes(regionName) && Array.isArray(p.categories) && p.categories.includes(categoryName),
+      );
+      if (comboProducts.length === 0) continue;
+
+      const distinctiveTags = pickDistinctiveTags(comboProducts, allProducts);
+      const baseDesc = `${regionName} ${categoryName} 상품 ${comboProducts.length}개를 최저가순으로 비교하세요.`;
+      const description =
+        distinctiveTags.length > 0 ? `${baseDesc} ${distinctiveTags.join(", ")} 등 인기 옵션도 함께 확인할 수 있어요.` : baseDesc;
+
+      routes.push({
+        path: `/destination/${regionSlug}/${categorySlug}`,
+        title: `${regionName} ${categoryName} 가격비교 | TourStream`,
+        description,
+        ogType: "website",
+        robots: comboProducts.length < MIN_PRODUCTS_TO_INDEX ? "noindex, follow" : "index, follow",
+        itemListProducts: [...comboProducts].sort((a, b) => resolvePrice(a) - resolvePrice(b)),
+        itemListIncludeOffers: true,
       });
     }
   }
