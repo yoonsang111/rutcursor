@@ -39,13 +39,18 @@ export default function V2DestinationPage() {
     return Array.from(names);
   }, [items, category, regionName]);
 
-  const title = `${regionName || "지역"} ${category?.name || "카테고리"} 가격비교 | TourStream`;
+  const priceLabel = products.length > 0 && products[0].price > 0 ? `${products[0].price.toLocaleString("ko-KR")}원` : null;
+  const title = priceLabel
+    ? `${regionName || "지역"} ${category?.name || "카테고리"} 최저 ${priceLabel}부터 | TourStream`
+    : `${regionName || "지역"} ${category?.name || "카테고리"} 가격비교 | TourStream`;
   const description = React.useMemo(() => {
-    const base = `${regionName || "지역"} ${category?.name || "카테고리"} 상품 ${products.length}개를 최저가순으로 비교하세요.`;
+    const base = `${regionName || "지역"} ${category?.name || "카테고리"} 상품 ${products.length}개${
+      priceLabel ? `, 최저 ${priceLabel}부터` : ""
+    } 최저가순으로 비교하세요.`;
     const distinctiveTags = pickDistinctiveTags(products);
     if (distinctiveTags.length === 0) return base;
     return `${base} ${distinctiveTags.join(", ")} 등 인기 옵션도 함께 확인할 수 있어요.`;
-  }, [regionName, category, products]);
+  }, [regionName, category, products, priceLabel]);
 
   useV2Seo({
     title,

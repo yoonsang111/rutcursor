@@ -54,9 +54,16 @@ export default function V2CountryPage() {
     setSearchParams(next, { replace: true });
   };
 
+  const countryMinPrice = filteredProducts.length > 0 ? Math.min(...filteredProducts.map((p) => p.price || Infinity)) : Infinity;
+  const countryPriceLabel = Number.isFinite(countryMinPrice) ? `${countryMinPrice.toLocaleString("ko-KR")}원` : null;
+
   useV2Seo({
-    title: `${safeCountryName} 여행 상품 | TourStream`,
-    description: `${safeCountryName}의 여행 상품 ${filteredProducts.length}개를 확인하고 최저가를 비교해보세요.`,
+    title: countryPriceLabel
+      ? `${safeCountryName} 최저 ${countryPriceLabel}부터 | 가격비교 TourStream`
+      : `${safeCountryName} 여행 상품 | TourStream`,
+    description: `${safeCountryName} 상품 ${filteredProducts.length}개${
+      countryPriceLabel ? `, 최저 ${countryPriceLabel}부터` : ""
+    } 비교해보세요.`,
     canonicalPath,
     ogType: "website",
     ogImage: country?.image,

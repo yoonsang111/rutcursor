@@ -35,6 +35,13 @@ export default function V2ProductDetailPage() {
   const canonicalPath = `/product/${id || ""}`;
   const safeName = product?.name || "상품";
   const safeDescription = product?.description || "상품 상세 정보 페이지입니다.";
+  const priceLabel = hasPrice ? `${safePrice.toLocaleString("ko-KR")}원` : null;
+  const seoTitle = priceLabel ? `${safeName} 최저가 ${priceLabel} | TourStream` : `${safeName} 가격비교 | TourStream`;
+  const seoDescription = priceLabel
+    ? `${safeDescription.slice(0, 90)} 최저 ${priceLabel}부터${
+        partnerLinks.length >= 2 ? `, 파트너사 ${partnerLinks.length}곳` : ""
+      } 가격을 비교해보세요.`.slice(0, 155)
+    : safeDescription.slice(0, 140);
 
   const returnPolicy = {
     "@type": "MerchantReturnPolicy",
@@ -57,8 +64,8 @@ export default function V2ProductDetailPage() {
   };
 
   useV2Seo({
-    title: `${safeName} 가격비교 | TourStream`,
-    description: safeDescription.slice(0, 140),
+    title: seoTitle,
+    description: seoDescription,
     canonicalPath,
     ogType: "product",
     ogImage: product?.image,

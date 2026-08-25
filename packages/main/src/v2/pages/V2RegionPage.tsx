@@ -22,9 +22,16 @@ export default function V2RegionPage() {
   const regionHeroImage = getRegionImage(resolvedCountry?.id, safeRegionName) || regionProducts[0]?.image;
   const canonicalPath = `/region/${getRegionSlug(safeRegionName)}${resolvedCountry ? `?country=${encodeURIComponent(getCountrySlug(resolvedCountry))}` : ""}`;
 
+  const regionMinPrice = regionProducts.length > 0 ? Math.min(...regionProducts.map((p) => p.price || Infinity)) : Infinity;
+  const regionPriceLabel = Number.isFinite(regionMinPrice) ? `${regionMinPrice.toLocaleString("ko-KR")}원` : null;
+
   useV2Seo({
-    title: `${safeRegionName} 지역 여행 상품 | TourStream`,
-    description: `${safeRegionName} 지역의 여행 상품 ${regionProducts.length}개를 확인해보세요.`,
+    title: regionPriceLabel
+      ? `${safeRegionName} 최저 ${regionPriceLabel}부터 | 가격비교 TourStream`
+      : `${safeRegionName} 지역 여행 상품 | TourStream`,
+    description: `${safeRegionName} 상품 ${regionProducts.length}개${
+      regionPriceLabel ? `, 최저 ${regionPriceLabel}부터` : ""
+    } 비교해보세요.`,
     canonicalPath,
     ogType: "website",
     ogImage: regionHeroImage,
