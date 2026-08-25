@@ -37,12 +37,9 @@ let refreshed = 0;
 let skipped = 0;
 let flagged = 0;
 let failed = 0;
-let ratingsRefreshed = 0;
 
 for (const product of products) {
   const links = Array.isArray(product.partnerLinks) ? product.partnerLinks : [];
-  let ratingDone = false; // 상품 하나에 같은 파트너 링크가 여러 개여도 평점은 한 번만 갱신
-
   for (const link of links) {
     if (link.source !== 'api' || !link.externalId) continue;
 
@@ -53,64 +50,40 @@ for (const product of products) {
       continue;
     }
 
-    const integration = getPartnerIntegration(partnerKey);
-
     try {
+      const integration = getPartnerIntegration(partnerKey);
       const result = await integration.refreshPrice(link.externalId);
       await sleep(CALL_INTERVAL_MS);
 
       if (!result) {
         skipped += 1;
-      } else {
-        const previousPrice = Number(link.price);
-        if (Number.isFinite(previousPrice) && previousPrice > 0) {
-          const ratio = result.price / previousPrice;
-          if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
-            flagged += 1;
-            console.warn(
-              `[refresh-partner-prices] 의심스러운 가격 변동으로 보류 (상품 ${product.id} ${product.name}, ${link.partner}): ${previousPrice.toLocaleString('ko-KR')}원 -> ${result.price.toLocaleString('ko-KR')}원`
-            );
-          } else {
-            link.price = result.price;
-            link.priceDisplay = result.priceDisplay;
-            link.updatedAt = new Date().toISOString();
-            refreshed += 1;
-            console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
-          }
-        } else {
-          link.price = result.price;
-          link.priceDisplay = result.priceDisplay;
-          link.updatedAt = new Date().toISOString();
-          refreshed += 1;
-          console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
+        continue;
+      }
+
+      const previousPrice = Number(link.price);
+      if (Number.isFinite(previousPrice) && previousPrice > 0) {
+        const ratio = result.price / previousPrice;
+        if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
+          flagged += 1;
+          console.warn(
+            `[refresh-partner-prices] 의심스러운 가격 변동으로 보류 (상품 ${product.id} ${product.name}, ${link.partner}): ${previousPrice.toLocaleString('ko-KR')}원 -> ${result.price.toLocaleString('ko-KR')}원`
+          );
+          continue;
         }
       }
+
+      link.price = result.price;
+      link.priceDisplay = result.priceDisplay;
+      link.updatedAt = new Date().toISOString();
+      refreshed += 1;
+      console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
     } catch (error) {
       failed += 1;
-      console.error(`[refresh-partner-prices] 가격 갱신 실패 (상품 ${product.id}, ${link.partner}):`, error.message);
-    }
-
-    // 평점/리뷰수 갱신 (지원하는 파트너만, 상품당 1회)
-    if (!ratingDone && typeof integration.refreshRating === 'function') {
-      try {
-        const ratingResult = await integration.refreshRating(link.externalId);
-        await sleep(CALL_INTERVAL_MS);
-        ratingDone = true;
-        if (ratingResult) {
-          product.rating = ratingResult.rating;
-          product.reviewCount = ratingResult.reviewCount;
-          ratingsRefreshed += 1;
-          console.log(`[refresh-partner-prices] ${product.id} ${product.name} - 평점: ${ratingResult.rating} (${ratingResult.reviewCount}개)`);
-        }
-      } catch (error) {
-        console.error(`[refresh-partner-prices] 평점 갱신 실패 (상품 ${product.id}, ${link.partner}):`, error.message);
-      }
+      console.error(`[refresh-partner-prices] 갱신 실패 (상품 ${product.id}, ${link.partner}):`, error.message);
     }
   }
 }
 
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
 
-console.log(
-  `[refresh-partner-prices] 완료 - 가격 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}, 평점 갱신: ${ratingsRefreshed}`
-);
+console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}`);
