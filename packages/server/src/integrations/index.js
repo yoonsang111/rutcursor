@@ -15,6 +15,7 @@
 //     reviewCount?: number,
 //   }>>
 //   refreshPrice(externalId) -> Promise<{ price: number, priceDisplay: string } | null>
+//   refreshRating(externalId) -> Promise<{ rating: number, reviewCount: number } | null>  (선택)
 //   createTrackedLink(targetUrl) -> Promise<string>  (선택. 어필리에이트 단축링크 생성)
 
 import * as myrealtrip from './myrealtrip.js';
@@ -59,6 +60,14 @@ const myrealtripIntegration = {
   async createTrackedLink(targetUrl) {
     const data = await myrealtrip.createMyLink(targetUrl);
     return data?.mylink || targetUrl;
+  },
+
+  async refreshRating(externalId) {
+    const detail = await myrealtrip.getTourTicketDetail(externalId);
+    const rating = Number(detail?.reviewScore);
+    const reviewCount = Number(detail?.reviewCount);
+    if (!Number.isFinite(rating) || rating <= 0 || !Number.isFinite(reviewCount) || reviewCount <= 0) return null;
+    return { rating: Math.round(rating * 10) / 10, reviewCount };
   },
 
   // 항공권 전용: 투어/티켓과 API 모양이 달라 공통 규격에는 넣지 않고 별도 메서드로 노출
