@@ -53,6 +53,7 @@ function buildFormStateFromProduct(product: Product) {
     description: product.description || '',
     price: product.price !== undefined ? String(product.price) : '',
     rating: product.rating !== undefined ? String(product.rating) : '',
+    reviewCount: product.reviewCount !== undefined ? String(product.reviewCount) : '',
     images: images.length > 0 ? images : [''],
     categories,
     locations,
@@ -80,6 +81,7 @@ export default function ProductFormPage() {
     description: '',
     price: '',
     rating: '',
+    reviewCount: '',
     images: [''],
     categories: [] as string[],
     locations: [] as string[],
@@ -147,6 +149,7 @@ export default function ProductFormPage() {
       description: formData.description,
       price: parseOptionalNumber(formData.price),
       rating: parseOptionalNumber(formData.rating),
+      reviewCount: parseOptionalNumber(formData.reviewCount),
       images: formData.images.filter(img => img.trim() !== ''),
       categories: formData.categories,
       locations: formData.locations,
@@ -361,7 +364,7 @@ export default function ProductFormPage() {
         </div>
 
         {/* 가격/평점 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2">
               대표 가격 (원)
@@ -390,6 +393,21 @@ export default function ProductFormPage() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="예: 4.8"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">
+              리뷰 수 (선택)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={formData.reviewCount}
+              onChange={(e) => setFormData({ ...formData, reviewCount: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="예: 186"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">평점을 입력하려면 리뷰 수도 함께 입력해야 화면에 표시돼요.</p>
           </div>
         </div>
 
