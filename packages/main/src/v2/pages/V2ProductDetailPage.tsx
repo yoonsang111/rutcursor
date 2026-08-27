@@ -1,6 +1,6 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { Share, Heart, MapPin, ArrowUpRight, Zap } from "lucide-react";
+import { Share, Heart, MapPin, ArrowUpRight, Zap, Star } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
@@ -198,6 +198,13 @@ export default function V2ProductDetailPage() {
                 <MapPin className="w-3.5 h-3.5" />
                 {country?.name || "국가 미지정"}
               </div>
+              {hasRating && (
+                <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  {product!.rating.toFixed(1)}
+                  <span className="font-medium text-slate-400">({product!.reviews.toLocaleString("ko-KR")})</span>
+                </div>
+              )}
             </div>
 
             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-snug mb-4 tracking-tight">{product.name}</h1>
