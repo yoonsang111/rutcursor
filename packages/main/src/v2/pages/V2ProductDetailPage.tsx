@@ -2,6 +2,7 @@ import React from "react";
 import { useParams, Link } from "react-router-dom";
 import { Share, Heart, MapPin, ArrowUpRight, Zap, Star } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
+import { useFavorites } from "../hooks/useFavorites";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import { trackEvent } from "../../utils/analytics";
@@ -12,7 +13,9 @@ const VIEW_STORAGE_PREFIX = "tourstream_v2_view_";
 export default function V2ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { byId, countries, categories, incrementProductView, loading } = useV2Products();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const product = id ? byId.get(id) : null;
+  const favorited = id ? isFavorite(id) : false;
   const country = countries.find((c) => c.id === product?.countryId);
   const category = categories.find((c) => c.id === product?.categoryId);
   const partnerLinks = product?.partnerLinks.length ? product.partnerLinks : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
@@ -185,8 +188,14 @@ export default function V2ProductDetailPage() {
               <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-brand transition-colors shadow-md">
                 <Share className="w-4 h-4" />
               </button>
-              <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-rose-500 transition-colors shadow-md">
-                <Heart className="w-4 h-4" />
+              <button
+                onClick={() => id && toggleFavorite(id)}
+                aria-label={favorited ? "찜 해제" : "찜하기"}
+                className={`w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center transition-colors shadow-md ${
+                  favorited ? "text-rose-500" : "text-slate-700 hover:text-rose-500"
+                } hover:bg-white`}
+              >
+                <Heart className={`w-4 h-4 ${favorited ? "fill-rose-500" : ""}`} />
               </button>
             </div>
           </div>

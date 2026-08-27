@@ -10,6 +10,7 @@ import V2CountryPage from "./v2/pages/V2CountryPage";
 import V2RegionPage from "./v2/pages/V2RegionPage";
 import V2CategoryPage from "./v2/pages/V2CategoryPage";
 import V2DestinationPage from "./v2/pages/V2DestinationPage";
+import V2FavoritesPage from "./v2/pages/V2FavoritesPage";
 import V2FlightSearchPage from "./v2/pages/V2FlightSearchPage";
 import V2PrivacyPolicyPage from "./v2/pages/V2PrivacyPolicyPage";
 import V2TermsPage from "./v2/pages/V2TermsPage";
@@ -135,6 +136,14 @@ function App() {
           element={
             <LayoutV2>
               <V2FlightSearchPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="/favorites"
+          element={
+            <LayoutV2>
+              <V2FavoritesPage />
             </LayoutV2>
           }
         />
