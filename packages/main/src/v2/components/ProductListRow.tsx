@@ -39,6 +39,7 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
             <span className="flex items-center gap-0.5 font-bold text-slate-700">
               <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
               {product.rating.toFixed(1)}
+              <span className="font-medium text-slate-400">({product.reviews.toLocaleString("ko-KR")})</span>
             </span>
           )}
           {locationLabel && <span>{locationLabel}</span>}
