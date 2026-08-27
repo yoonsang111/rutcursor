@@ -803,7 +803,8 @@ app.get('/api/counter', (req, res) => {
 // 동적 Sitemap 생성
 app.get('/sitemap.xml', (req, res) => {
   try {
-    const products = readProducts();
+    // isAvailable(관리자의 "활성화" 토글)이 false인 상품은 sitemap에서 제외
+    const products = readProducts().filter((p) => p.isAvailable !== false);
     const categoriesFile = path.join(DATA_DIR, 'categories.json');
     const locationsFile = path.join(DATA_DIR, 'locations.json');
     

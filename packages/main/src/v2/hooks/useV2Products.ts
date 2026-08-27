@@ -485,8 +485,11 @@ async function runV2ProductsFetch(): Promise<CachedV2Data> {
     api.getLocations(),
   ]);
 
+  // isAvailable(관리자의 "활성화" 토글)이 false인 상품은 공개 사이트에서 완전히 숨김
   const rawProducts =
-    productsResult.status === "fulfilled" && Array.isArray(productsResult.value) ? (productsResult.value as RawProduct[]) : [];
+    productsResult.status === "fulfilled" && Array.isArray(productsResult.value)
+      ? (productsResult.value as RawProduct[]).filter((p) => p.isAvailable !== false)
+      : [];
 
   const rawCategories =
     categoriesResult.status === "fulfilled"

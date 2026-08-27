@@ -299,7 +299,8 @@ async function fetchJson(pathname, fallback) {
 
 async function main() {
   const baseHtml = await fs.readFile(indexPath, "utf8");
-  const products = await fetchJson("/products", []);
+  // isAvailable(관리자의 "활성화" 토글)이 false인 상품은 공개 사이트/크롤러 모두에서 숨김
+  const products = (await fetchJson("/products", [])).filter((p) => p.isAvailable !== false);
   const categoriesRes = await fetchJson("/categories", { mainCategories: [] });
   const locationsRes = await fetchJson("/locations", { countries: [] });
 
