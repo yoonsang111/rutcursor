@@ -16,6 +16,27 @@ export default function V2ProductDetailPage() {
   const { isFavorite, toggleFavorite } = useFavorites();
   const product = id ? byId.get(id) : null;
   const favorited = id ? isFavorite(id) : false;
+  const [shareCopied, setShareCopied] = React.useState(false);
+
+  const handleShare = async () => {
+    const shareUrl = `https://tourstream.kr/product/${id || ""}`;
+    const shareData = { title: product?.name || "TourStream", url: shareUrl };
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch {
+        return; // 공유 취소 등은 무시
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // clipboard 접근 실패 시 조용히 무시
+    }
+  };
   const country = countries.find((c) => c.id === product?.countryId);
   const category = categories.find((c) => c.id === product?.categoryId);
   const partnerLinks = product?.partnerLinks.length ? product.partnerLinks : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
@@ -185,8 +206,17 @@ export default function V2ProductDetailPage() {
           <div className="relative w-full h-[280px] md:h-[400px] md:rounded-3xl overflow-hidden mb-6 shadow-sm">
             <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
             <div className="absolute top-4 right-4 flex gap-2">
-              <button className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-brand transition-colors shadow-md">
+              <button
+                onClick={handleShare}
+                aria-label="공유하기"
+                className="relative w-10 h-10 rounded-full bg-white/80 backdrop-blur-md flex items-center justify-center text-slate-700 hover:bg-white hover:text-brand transition-colors shadow-md"
+              >
                 <Share className="w-4 h-4" />
+                {shareCopied && (
+                  <span className="absolute top-11 right-0 whitespace-nowrap bg-slate-900 text-white text-[11px] px-2 py-1 rounded-md shadow-md">
+                    링크 복사됨
+                  </span>
+                )}
               </button>
               <button
                 onClick={() => id && toggleFavorite(id)}
@@ -289,6 +319,7 @@ export default function V2ProductDetailPage() {
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-3">환율 및 예약 시점에 따라 실제 결제 가격이 달라질 수 있어요.</p>
+            <p className="text-[11px] text-slate-400 mt-1">파트너사 링크를 통해 예약 시 TourStream이 일정 수수료를 받을 수 있습니다.</p>
             {hasCoupangLink && (
               <p className="text-[11px] text-slate-400 mt-1">
                 이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
