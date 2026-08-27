@@ -49,7 +49,8 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
         </div>
       </Link>
 
-      <div className="flex-1 flex gap-2 overflow-x-auto hide-scrollbar py-0.5 order-3 md:order-none w-full md:w-auto">
+      <div className="relative flex-1 order-3 md:order-none w-full md:w-auto">
+      <div className="flex gap-2 overflow-x-auto hide-scrollbar py-0.5">
         {visibleLinks.length === 0 && (
           <span className="flex-shrink-0 text-xs font-medium text-slate-400 px-1 py-1.5">가격 확인 필요</span>
         )}
@@ -86,6 +87,10 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
         {extraCount > 0 && (
           <span className="flex-shrink-0 flex items-center px-2 text-xs font-bold text-slate-400">+{extraCount}곳</span>
         )}
+      </div>
+      {visibleLinks.length >= 2 && (
+        <div className="pointer-events-none absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent md:hidden" />
+      )}
       </div>
 
       <Link

@@ -258,7 +258,10 @@ export default function V2ProductDetailPage() {
         </div>
 
         <div className="lg:w-[320px] shrink-0">
-          <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 lg:sticky lg:top-28 lg:bg-white lg:border lg:rounded-3xl lg:shadow-xl lg:p-6 lg:z-10">
+          <div
+            id="price-compare"
+            className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mx-5 md:mx-0 lg:sticky lg:top-28 lg:rounded-3xl lg:shadow-xl lg:p-6"
+          >
             <div className="flex justify-between items-end mb-4 gap-3">
               <div className="flex flex-col">
                 <div className="text-brand text-xs font-bold mb-1 flex items-center gap-1">
@@ -327,6 +330,21 @@ export default function V2ProductDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 flex items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <div className="text-[11px] text-slate-400">최근 갱신 최저가</div>
+          <div className="text-lg font-extrabold text-slate-900 tracking-tight">
+            {hasPrice ? `${product.price.toLocaleString()}원~` : "가격 확인 필요"}
+          </div>
+        </div>
+        <button
+          onClick={() => document.getElementById("price-compare")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="shrink-0 px-5 py-3 rounded-xl bg-slate-900 text-white font-bold text-sm"
+        >
+          가격 비교하기
+        </button>
       </div>
     </div>
   );
