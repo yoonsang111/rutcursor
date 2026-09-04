@@ -12,7 +12,7 @@ export default function V2CategoryPage() {
   const countrySlug = searchParams.get("country");
   const regionSlug = searchParams.get("region");
   const [searchTerm, setSearchTerm] = useState("");
-  const { items, categories, countries } = useV2Products();
+  const { items, categories, countries, loading } = useV2Products();
   const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
   const category = findCategoryBySlug(categories, categorySlug);
@@ -53,6 +53,8 @@ export default function V2CategoryPage() {
     canonicalPath,
     ogType: "website",
     ogImage: filteredProducts[0]?.image,
+    // 없는 카테고리이거나 상품이 0개면 soft 404로 잡히므로 noindex
+    robots: !loading && (!category || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
     jsonLd: [
       {
         "@context": "https://schema.org",

@@ -93,6 +93,8 @@ export default function V2ProductDetailPage() {
     canonicalPath,
     ogType: "product",
     ogImage: product?.image,
+    // 삭제/비활성화된 상품은 200을 주면서 "찾을 수 없습니다"만 보여주게 되어 soft 404로 잡히므로 noindex
+    robots: !loading && !product ? "noindex, follow" : "index, follow",
     jsonLd: [
       {
         "@context": "https://schema.org",

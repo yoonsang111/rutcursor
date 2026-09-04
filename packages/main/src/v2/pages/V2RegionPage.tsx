@@ -9,7 +9,7 @@ export default function V2RegionPage() {
   const { name: regionSlug } = useParams<{ name: string }>();
   const [searchParams] = useSearchParams();
   const countrySlug = searchParams.get("country");
-  const { items, countries, categories, getRegionImage } = useV2Products();
+  const { items, countries, categories, getRegionImage, loading } = useV2Products();
   const country = findCountryBySlug(countries, countrySlug);
   const resolvedRegionName = findRegionNameBySlug(countries, regionSlug, countrySlug);
   const fallbackRegionName = (regionSlug || "").trim();
@@ -35,6 +35,8 @@ export default function V2RegionPage() {
     canonicalPath,
     ogType: "website",
     ogImage: regionHeroImage,
+    // 상품이 0개인 지역 페이지는 soft 404로 잡히므로 noindex
+    robots: !loading && regionProducts.length === 0 ? "noindex, follow" : "index, follow",
     jsonLd: [
       {
         "@context": "https://schema.org",

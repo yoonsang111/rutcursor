@@ -9,6 +9,8 @@ export default function V2NotFoundPage() {
     description: "요청하신 페이지를 찾을 수 없습니다.",
     canonicalPath: "/404",
     ogType: "website",
+    // 정적 호스팅이라 실제 404 상태코드를 줄 수 없어서, 검색엔진이 soft 404로 잡지 않도록 noindex 처리
+    robots: "noindex, follow",
   });
 
   return (

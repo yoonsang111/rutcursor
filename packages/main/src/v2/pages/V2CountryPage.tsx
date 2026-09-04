@@ -9,7 +9,7 @@ import { findCountryBySlug, getCategorySlug, getCountrySlug, getRegionSlug } fro
 export default function V2CountryPage() {
   const { id: countrySlug } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { items, countries, categories } = useV2Products();
+  const { items, countries, categories, loading } = useV2Products();
   const [keyword, setKeyword] = useState("");
   const country = findCountryBySlug(countries, countrySlug);
   const rawRegionParam = (searchParams.get("region") || "").trim().toLowerCase();
@@ -67,6 +67,8 @@ export default function V2CountryPage() {
     canonicalPath,
     ogType: "website",
     ogImage: country?.image,
+    // 없는 국가이거나 상품이 0개면 soft 404로 잡히므로 noindex
+    robots: !loading && (!country || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
     jsonLd: [
       {
         "@context": "https://schema.org",
