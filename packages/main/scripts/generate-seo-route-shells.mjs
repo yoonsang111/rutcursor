@@ -307,21 +307,21 @@ async function main() {
   const routes = [
     {
       path: "/",
-      title: "국내여행, 해외여행 액티비티·입장권 가격비교 | TourStream",
-      description: "국내여행·해외여행 액티비티, 투어, 패스, 입장권 가격을 한 번에 비교하세요. 제휴사별 최저가 링크와 인기 상품을 빠르게 확인할 수 있습니다.",
+      title: "일본·해외 입장권 교통패스 최저가 비교 | 클룩·마이리얼트립·KKday | TourStream",
+      description: "오사카·도쿄 등 일본 여행 입장권부터 교통패스·전망대·테마파크까지, 클룩·마이리얼트립·KKday 가격을 한 번에 비교하고 최저가로 예약하세요.",
       ogType: "website",
     },
     {
       path: "/products",
-      title: "여행 액티비티·투어·입장권 전체 상품 | TourStream",
-      description: "국내·해외여행 액티비티, 투어, 패스, 입장권 전체 상품 목록을 확인하세요. KKday, Klook, 트립닷컴 등 제휴사별 최저가 링크를 비교할 수 있습니다.",
+      title: "해외여행 입장권·교통패스 전체 상품 | TourStream",
+      description: "일본·대만·싱가포르 등 해외여행 입장권, 교통패스, 전망대, 테마파크 상품을 한눈에. 클룩·마이리얼트립·KKday 등 제휴사별 최저가를 비교하세요.",
       ogType: "website",
       itemListProducts: Array.isArray(products) ? products : [],
     },
     {
       path: "/popular",
-      title: "인기 여행 액티비티·투어 TOP | TourStream",
-      description: "지금 가장 많이 조회된 여행 액티비티, 투어, 입장권 인기 상품을 확인하세요. 실시간 인기 순위 기준으로 정렬됩니다.",
+      title: "인기 해외여행 입장권·패스 TOP | TourStream",
+      description: "지금 가장 많이 조회된 해외여행 입장권, 교통패스, 테마파크 인기 상품을 확인하고 클룩·마이리얼트립·KKday 최저가를 비교하세요.",
       ogType: "website",
       itemListProducts: (Array.isArray(products) ? [...products] : []).sort(
         (a, b) => (Number(b.recentViews7d) || Number(b.views) || 0) - (Number(a.recentViews7d) || Number(a.views) || 0),
