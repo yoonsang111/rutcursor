@@ -49,9 +49,39 @@
     "date": "2026-09-10",
     "source": "web-blog-signal",
     "items": [
-      { "name": "프라하성 입장권 (Circuit B)", "destination": "프라하, 체코" },
-      { "name": "블루라군 온천 입장권", "destination": "레이캬비크, 아이슬란드" },
-      { "name": "기자 피라미드 & 스핑크스 입장권", "destination": "기자/카이로, 이집트" }
+      {
+        "name": "프라하성 입장권 (Circuit B)",
+        "destination": "프라하, 체코",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/3867153",
+          "klook": "https://www.klook.com/ko/activity/158213-prague-castle-ticket/",
+          "kkday": "https://www.kkday.com/en-us/product/267001",
+          "tripcom": "없음",
+          "getyourguide": "https://www.getyourguide.com/prague-l10/prague-prague-castle-ticket-t406279/"
+        }
+      },
+      {
+        "name": "블루라군 온천 입장권",
+        "destination": "레이캬비크, 아이슬란드",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5735379",
+          "klook": "https://www.klook.com/ko/activity/3449-blue-lagoon-ticket-reykjavik/",
+          "kkday": "https://www.kkday.com/en-us/product/25493-blue-lagoon-ticket-and-bus-transfer-iceland",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/102905047/",
+          "getyourguide": "https://www.getyourguide.com/blue-lagoon-reykjavik-l5049/entry-tickets-tc123/"
+        }
+      },
+      {
+        "name": "기자 피라미드 & 스핑크스 입장권",
+        "destination": "기자/카이로, 이집트",
+        "links": {
+          "myrealtrip": "없음 (가이드 투어 상품만 존재)",
+          "klook": "없음 (가이드 투어 상품만 존재)",
+          "kkday": "없음 (가이드 투어 상품만 존재)",
+          "tripcom": "https://kr.trip.com/travel-guide/attraction/cairo/the-great-pyramid-of-giza-101006/",
+          "getyourguide": "https://www.getyourguide.com/giza-l915/cairo-pyramids-of-giza-plateau-entrance-qr-ticket-t461744/"
+        }
+      }
     ]
   }
 ]
