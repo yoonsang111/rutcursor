@@ -5,19 +5,24 @@ import { useAuth } from '../context/AuthContext';
 export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from || '/';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
 
-    if (login(password)) {
+    const ok = await login(password);
+    setSubmitting(false);
+
+    if (ok) {
       navigate(from, { replace: true });
     } else {
-      setError('비밀번호가 올바르지 않습니다.');
+      setError('키가 올바르지 않거나 서버에 연결할 수 없습니다.');
     }
   };
 
@@ -35,7 +40,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-              비밀번호
+              관리자 키
             </label>
             <input
               type="password"
@@ -43,8 +48,9 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="비밀번호를 입력하세요"
+              placeholder="관리자 키를 입력하세요"
               required
+              disabled={submitting}
             />
           </div>
 
@@ -56,9 +62,10 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium"
+            disabled={submitting}
+            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium disabled:opacity-60"
           >
-            로그인
+            {submitting ? '확인 중...' : '로그인'}
           </button>
         </form>
 

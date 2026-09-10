@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -27,6 +28,37 @@ app.use(cors({
 
 // 어드민 base64 이미지 등으로 본문이 클 수 있음 (기본 100kb 제한 초과 시 PUT 실패)
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '25mb' }));
+
+// 상품 등록/수정처럼 데이터를 바꾸는 엔드포인트는 고정 API 키가 있어야만 호출할 수 있게 한다.
+// 조회(GET)와 공개 사이트가 쓰는 조회수 증가/항공권 링크 생성은 인증 없이 그대로 열어둔다.
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+const ADMIN_KEY_HEADER = 'x-admin-key';
+
+if (!ADMIN_API_KEY) {
+  console.warn('[서버] ⚠️  ADMIN_API_KEY가 설정되지 않았습니다. 상품 등록/수정 등 쓰기 API가 전부 차단됩니다.');
+} else {
+  console.log('[서버] 쓰기 API 인증 활성화됨 (X-Admin-Key)');
+}
+
+// 길이가 달라도 timingSafeEqual이 던지지 않도록 해시로 고정 길이 비교
+const isValidAdminKey = (provided) => {
+  if (!ADMIN_API_KEY || typeof provided !== 'string' || provided.length === 0) return false;
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(ADMIN_API_KEY).digest();
+  return crypto.timingSafeEqual(a, b);
+};
+
+const requireAdminKey = (req, res, next) => {
+  if (!ADMIN_API_KEY) {
+    console.error(`[인증] ADMIN_API_KEY 미설정으로 거부: ${req.method} ${req.path}`);
+    return res.status(503).json({ error: '서버에 관리자 키가 설정되지 않아 쓰기 요청을 처리할 수 없습니다' });
+  }
+  if (!isValidAdminKey(req.get(ADMIN_KEY_HEADER))) {
+    console.warn(`[인증] 거부: ${req.method} ${req.path}`);
+    return res.status(401).json({ error: '관리자 인증이 필요합니다' });
+  }
+  return next();
+};
 
 const sameProductId = (a, b) => String(a) === String(b);
 const findProductIndex = (products, id) => products.findIndex((p) => sameProductId(p.id, id));
@@ -644,7 +676,7 @@ app.get('/api/metrics/views', (req, res) => {
 });
 
 // 상품 등록
-app.post('/api/products', async (req, res) => {
+app.post('/api/products', requireAdminKey, async (req, res) => {
   const products = readProducts();
   let counter = readCounter();
 
@@ -669,7 +701,7 @@ app.post('/api/products', async (req, res) => {
 });
 
 // 상품 수정
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', requireAdminKey, async (req, res) => {
   const products = readProducts();
   const index = findProductIndex(products, req.params.id);
 
@@ -693,7 +725,7 @@ app.put('/api/products/:id', async (req, res) => {
 });
 
 // 상품 삭제
-app.delete('/api/products/:id', (req, res) => {
+app.delete('/api/products/:id', requireAdminKey, (req, res) => {
   const products = readProducts();
   const index = findProductIndex(products, req.params.id);
   
@@ -709,7 +741,12 @@ app.delete('/api/products/:id', (req, res) => {
 });
 
 // 어드민 - 파트너 API 상품 검색 (등록 폼에서 API 연동 링크를 고를 때 사용)
-app.get('/api/admin/partner-search', async (req, res) => {
+// 어드민 로그인 화면에서 입력한 키가 맞는지만 확인 (세션/토큰 발급 없음)
+app.post('/api/admin/verify-key', requireAdminKey, (req, res) => {
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/partner-search', requireAdminKey, async (req, res) => {
   const { partner, keyword } = req.query;
   if (!partner || typeof partner !== 'string') {
     return res.status(400).json({ error: 'partner 쿼리 파라미터가 필요합니다' });
@@ -728,7 +765,7 @@ app.get('/api/admin/partner-search', async (req, res) => {
 });
 
 // 어드민 - 선택한 파트너 상품 URL을 어필리에이트 추적 링크로 변환
-app.post('/api/admin/partner-link', async (req, res) => {
+app.post('/api/admin/partner-link', requireAdminKey, async (req, res) => {
   const { partner, url } = req.body || {};
   if (!partner || typeof partner !== 'string') {
     return res.status(400).json({ error: 'partner가 필요합니다' });
@@ -973,7 +1010,7 @@ app.get('/api/categories', (req, res) => {
 });
 
 // 카테고리 저장
-app.post('/api/categories', (req, res) => {
+app.post('/api/categories', requireAdminKey, (req, res) => {
   const categoriesFile = path.join(DATA_DIR, 'categories.json');
   const normalized = normalizeCategoriesPayload(req.body);
   fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
@@ -1085,7 +1122,7 @@ app.get('/api/locations', (req, res) => {
 });
 
 // 지역 저장
-app.post('/api/locations', (req, res) => {
+app.post('/api/locations', requireAdminKey, (req, res) => {
   const locationsFile = path.join(DATA_DIR, 'locations.json');
   const normalized = normalizeLocationsPayload(req.body);
   fs.writeFileSync(locationsFile, JSON.stringify(normalized, null, 2), 'utf8');

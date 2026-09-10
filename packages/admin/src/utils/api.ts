@@ -1,6 +1,8 @@
 // API 유틸리티 (어드민용)
 
 // 환경 변수에서 API URL 가져오기 (없으면 운영 API 기본값 사용)
+import { adminAuthHeaders } from './adminKey';
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.tourstream.kr/api';
 
 const nowIso = () => new Date().toISOString();
@@ -228,7 +230,7 @@ export const api = {
       console.log('[API] 상품 등록 요청:', product.name);
       const response = await fetch(`${API_BASE_URL}/products`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
         body: JSON.stringify(product)
       });
       console.log('[API] 등록 응답 상태:', response.status, response.statusText);
@@ -252,7 +254,7 @@ export const api = {
   updateProduct: async (id: string, product: Partial<any>) => {
     const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
       body: JSON.stringify(product)
     });
     if (!response.ok) {
@@ -267,7 +269,8 @@ export const api = {
 
   deleteProduct: async (id: string) => {
     const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(id)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: { ...adminAuthHeaders() }
     });
     if (!response.ok) throw new Error('상품을 삭제할 수 없습니다');
     return response.json();
@@ -330,7 +333,7 @@ export const api = {
   saveCategories: async (categories: any) => {
     const response = await fetch(`${API_BASE_URL}/categories`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
       body: JSON.stringify(categories)
     });
     if (!response.ok) throw new Error('카테고리를 저장할 수 없습니다');
@@ -387,7 +390,7 @@ export const api = {
   saveLocations: async (locations: any) => {
     const response = await fetch(`${API_BASE_URL}/locations`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
       body: JSON.stringify(locations)
     });
     if (!response.ok) throw new Error('지역을 저장할 수 없습니다');
@@ -397,7 +400,9 @@ export const api = {
   // Partner integrations
   searchPartnerProducts: async (partner: string, keyword: string) => {
     const params = new URLSearchParams({ partner, keyword });
-    const response = await fetch(`${API_BASE_URL}/admin/partner-search?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/admin/partner-search?${params.toString()}`, {
+      headers: { ...adminAuthHeaders() },
+    });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.error || '파트너 상품 검색에 실패했습니다');
@@ -418,7 +423,7 @@ export const api = {
   createPartnerTrackedLink: async (partner: string, url: string) => {
     const response = await fetch(`${API_BASE_URL}/admin/partner-link`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
       body: JSON.stringify({ partner, url }),
     });
     if (!response.ok) {
