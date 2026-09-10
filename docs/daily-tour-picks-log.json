@@ -44,5 +44,14 @@
       { "name": "시드니 타워 아이 전망대 입장권", "destination": "시드니, 호주", "first_seen": "2026-09-08" },
       { "name": "런던아이 입장권", "destination": "런던, 영국", "first_seen": "2026-09-09" }
     ]
+  },
+  {
+    "date": "2026-09-10",
+    "source": "web-blog-signal",
+    "items": [
+      { "name": "프라하성 입장권 (Circuit B)", "destination": "프라하, 체코" },
+      { "name": "블루라군 온천 입장권", "destination": "레이캬비크, 아이슬란드" },
+      { "name": "기자 피라미드 & 스핑크스 입장권", "destination": "기자/카이로, 이집트" }
+    ]
   }
 ]
