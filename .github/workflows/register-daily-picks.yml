@@ -1,0 +1,35 @@
+name: Register Daily Picks
+
+# 매일 아침 루틴이 docs/daily-tour-picks-log.json 을 커밋하면
+# 새 티켓들을 운영 API에 임시저장(isAvailable: false) 상품으로 자동 등록한다.
+# 관리자 키는 GitHub Secret(ADMIN_API_KEY)으로만 주입되며 레포/루틴에는 들어가지 않는다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/daily-tour-picks-log.json'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '등록하지 않고 계획만 출력'
+        type: boolean
+        default: false
+
+jobs:
+  register:
+    name: Register picks to production API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Register picks
+        env:
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          API_BASE_URL: https://api.tourstream.kr/api
+          DRY_RUN: ${{ inputs.dry_run == true && '1' || '' }}
+        run: node packages/server/scripts/register-daily-picks.mjs
