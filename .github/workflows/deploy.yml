@@ -91,4 +91,5 @@ jobs:
 
       - name: Install deps and reload PM2
         run: |
-          ssh -i ~/.ssh/deploy_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload tourstream-api"
+          # ecosystem.config.cjs를 넘겨야 서버에서 새로 추가한 환경변수가 반영됨 (앱 이름으로만 reload하면 무시됨)
+          ssh -i ~/.ssh/deploy_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload ecosystem.config.cjs --update-env"
