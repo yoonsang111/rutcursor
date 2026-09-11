@@ -83,5 +83,59 @@
         }
       }
     ]
+  },
+  {
+    "date": "2026-09-12",
+    "source": "web-blog-signal",
+    "items": [
+      {
+        "name": "마추픽추 유적지 입장권",
+        "destination": "마추픽추/쿠스코, 페루",
+        "description": "안데스 산맥 해발 2,430m에 자리한 잉카 제국의 잃어버린 도시 마추픽추 유적지 입장권으로, 세계 7대 불가사의이자 유네스코 세계문화유산인 석조 유적을 직접 둘러볼 수 있다. 최근 하루 입장 인원을 2,500명으로 제한하고 QR코드 전자입장을 도입하면서 현장 구매가 사실상 불가능해져 최소 2~3개월 전 사전 예약이 필수 코스로 꼽힌다. 아구아스 칼리엔테스에 도착하면 다음 날 새벽 첫 버스를 타기 위해 전날 저녁 버스표부터 미리 구매해두는 것이 현지 여행자들 사이의 팁이다.",
+        "tags": ["마추픽추", "Machu Picchu", "페루", "쿠스코", "잉카유적", "세계7대불가사의", "입장권", "남미여행"],
+        "category": "티켓/입장권",
+        "country": "페루",
+        "region": "쿠스코",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/3881036",
+          "klook": "https://www.klook.com/en-NZ/activity/207418-machu-picchu-ticket/",
+          "kkday": "없음",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/101533190/",
+          "getyourguide": "https://www.getyourguide.com/urubamba-l164518/machu-picchu-official-entrance-ticket-t974716/"
+        }
+      },
+      {
+        "name": "테이블마운틴 케이블카 입장권",
+        "destination": "케이프타운, 남아프리카공화국",
+        "description": "케이프타운의 상징인 해발 1,067m 테이블마운틴 정상까지 360도 회전하는 케이블카를 타고 5분 만에 오를 수 있는 입장권으로, 정상에서는 시티볼·로벤섬·트웰브 어포슬 산맥까지 이어지는 파노라마 전망을 감상할 수 있다. 남아공 여행 후기와 블로그에서 희망봉과 함께 케이프타운 필수 코스로 빠짐없이 언급되는 명소다. 날씨에 따라 운행이 중단될 수 있어 사전 예약과 함께 오전 첫 케이블카 시간대를 노리는 것이 대기 줄을 피하는 팁으로 꼽힌다.",
+        "tags": ["테이블마운틴", "Table Mountain", "케이프타운", "남아프리카공화국", "케이블카", "전망대", "희망봉", "남아공여행"],
+        "category": "전망대",
+        "country": "남아프리카공화국",
+        "region": "케이프타운",
+        "links": {
+          "myrealtrip": "없음 (테이블마운틴 단독 상품 없음, 케이프타운 다구간 투어 상품만 존재)",
+          "klook": "https://www.klook.com/activity/79381-table-mountain-aerial-cableway-hop-on-off-bus-tour-cape-town/",
+          "kkday": "없음 (하이킹/헬기 투어 상품만 존재)",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/cape-town/table-mountain-aerial-cableway-147559274/",
+          "getyourguide": "https://www.getyourguide.com/cape-town-l103/cape-town-table-mountain-aerial-cableway-ticket-t911764/"
+        }
+      },
+      {
+        "name": "페트라 유적지 입장권",
+        "destination": "와디무사, 요르단",
+        "description": "기원전 나바테아 왕국이 붉은 사암 절벽을 깎아 만든 고대 도시 페트라의 입장권으로, 좁은 협곡 '시크'를 지나면 나타나는 알카즈네(보물창고) 파사드가 하이라이트다. 세계 7대 불가사의이자 유네스코 세계문화유산으로 요르단 여행 후기와 블로그마다 빠지지 않는 필수 코스로 꼽힌다. 하루 만에 다 둘러보기 어려운 규모라 최소 1박 2일 일정과 2일권 구매를 추천하며, 촛불로 밝히는 야간 '페트라 바이 나이트'는 별도 티켓으로 인기가 높다.",
+        "tags": ["페트라", "Petra", "요르단", "와디무사", "세계7대불가사의", "나바테아유적", "입장권", "중동여행"],
+        "category": "티켓/입장권",
+        "country": "요르단",
+        "region": "와디무사",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/32879",
+          "klook": "https://www.klook.com/activity/88471-nabatean-red-rose-city-petra-tour-wadi-rum/",
+          "kkday": "없음",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/76844093/",
+          "getyourguide": "https://www.getyourguide.com/petra-l1624/entry-tickets-tc123/"
+        }
+      }
+    ]
   }
 ]
