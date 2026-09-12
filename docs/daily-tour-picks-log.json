@@ -137,5 +137,59 @@
         }
       }
     ]
+  },
+  {
+    "date": "2026-09-13",
+    "source": "web-blog-signal",
+    "items": [
+      {
+        "name": "타지마할 입장권",
+        "destination": "아그라, 인도",
+        "description": "인도 아그라에 위치한 세계 7대 불가사의이자 무굴 제국의 대표 건축물인 타지마할 입장권으로, 흰 대리석으로 지어진 웅장한 영묘와 정원을 직접 둘러볼 수 있다. 최근 SNS와 여행 블로그에서 '인생샷 명소'로 재조명되며 델리·아그라 여행 후기마다 빠지지 않고 언급되는 필수 코스로 꼽힌다. 입장 인원과 시간대가 제한적이라 QR코드 사전 예약이 필수이며, 노을이 비치는 대리석을 볼 수 있는 이른 아침이나 해질 무렵 방문이 가장 인기 있는 팁으로 통한다.",
+        "tags": ["타지마할", "Taj Mahal", "인도", "아그라", "무굴제국", "세계7대불가사의", "입장권", "델리여행"],
+        "category": "티켓/입장권",
+        "country": "인도",
+        "region": "아그라",
+        "links": {
+          "myrealtrip": "없음 (가이드 투어 상품만 존재)",
+          "klook": "https://www.klook.com/en-US/activity/9907-taj-mahal-fast-track-entry-ticket-agra/",
+          "kkday": "없음 (가이드 투어 상품만 존재)",
+          "tripcom": "https://www.trip.com/things-to-do/detail/54148346/",
+          "getyourguide": "https://www.getyourguide.com/agra-l824/taj-mahal-entrance-tickets-t446143/"
+        }
+      },
+      {
+        "name": "나이아가라 폭포 혼블로어 크루즈 (나이아가라 시티 크루즈)",
+        "destination": "나이아가라 폴스, 캐나다",
+        "description": "캐나다 온타리오주 나이아가라 폴스에서 즐기는 혼블로어(현 나이아가라 시티 크루즈) 보트 투어 티켓으로, 우비를 입고 말발굽 폭포 바로 앞까지 다가가 물보라를 온몸으로 맞으며 압도적인 폭포의 위력을 체감할 수 있다. 북미 여행 후기와 유튜브 브이로그에서 '나이아가라 필수 액티비티'로 빠짐없이 소개되는 인기 체험으로, 여름 성수기에는 사전 예약 없이는 몇 시간씩 대기해야 할 정도로 붐빈다. 우비 안에 방수 신발을 준비하고 오전 이른 시간대 크루즈를 예약하면 대기 줄과 인파를 피할 수 있다는 것이 현지 팁이다.",
+        "tags": ["나이아가라폭포", "Niagara Falls", "혼블로어크루즈", "캐나다", "온타리오", "보트투어", "입장권", "북미여행"],
+        "category": "티켓/입장권",
+        "country": "캐나다",
+        "region": "나이아가라 폴스",
+        "links": {
+          "myrealtrip": "없음 (가이드 투어 상품만 존재)",
+          "klook": "https://www.klook.com/en-CA/activity/141216-niagara-falls-boat-ride-journey-behind-the-falls/",
+          "kkday": "https://www.kkday.com/en-us/product/21052-niagara-falls-hornblower-cruise-canada",
+          "tripcom": "https://www.trip.com/travel-guide/attraction/niagara-falls/niagara-city-cruises-23035518/",
+          "getyourguide": "https://www.getyourguide.com/hornblower-niagara-cruises-l148982/"
+        }
+      },
+      {
+        "name": "오클랜드 스카이타워 전망대 입장권",
+        "destination": "오클랜드, 뉴질랜드",
+        "description": "뉴질랜드 오클랜드의 랜드마크이자 남반구에서 가장 높은 전망타워인 스카이타워 입장권으로, 328m 높이까지 유리 엘리베이터를 타고 40초 만에 올라 시내와 항구, 마운트 이든까지 이어지는 파노라마 전망을 즐길 수 있다. 오클랜드 여행 후기에서 마운트 이든, 데번포트와 함께 빠지지 않는 3대 전망 포인트로 꼽히며, 발밑이 유리로 된 스카이덱에서 인증샷을 남기려는 여행객들에게 특히 인기다. 노을과 야경을 동시에 즐기려면 일몰 30분 전 입장을 노리는 것이 현지에서 통하는 팁이다.",
+        "tags": ["오클랜드스카이타워", "Sky Tower Auckland", "뉴질랜드", "오클랜드", "전망대", "스카이워크", "입장권", "남반구최고층"],
+        "category": "전망대",
+        "country": "뉴질랜드",
+        "region": "오클랜드",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5857285",
+          "klook": "https://www.klook.com/en-NZ/activity/2213-sky-tower-auckland/",
+          "kkday": "https://www.kkday.com/en-us/product/164550",
+          "tripcom": "https://www.trip.com/things-to-do/detail/16084291/",
+          "getyourguide": "https://www.getyourguide.com/auckland-l822/sky-tower-auckland-general-admission-ticket-t126653/"
+        }
+      }
+    ]
   }
 ]
