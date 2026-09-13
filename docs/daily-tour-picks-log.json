@@ -3,24 +3,46 @@
     "date": "2026-08-27",
     "source": "internal-catalog",
     "note": "superseded — user wants web-sourced picks for new product registration, not existing catalog items",
-    "ids": ["100001", "100069", "100111"]
+    "ids": [
+      "100001",
+      "100069",
+      "100111"
+    ]
   },
   {
     "date": "2026-08-27",
     "source": "web",
     "items": [
-      { "name": "두바이 부르즈 할리파 앳더탑 전망대 (124/125층)", "destination": "두바이, UAE" },
-      { "name": "발리 우붓 스윙 & 뜨갈랄랑 계단식 논 투어", "destination": "우붓, 발리, 인도네시아" },
-      { "name": "뉴욕 엠파이어 스테이트 빌딩 86층 전망대", "destination": "뉴욕, 미국" }
+      {
+        "name": "두바이 부르즈 할리파 앳더탑 전망대 (124/125층)",
+        "destination": "두바이, UAE"
+      },
+      {
+        "name": "발리 우붓 스윙 & 뜨갈랄랑 계단식 논 투어",
+        "destination": "우붓, 발리, 인도네시아"
+      },
+      {
+        "name": "뉴욕 엠파이어 스테이트 빌딩 86층 전망대",
+        "destination": "뉴욕, 미국"
+      }
     ]
   },
   {
     "date": "2026-08-27",
     "source": "web-blog-signal",
     "items": [
-      { "name": "융프라우요흐 전망대 투어 (인터라켄 출발)", "destination": "인터라켄, 스위스" },
-      { "name": "오슬롭 고래상어 투어 (투말록 폭포 포함)", "destination": "세부, 필리핀" },
-      { "name": "콜로세움 지하 투어 (포로 로마노·팔라티노 언덕 포함)", "destination": "로마, 이탈리아" }
+      {
+        "name": "융프라우요흐 전망대 투어 (인터라켄 출발)",
+        "destination": "인터라켄, 스위스"
+      },
+      {
+        "name": "오슬롭 고래상어 투어 (투말록 폭포 포함)",
+        "destination": "세부, 필리핀"
+      },
+      {
+        "name": "콜로세움 지하 투어 (포로 로마노·팔라티노 언덕 포함)",
+        "destination": "로마, 이탈리아"
+      }
     ]
   },
   {
@@ -28,21 +50,81 @@
     "source": "cloud-routine-backfill",
     "note": "The daily 08:00 KST cloud routine (trig_01SyTfz3SbJmMU1CMzVLVp8L) ran 10x from 2026-08-31 to 2026-09-09 but its git push failed with a 403 every single time (Claude GitHub App not authorized for this repo), so its own log entry never persisted and each run re-researched blind, causing heavy duplicate picks (e.g. Burj Khalifa picked 9 of 10 runs). This entry reconstructs the de-duplicated set of unique tickets actually surfaced across those 10 runs, pushed manually from an interactive session with working git credentials. Original first-seen dates kept in each item for reference.",
     "items": [
-      { "name": "부르즈 할리파 앳더탑 전망대 입장권", "destination": "두바이, 아랍에미리트", "first_seen": "2026-08-31" },
-      { "name": "워터밤 발리 워터파크 입장권", "destination": "발리, 인도네시아", "first_seen": "2026-08-31" },
-      { "name": "타롱가 동물원 입장권", "destination": "시드니, 호주", "first_seen": "2026-08-31" },
-      { "name": "울루와투 사원 케착 댄스 티켓", "destination": "발리, 인도네시아", "first_seen": "2026-09-01" },
-      { "name": "사그라다 파밀리아 입장권", "destination": "바르셀로나, 스페인", "first_seen": "2026-09-01" },
-      { "name": "워너브라더스 스튜디오 투어 런던 (해리포터) 입장권", "destination": "런던, 영국", "first_seen": "2026-09-03" },
-      { "name": "푸켓 판타씨 쇼 입장권", "destination": "푸켓, 태국", "first_seen": "2026-09-04" },
-      { "name": "세부 오션파크 아쿠아리움 입장권", "destination": "세부, 필리핀", "first_seen": "2026-09-04" },
-      { "name": "랜드마크 81 사이공 스카이뷰 전망대 입장권", "destination": "호치민, 베트남", "first_seen": "2026-09-05" },
-      { "name": "콜로세움 입장권", "destination": "로마, 이탈리아", "first_seen": "2026-09-05" },
-      { "name": "발리 스윙 (우붓)", "destination": "발리, 인도네시아", "first_seen": "2026-09-06" },
-      { "name": "에펠탑 전망대 입장권", "destination": "파리, 프랑스", "first_seen": "2026-09-07" },
-      { "name": "예레바탄 지하궁전 입장권", "destination": "이스탄불, 튀르키예", "first_seen": "2026-09-08" },
-      { "name": "시드니 타워 아이 전망대 입장권", "destination": "시드니, 호주", "first_seen": "2026-09-08" },
-      { "name": "런던아이 입장권", "destination": "런던, 영국", "first_seen": "2026-09-09" }
+      {
+        "name": "부르즈 할리파 앳더탑 전망대 입장권",
+        "destination": "두바이, 아랍에미리트",
+        "first_seen": "2026-08-31"
+      },
+      {
+        "name": "워터밤 발리 워터파크 입장권",
+        "destination": "발리, 인도네시아",
+        "first_seen": "2026-08-31"
+      },
+      {
+        "name": "타롱가 동물원 입장권",
+        "destination": "시드니, 호주",
+        "first_seen": "2026-08-31"
+      },
+      {
+        "name": "울루와투 사원 케착 댄스 티켓",
+        "destination": "발리, 인도네시아",
+        "first_seen": "2026-09-01"
+      },
+      {
+        "name": "사그라다 파밀리아 입장권",
+        "destination": "바르셀로나, 스페인",
+        "first_seen": "2026-09-01"
+      },
+      {
+        "name": "워너브라더스 스튜디오 투어 런던 (해리포터) 입장권",
+        "destination": "런던, 영국",
+        "first_seen": "2026-09-03"
+      },
+      {
+        "name": "푸켓 판타씨 쇼 입장권",
+        "destination": "푸켓, 태국",
+        "first_seen": "2026-09-04"
+      },
+      {
+        "name": "세부 오션파크 아쿠아리움 입장권",
+        "destination": "세부, 필리핀",
+        "first_seen": "2026-09-04"
+      },
+      {
+        "name": "랜드마크 81 사이공 스카이뷰 전망대 입장권",
+        "destination": "호치민, 베트남",
+        "first_seen": "2026-09-05"
+      },
+      {
+        "name": "콜로세움 입장권",
+        "destination": "로마, 이탈리아",
+        "first_seen": "2026-09-05"
+      },
+      {
+        "name": "발리 스윙 (우붓)",
+        "destination": "발리, 인도네시아",
+        "first_seen": "2026-09-06"
+      },
+      {
+        "name": "에펠탑 전망대 입장권",
+        "destination": "파리, 프랑스",
+        "first_seen": "2026-09-07"
+      },
+      {
+        "name": "예레바탄 지하궁전 입장권",
+        "destination": "이스탄불, 튀르키예",
+        "first_seen": "2026-09-08"
+      },
+      {
+        "name": "시드니 타워 아이 전망대 입장권",
+        "destination": "시드니, 호주",
+        "first_seen": "2026-09-08"
+      },
+      {
+        "name": "런던아이 입장권",
+        "destination": "런던, 영국",
+        "first_seen": "2026-09-09"
+      }
     ]
   },
   {
@@ -92,7 +174,16 @@
         "name": "마추픽추 유적지 입장권",
         "destination": "마추픽추/쿠스코, 페루",
         "description": "안데스 산맥 해발 2,430m에 자리한 잉카 제국의 잃어버린 도시 마추픽추 유적지 입장권으로, 세계 7대 불가사의이자 유네스코 세계문화유산인 석조 유적을 직접 둘러볼 수 있다. 최근 하루 입장 인원을 2,500명으로 제한하고 QR코드 전자입장을 도입하면서 현장 구매가 사실상 불가능해져 최소 2~3개월 전 사전 예약이 필수 코스로 꼽힌다. 아구아스 칼리엔테스에 도착하면 다음 날 새벽 첫 버스를 타기 위해 전날 저녁 버스표부터 미리 구매해두는 것이 현지 여행자들 사이의 팁이다.",
-        "tags": ["마추픽추", "Machu Picchu", "페루", "쿠스코", "잉카유적", "세계7대불가사의", "입장권", "남미여행"],
+        "tags": [
+          "마추픽추",
+          "Machu Picchu",
+          "페루",
+          "쿠스코",
+          "잉카유적",
+          "세계7대불가사의",
+          "입장권",
+          "남미여행"
+        ],
         "category": "티켓/입장권",
         "country": "페루",
         "region": "쿠스코",
@@ -108,7 +199,16 @@
         "name": "테이블마운틴 케이블카 입장권",
         "destination": "케이프타운, 남아프리카공화국",
         "description": "케이프타운의 상징인 해발 1,067m 테이블마운틴 정상까지 360도 회전하는 케이블카를 타고 5분 만에 오를 수 있는 입장권으로, 정상에서는 시티볼·로벤섬·트웰브 어포슬 산맥까지 이어지는 파노라마 전망을 감상할 수 있다. 남아공 여행 후기와 블로그에서 희망봉과 함께 케이프타운 필수 코스로 빠짐없이 언급되는 명소다. 날씨에 따라 운행이 중단될 수 있어 사전 예약과 함께 오전 첫 케이블카 시간대를 노리는 것이 대기 줄을 피하는 팁으로 꼽힌다.",
-        "tags": ["테이블마운틴", "Table Mountain", "케이프타운", "남아프리카공화국", "케이블카", "전망대", "희망봉", "남아공여행"],
+        "tags": [
+          "테이블마운틴",
+          "Table Mountain",
+          "케이프타운",
+          "남아프리카공화국",
+          "케이블카",
+          "전망대",
+          "희망봉",
+          "남아공여행"
+        ],
         "category": "전망대",
         "country": "남아프리카공화국",
         "region": "케이프타운",
@@ -124,7 +224,16 @@
         "name": "페트라 유적지 입장권",
         "destination": "와디무사, 요르단",
         "description": "기원전 나바테아 왕국이 붉은 사암 절벽을 깎아 만든 고대 도시 페트라의 입장권으로, 좁은 협곡 '시크'를 지나면 나타나는 알카즈네(보물창고) 파사드가 하이라이트다. 세계 7대 불가사의이자 유네스코 세계문화유산으로 요르단 여행 후기와 블로그마다 빠지지 않는 필수 코스로 꼽힌다. 하루 만에 다 둘러보기 어려운 규모라 최소 1박 2일 일정과 2일권 구매를 추천하며, 촛불로 밝히는 야간 '페트라 바이 나이트'는 별도 티켓으로 인기가 높다.",
-        "tags": ["페트라", "Petra", "요르단", "와디무사", "세계7대불가사의", "나바테아유적", "입장권", "중동여행"],
+        "tags": [
+          "페트라",
+          "Petra",
+          "요르단",
+          "와디무사",
+          "세계7대불가사의",
+          "나바테아유적",
+          "입장권",
+          "중동여행"
+        ],
         "category": "티켓/입장권",
         "country": "요르단",
         "region": "와디무사",
@@ -146,7 +255,16 @@
         "name": "타지마할 입장권",
         "destination": "아그라, 인도",
         "description": "인도 아그라에 위치한 세계 7대 불가사의이자 무굴 제국의 대표 건축물인 타지마할 입장권으로, 흰 대리석으로 지어진 웅장한 영묘와 정원을 직접 둘러볼 수 있다. 최근 SNS와 여행 블로그에서 '인생샷 명소'로 재조명되며 델리·아그라 여행 후기마다 빠지지 않고 언급되는 필수 코스로 꼽힌다. 입장 인원과 시간대가 제한적이라 QR코드 사전 예약이 필수이며, 노을이 비치는 대리석을 볼 수 있는 이른 아침이나 해질 무렵 방문이 가장 인기 있는 팁으로 통한다.",
-        "tags": ["타지마할", "Taj Mahal", "인도", "아그라", "무굴제국", "세계7대불가사의", "입장권", "델리여행"],
+        "tags": [
+          "타지마할",
+          "Taj Mahal",
+          "인도",
+          "아그라",
+          "무굴제국",
+          "세계7대불가사의",
+          "입장권",
+          "델리여행"
+        ],
         "category": "티켓/입장권",
         "country": "인도",
         "region": "아그라",
@@ -162,7 +280,16 @@
         "name": "나이아가라 폭포 혼블로어 크루즈 (나이아가라 시티 크루즈)",
         "destination": "나이아가라 폴스, 캐나다",
         "description": "캐나다 온타리오주 나이아가라 폴스에서 즐기는 혼블로어(현 나이아가라 시티 크루즈) 보트 투어 티켓으로, 우비를 입고 말발굽 폭포 바로 앞까지 다가가 물보라를 온몸으로 맞으며 압도적인 폭포의 위력을 체감할 수 있다. 북미 여행 후기와 유튜브 브이로그에서 '나이아가라 필수 액티비티'로 빠짐없이 소개되는 인기 체험으로, 여름 성수기에는 사전 예약 없이는 몇 시간씩 대기해야 할 정도로 붐빈다. 우비 안에 방수 신발을 준비하고 오전 이른 시간대 크루즈를 예약하면 대기 줄과 인파를 피할 수 있다는 것이 현지 팁이다.",
-        "tags": ["나이아가라폭포", "Niagara Falls", "혼블로어크루즈", "캐나다", "온타리오", "보트투어", "입장권", "북미여행"],
+        "tags": [
+          "나이아가라폭포",
+          "Niagara Falls",
+          "혼블로어크루즈",
+          "캐나다",
+          "온타리오",
+          "보트투어",
+          "입장권",
+          "북미여행"
+        ],
         "category": "티켓/입장권",
         "country": "캐나다",
         "region": "나이아가라 폴스",
@@ -178,7 +305,16 @@
         "name": "오클랜드 스카이타워 전망대 입장권",
         "destination": "오클랜드, 뉴질랜드",
         "description": "뉴질랜드 오클랜드의 랜드마크이자 남반구에서 가장 높은 전망타워인 스카이타워 입장권으로, 328m 높이까지 유리 엘리베이터를 타고 40초 만에 올라 시내와 항구, 마운트 이든까지 이어지는 파노라마 전망을 즐길 수 있다. 오클랜드 여행 후기에서 마운트 이든, 데번포트와 함께 빠지지 않는 3대 전망 포인트로 꼽히며, 발밑이 유리로 된 스카이덱에서 인증샷을 남기려는 여행객들에게 특히 인기다. 노을과 야경을 동시에 즐기려면 일몰 30분 전 입장을 노리는 것이 현지에서 통하는 팁이다.",
-        "tags": ["오클랜드스카이타워", "Sky Tower Auckland", "뉴질랜드", "오클랜드", "전망대", "스카이워크", "입장권", "남반구최고층"],
+        "tags": [
+          "오클랜드스카이타워",
+          "Sky Tower Auckland",
+          "뉴질랜드",
+          "오클랜드",
+          "전망대",
+          "스카이워크",
+          "입장권",
+          "남반구최고층"
+        ],
         "category": "전망대",
         "country": "뉴질랜드",
         "region": "오클랜드",
@@ -188,6 +324,87 @@
           "kkday": "https://www.kkday.com/en-us/product/164550",
           "tripcom": "https://www.trip.com/things-to-do/detail/16084291/",
           "getyourguide": "https://www.getyourguide.com/auckland-l822/sky-tower-auckland-general-admission-ticket-t126653/"
+        }
+      }
+    ]
+  },
+  {
+    "date": "2026-09-14",
+    "source": "web-blog-signal",
+    "items": [
+      {
+        "name": "아크로폴리스 (파르테논 신전) 입장권",
+        "destination": "아테네, 그리스",
+        "description": "아테네 시내를 한눈에 내려다보는 아크로폴리스 언덕에 올라 파르테논 신전, 에레크테이온, 아테나 니케 신전 등 고대 그리스 문명의 정수를 직접 마주할 수 있는 입장권이다. 유네스코 세계문화유산이자 서양 문명의 발상지로 꼽히는 이곳은 그리스 여행 후기와 블로그마다 빠지지 않는 필수 코스로 소개된다. e-티켓 예약제 도입으로 대기 시간은 줄었지만 성수기 낮에는 여전히 붐비므로, 그늘이 없는 지형 특성상 개장 직후 이른 아침 방문이 현지 여행자들 사이의 팁으로 꼽힌다.",
+        "tags": [
+          "아크로폴리스",
+          "파르테논신전",
+          "아테네",
+          "그리스여행",
+          "세계문화유산",
+          "입장권",
+          "유럽여행",
+          "고대유적"
+        ],
+        "category": "티켓/입장권",
+        "country": "그리스",
+        "region": "아테네",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/136592",
+          "klook": "https://www.klook.com/en-US/activity/17551-acropolis-ticket-athens/",
+          "kkday": "https://www.kkday.com/en-ph/product/578110",
+          "tripcom": "https://us.trip.com/things-to-do/detail/105944120/",
+          "getyourguide": "https://www.getyourguide.com/acropolis-of-athens-l3763/athens-acropolis-skip-the-line-entry-ticket-t331161/"
+        }
+      },
+      {
+        "name": "레이크스 미술관(암스테르담 국립미술관) 입장권",
+        "destination": "암스테르담, 네덜란드",
+        "description": "네덜란드를 대표하는 국립미술관인 레이크스 미술관 입장권으로, 렘브란트의 '야경', 페르메이르의 '우유 따르는 여인' 등 5천 점이 넘는 황금기 걸작들을 직접 감상할 수 있다. 공식 홈페이지 전용 예매로 매진이 잦은 안네 프랑크의 집과 달리 파트너 플랫폼에서도 시간대 지정 입장권을 바로 예약할 수 있어, 암스테르담 여행 후기에서 반 고흐 미술관과 함께 필수 방문지로 꼽힌다. 성수기에는 온라인 사전 예약이 필수이며, 개장 직후나 오후 늦은 시간대를 노리면 비교적 여유롭게 관람할 수 있다는 것이 현지 팁이다.",
+        "tags": [
+          "레이크스미술관",
+          "Rijksmuseum",
+          "암스테르담",
+          "네덜란드여행",
+          "국립미술관",
+          "렘브란트",
+          "입장권",
+          "유럽미술관"
+        ],
+        "category": "티켓/입장권",
+        "country": "네덜란드",
+        "region": "암스테르담",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/14325",
+          "klook": "https://www.klook.com/en-GB/activity/188499-rijksmuseum-ticket-in-amsterdam/",
+          "kkday": "https://www.kkday.com/en/product/117111-rijksmuseum-entrance-ticket-in-amsterdam-netherlands",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/amsterdam/rijksmuseum-87109/",
+          "getyourguide": "https://www.getyourguide.com/amsterdam-l36/amsterdam-rijksmuseum-entry-ticket-t7135/"
+        }
+      },
+      {
+        "name": "코르코바도 예수상(그리스도상) 입장권",
+        "destination": "리우데자네이루, 브라질",
+        "description": "해발 710m 코르코바도 산 정상에 우뚝 선 높이 38m의 거대한 예수상을 코르코바도 등산열차를 타고 오르며 만나는 입장권으로, 세계 7대 불가사의 중 하나이자 리우데자네이루를 상징하는 랜드마크다. 정상에서는 코파카바나 해변과 슈가로프산까지 이어지는 파노라마 전망이 펼쳐져 브라질 여행 후기와 브이로그마다 리우 필수 코스로 빠짐없이 소개된다. 오전 10시 이후부터 전망대가 급격히 붐비기 시작하므로, 개장 시간인 오전 7시 30분~8시경 오픈런을 하는 것이 현지 여행자들 사이의 팁으로 통한다.",
+        "tags": [
+          "코르코바도",
+          "예수상",
+          "그리스도상",
+          "리우데자네이루",
+          "브라질여행",
+          "세계7대불가사의",
+          "코르코바도트레인",
+          "남미여행"
+        ],
+        "category": "티켓/입장권",
+        "country": "브라질",
+        "region": "리우데자네이루",
+        "links": {
+          "myrealtrip": "없음 (가이드 투어 상품만 존재)",
+          "klook": "https://www.klook.com/activity/83231-corcovado-train-christ-redeemer-skip-line-admission-rio-de-janeiro/",
+          "kkday": "없음",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/rio-de-janeiro/christ-the-redeemer-100808/",
+          "getyourguide": "https://www.getyourguide.com/rio-de-janeiro-l9/rio-de-janeiro-christ-the-redeemer-ticket-t960370/"
         }
       }
     ]
