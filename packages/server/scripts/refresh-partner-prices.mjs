@@ -4,7 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getPartnerIntegration } from '../src/integrations/index.js';
+import { getPartnerIntegration, pickRepresentativePrice, detectSentinelPrices } from '../src/integrations/index.js';
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.cwd(), process.env.DATA_DIR)
@@ -38,50 +38,70 @@ let skipped = 0;
 let flagged = 0;
 let failed = 0;
 
+// 1차: 모든 API 연동 링크의 옵션을 한 번씩만 조회해 모아둔다 (같은 externalId는 재사용)
+const targets = [];
 for (const product of products) {
   const links = Array.isArray(product.partnerLinks) ? product.partnerLinks : [];
   for (const link of links) {
     if (link.source !== 'api' || !link.externalId) continue;
-
     const partnerKey = PARTNER_KEY_BY_NAME[link.partner];
     if (!partnerKey) {
       console.warn(`[refresh-partner-prices] 알 수 없는 파트너, 건너뜀: ${link.partner} (상품 ${product.id})`);
       skipped += 1;
       continue;
     }
+    targets.push({ product, link, partnerKey });
+  }
+}
 
-    try {
-      const integration = getPartnerIntegration(partnerKey);
-      const result = await integration.refreshPrice(link.externalId);
-      await sleep(CALL_INTERVAL_MS);
+const optionsByExternalId = new Map();
+for (const { product, link, partnerKey } of targets) {
+  if (optionsByExternalId.has(link.externalId)) continue;
+  try {
+    const integration = getPartnerIntegration(partnerKey);
+    optionsByExternalId.set(link.externalId, await integration.fetchPriceOptions(link.externalId));
+  } catch (error) {
+    optionsByExternalId.set(link.externalId, null);
+    failed += 1;
+    console.error(`[refresh-partner-prices] 옵션 조회 실패 (상품 ${product.id}, ${link.partner}):`, error.message);
+  }
+  await sleep(CALL_INTERVAL_MS);
+}
 
-      if (!result) {
-        skipped += 1;
-        continue;
-      }
+// 서로 다른 상품 3개 이상에서 똑같이 나타나는 가격 = 자리표시자 → 대표가 후보에서 제외
+const sentinelPrices = detectSentinelPrices([...optionsByExternalId.values()].filter(Boolean));
+if (sentinelPrices.size > 0) {
+  console.log(`[refresh-partner-prices] 자리표시자 가격 감지(제외): ${[...sentinelPrices].map((p) => p.toLocaleString('ko-KR') + '원').join(', ')}`);
+}
 
-      const previousPrice = Number(link.price);
-      if (Number.isFinite(previousPrice) && previousPrice > 0) {
-        const ratio = result.price / previousPrice;
-        if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
-          flagged += 1;
-          console.warn(
-            `[refresh-partner-prices] 의심스러운 가격 변동으로 보류 (상품 ${product.id} ${product.name}, ${link.partner}): ${previousPrice.toLocaleString('ko-KR')}원 -> ${result.price.toLocaleString('ko-KR')}원`
-          );
-          continue;
-        }
-      }
+// 2차: 자리표시자 제외 + 성인 옵션 우선으로 대표가 선정 후 반영
+for (const { product, link } of targets) {
+  const options = optionsByExternalId.get(link.externalId);
+  if (!options) continue; // 조회 실패는 위에서 집계됨
+  const result = pickRepresentativePrice(options, sentinelPrices);
+  if (!result) {
+    skipped += 1;
+    continue;
+  }
 
-      link.price = result.price;
-      link.priceDisplay = result.priceDisplay;
-      link.updatedAt = new Date().toISOString();
-      refreshed += 1;
-      console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
-    } catch (error) {
-      failed += 1;
-      console.error(`[refresh-partner-prices] 갱신 실패 (상품 ${product.id}, ${link.partner}):`, error.message);
+  // 기존 저장가가 이번에 감지된 자리표시자면(예전 로직이 잘못 저장한 값) 비교 기준이 될 수 없으므로 안전장치를 건너뛴다
+  const previousPrice = Number(link.price);
+  if (Number.isFinite(previousPrice) && previousPrice > 0 && !sentinelPrices.has(previousPrice)) {
+    const ratio = result.price / previousPrice;
+    if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
+      flagged += 1;
+      console.warn(
+        `[refresh-partner-prices] 의심스러운 가격 변동으로 보류 (상품 ${product.id} ${product.name}, ${link.partner}): ${previousPrice.toLocaleString('ko-KR')}원 -> ${result.price.toLocaleString('ko-KR')}원`
+      );
+      continue;
     }
   }
+
+  link.price = result.price;
+  link.priceDisplay = result.priceDisplay;
+  link.updatedAt = new Date().toISOString();
+  refreshed += 1;
+  console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
 }
 
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
