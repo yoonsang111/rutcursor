@@ -408,5 +408,452 @@
         }
       }
     ]
+  },
+  {
+    "date": "2026-09-14",
+    "source": "backfill-enriched",
+    "note": "8/27~9/9 사이에 추천했던 항목들을 중복 제거해 18건으로 정리하고, 등록에 필요한 5개 파트너 사이트 링크와 설명/태그/카테고리/국가/지역을 채운 것. 위 cloud-routine-backfill 엔트리와 항목이 겹치지만 그쪽은 링크가 없어 자동 등록 대상이 아니었음. 이 엔트리 push로 Register Daily Picks Action이 임시저장(isAvailable:false) 상품으로 등록함.",
+    "items": [
+      {
+        "name": "부르즈 할리파 앳더탑 전망대 입장권",
+        "destination": "두바이, 아랍에미리트",
+        "description": "세계에서 가장 높은 빌딩 부르즈 할리파의 124·125층 전망대에 올라 두바이 마리나, 팜 주메이라, 사막까지 이어지는 360도 파노라마를 내려다봅니다. 초고속 엘리베이터로 1분 남짓 만에 올라가며, 야외 테라스가 있는 124층과 실내 유리창으로 둘러싸인 125층을 함께 둘러볼 수 있습니다. 일몰 시간대가 가장 인기라 빨리 매진되고 요금도 비싸니, 해 지기 30~40분 전 입장 시간을 미리 지정해 예약해두는 편이 좋습니다.",
+        "tags": [
+          "부르즈할리파",
+          "버즈칼리파",
+          "앳더탑",
+          "두바이 전망대",
+          "두바이",
+          "아랍에미리트",
+          "전망대 입장권",
+          "두바이몰"
+        ],
+        "category": "전망대",
+        "country": "아랍에미리트",
+        "region": "두바이",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5808554",
+          "klook": "https://www.klook.com/en-US/activity/2228-burj-khalifa-observation-deck-dubai/",
+          "kkday": "https://www.kkday.com/en-us/product/117240",
+          "tripcom": "https://us.trip.com/things-to-do/detail/91294116/",
+          "getyourguide": "https://www.getyourguide.com/dubai-l173/dubai-burj-khalifa-levels-124-125-entry-ticket-options-t49019/"
+        }
+      },
+      {
+        "name": "워터밤 발리 워터파크 입장권",
+        "destination": "발리, 인도네시아",
+        "description": "쿠타 중심가에 자리한 워터밤 발리는 열대 정원 3.8만 제곱미터 안에 20개가 넘는 슬라이드가 들어찬 발리 대표 워터파크입니다. 세계에서 가장 긴 슬라이드로 꼽히는 컨스트릭터와 최고 시속 70km로 떨어지는 클라이맥스가 간판이고, 유수풀과 어린이 전용 구역이 따로 있어 가족 단위로도 하루를 다 채울 수 있습니다. 오전 9시 개장 직후에 들어가면 인기 슬라이드 대기 없이 몇 바퀴 돌 수 있고, 라커와 카바나는 현장에서 별도 결제해야 합니다.",
+        "tags": [
+          "워터밤 발리",
+          "워터봄",
+          "발리 워터파크",
+          "쿠타",
+          "발리",
+          "인도네시아",
+          "워터파크 입장권",
+          "발리 가족여행"
+        ],
+        "category": "테마파크",
+        "country": "인도네시아",
+        "region": "발리",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5809187",
+          "klook": "https://www.klook.com/en-US/activity/175-waterbom-bali/",
+          "kkday": "https://www.kkday.com/ko/product/19712-waterbom-bali-waterpark-tickets",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/36285957/",
+          "getyourguide": "https://www.getyourguide.com/bali-l347/bali-1-day-instant-entry-ticket-to-waterbom-bali-t253117/"
+        }
+      },
+      {
+        "name": "타롱가 동물원 입장권",
+        "destination": "시드니, 호주",
+        "description": "시드니 하버 북쪽 언덕에 있는 타롱가 동물원은 코알라, 캥거루, 웜뱃 같은 호주 토종 동물부터 기린, 코끼리까지 350여 종 5천 마리를 만날 수 있는 1916년 개장한 동물원입니다. 언덕 위 전망 포인트에서는 오페라하우스와 하버브리지가 한눈에 들어와 동물 구경과 시내 조망을 한 번에 할 수 있습니다. 서큘러키에서 페리로 12분이면 닿으니 페리로 들어가 정상에서 스카이사파리 곤돌라를 타고 내려오는 동선이 가장 편하고, 무료 사육사 토크와 버드쇼 시간표를 입구에서 미리 확인해두면 좋습니다.",
+        "tags": [
+          "타롱가 동물원",
+          "타롱가주",
+          "시드니 동물원",
+          "코알라",
+          "시드니",
+          "호주",
+          "동물원 입장권",
+          "시드니 하버"
+        ],
+        "category": "티켓/입장권",
+        "country": "호주",
+        "region": "시드니",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/3860759",
+          "klook": "https://www.klook.com/en-US/activity/1784-taronga-zoo-sydney/",
+          "kkday": "https://www.kkday.com/en-us/product/7317-taronga-zoo-ticket-sydney-australia",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/95567783/",
+          "getyourguide": "https://www.getyourguide.com/sydney-l200/taronga-zoo-sydney-general-entry-ticket-t24678/"
+        }
+      },
+      {
+        "name": "울루와투 사원 케착 댄스 티켓",
+        "destination": "발리, 인도네시아",
+        "description": "발리 남단 70m 절벽 위 울루와투 사원 야외 원형극장에서 매일 해질 무렵 펼쳐지는 케착 파이어 댄스 공연입니다. 악기 없이 남성 수십 명이 원을 그려 앉아 '착착' 소리만으로 리듬을 만들고 라마야나의 라마와 시타, 하누만 이야기를 풀어내는데, 인도양으로 떨어지는 노을이 배경이 되면서 발리에서 가장 강렬한 저녁 풍경으로 꼽힙니다. 좌석은 선착순이라 공연 30~40분 전에 도착해야 잘 보이는 자리를 잡을 수 있고, 사원 입장료는 공연 티켓과 별도이며 원숭이가 모자와 선글라스를 낚아채니 소지품은 가방에 넣어두세요.",
+        "tags": [
+          "울루와투 사원",
+          "울루와뚜",
+          "케착 댄스",
+          "께짝 파이어 댄스",
+          "발리 일몰",
+          "발리",
+          "인도네시아",
+          "전통 공연"
+        ],
+        "category": "투어/액티비티",
+        "country": "인도네시아",
+        "region": "발리",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5905516",
+          "klook": "https://www.klook.com/en-US/activity/21638-uluwatu-kecak-fire-dance-show-tickets-bali/",
+          "kkday": "https://www.kkday.com/en-us/product/129108-uluwatu-kecak-fire-dance-ticket-bali-indonesia",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/93626933/",
+          "getyourguide": "https://www.getyourguide.com/uluwatu-l105742/bali-uluwatu-kecak-and-fire-dance-show-entry-ticket-t432437/"
+        }
+      },
+      {
+        "name": "사그라다 파밀리아 입장권",
+        "destination": "바르셀로나, 스페인",
+        "description": "가우디가 40여 년을 매달렸고 140년 넘게 아직도 짓고 있는 바르셀로나의 상징, 사그라다 파밀리아 성당 내부 입장권입니다. 숲의 나무처럼 뻗은 기둥 사이로 동쪽 스테인드글라스는 파랑과 초록, 서쪽은 주황과 빨강으로 빛이 쏟아져 시간대에 따라 성당 안 색이 완전히 달라지고, 탄생의 파사드와 수난의 파사드 조각을 비교해 보는 재미도 큽니다. 현장 판매가 사실상 없어 날짜·시간 지정 예약이 필수이며, 스테인드글라스 빛을 제대로 보려면 오전 9~11시나 오후 늦은 시간대를 고르고 탑 전망은 별도 옵션으로 추가해야 합니다.",
+        "tags": [
+          "사그라다 파밀리아",
+          "성가족성당",
+          "가우디",
+          "바르셀로나",
+          "스페인",
+          "성당 입장권",
+          "우선입장",
+          "바르셀로나 관광"
+        ],
+        "category": "티켓/입장권",
+        "country": "스페인",
+        "region": "바르셀로나",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5541508",
+          "klook": "https://www.klook.com/en-US/activity/20380-sagrada-familia-ticket-barcelona/",
+          "kkday": "https://www.kkday.com/ko/product/122412",
+          "tripcom": "없음",
+          "getyourguide": "https://www.getyourguide.com/barcelona-l45/sagrada-familia-skip-the-line-ticket-t50027/"
+        }
+      },
+      {
+        "name": "워너브라더스 스튜디오 투어 런던 (해리포터) 입장권",
+        "destination": "런던, 영국",
+        "description": "해리포터 8편이 실제로 촬영된 리브스덴 스튜디오를 그대로 개방한 공간으로, 호그와트 대연회장과 다이애건 앨리, 9와 4분의 3 승강장, 금지된 숲 세트를 직접 걸어 다니며 볼 수 있습니다. 배우들이 입었던 의상과 소품, 특수분장 원본이 전시돼 있고 버터비어와 호그와트 성 모형도 빼놓을 수 없는 코스입니다. 현장 발권이 없어 반드시 사전 예약해야 하고 지정한 입장 시간만 유효하며, 런던 시내에서 왕복 2~3시간이 걸리므로 관람 4시간을 포함해 하루를 통째로 비워두는 편이 좋습니다.",
+        "tags": [
+          "해리포터 스튜디오",
+          "워너브라더스 스튜디오 투어",
+          "런던 해리포터",
+          "호그와트",
+          "다이애건 앨리",
+          "런던",
+          "영국",
+          "스튜디오 입장권"
+        ],
+        "category": "티켓/입장권",
+        "country": "영국",
+        "region": "런던",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5854992",
+          "klook": "https://www.klook.com/ko/activity/89749-warner-bros-studio-tour-london/",
+          "kkday": "https://www.kkday.com/ko/product/4979",
+          "tripcom": "https://kr.trip.com/things-to-do/detail/104932500/",
+          "getyourguide": "https://www.getyourguide.com/london-l57/warner-bros-studio-tour-london-the-making-of-harry-potter-t31392/"
+        }
+      },
+      {
+        "name": "푸켓 판타씨 쇼 입장권",
+        "destination": "푸켓, 태국",
+        "description": "카말라 비치의 대형 테마파크에서 태국 전통 문화와 신화를 소재로 한 화려한 라스베가스식 공연을 관람할 수 있는 입장권이다. 코끼리 등 동물 공연, 마술, 공중 곡예, 불쇼가 어우러진 무대로 관광객들에게 꾸준히 인기가 많다. 공연은 화·금·일요일에만 열리므로 예약 전 운영 요일을 꼭 확인하는 것이 좋다.",
+        "tags": [
+          "푸켓판타씨쇼",
+          "푸켓쇼",
+          "카말라비치",
+          "태국공연",
+          "푸켓액티비티",
+          "태국문화공연",
+          "푸켓테마파크",
+          "태국야간공연"
+        ],
+        "category": "티켓/입장권",
+        "country": "태국",
+        "region": "푸켓",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/3442597",
+          "klook": "https://www.klook.com/en-AU/activity/294-phuket-fantasea-phuket/",
+          "kkday": "https://www.kkday.com/en-us/product/127537-phuket-fantasea-show-ticket-thailand",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/phuket/phuket-fantasea-82015/",
+          "getyourguide": "https://www.getyourguide.com/kathu-l189790/phuket-fantasea-show-with-dinner-hotel-transfer-t819534/"
+        }
+      },
+      {
+        "name": "세부 오션파크 아쿠아리움 입장권",
+        "destination": "세부, 필리핀",
+        "description": "필리핀 최대 규모의 해양 테마파크로, 상어와 가오리가 머리 위로 헤엄치는 오션 터널과 다양한 인터랙티브 체험을 즐길 수 있다. 가족 단위 여행객에게 특히 인기가 많으며, 세부시티 사우스 로드 프로퍼티스에 위치해 이동이 편리하다. 인어 체험이나 씨트랙 같은 유료 옵션은 현장보다 사전 예약이 저렴한 경우가 많으니 미리 비교해보는 것이 좋다.",
+        "tags": [
+          "세부오션파크",
+          "세부아쿠아리움",
+          "세부액티비티",
+          "필리핀여행",
+          "세부가볼만한곳",
+          "세부수족관",
+          "세부가족여행"
+        ],
+        "category": "티켓/입장권",
+        "country": "필리핀",
+        "region": "세부",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5541685",
+          "klook": "https://www.klook.com/ko/activity/48851-cebu-ocean-park-ticket/",
+          "kkday": "https://www.kkday.com/ko/product/131767-cebu-ocean-park-ticket-with-transfer-service-philippines",
+          "tripcom": "없음",
+          "getyourguide": "https://www.getyourguide.com/cebu-ocean-park-l236296/"
+        }
+      },
+      {
+        "name": "랜드마크 81 사이공 스카이뷰 전망대 입장권",
+        "destination": "호치민, 베트남",
+        "description": "베트남에서 가장 높은 건물인 랜드마크 81의 79~81층에 위치한 전망대에서 호치민시 전경을 360도로 감상할 수 있다. 통유리창 너머로 사이공강과 도심 야경이 한눈에 들어와 일몰 시간대 방문이 특히 인기가 많다. VR 체험이 결합된 콤보 티켓도 있어 아이와 함께라면 함께 고려해볼 만하다.",
+        "tags": [
+          "랜드마크81",
+          "사이공스카이뷰",
+          "호치민전망대",
+          "베트남여행",
+          "호치민가볼만한곳",
+          "랜드마크81전망대",
+          "호치민야경"
+        ],
+        "category": "전망대",
+        "country": "베트남",
+        "region": "호치민",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/73337",
+          "klook": "https://www.klook.com/en-US/activity/27021-saigon-skyview-ticket-ho-chi-minh-city/",
+          "kkday": "https://www.kkday.com/ko/product/37010",
+          "tripcom": "https://www.trip.com/travel-guide/attraction/ho-chi-minh-city/landmark-81-sky-view-observatory-129757510/",
+          "getyourguide": "https://www.getyourguide.com/landmark-81-skyview-l149677/"
+        }
+      },
+      {
+        "name": "콜로세움 입장권",
+        "destination": "로마, 이탈리아",
+        "description": "고대 로마 검투사 경기가 열렸던 세계적 문화유산으로, 원형 경기장 내부와 관중석을 직접 걸으며 로마 제국의 역사를 체감할 수 있다. 포로 로마노, 팔라티노 언덕까지 묶은 통합권으로 판매되는 경우가 많아 함께 둘러보기 좋다. 성수기에는 시간대별 입장권이 조기 매진되므로 최소 며칠 전 예약을 권한다.",
+        "tags": [
+          "콜로세움",
+          "콜로세움입장권",
+          "로마여행",
+          "포로로마노",
+          "팔라티노언덕",
+          "이탈리아여행",
+          "로마가볼만한곳",
+          "콜로세움투어"
+        ],
+        "category": "티켓/입장권",
+        "country": "이탈리아",
+        "region": "로마",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/146162",
+          "klook": "https://www.klook.com/en-US/activity/15699-colosseum-skip-line-ticket-rome/",
+          "kkday": "https://www.kkday.com/ko/product/19742",
+          "tripcom": "https://www.trip.com/travel-guide/attraction/rome/colosseum-100366/?locale=ko-KR&curr=KRW",
+          "getyourguide": "https://www.getyourguide.com/colosseum-l2619/"
+        }
+      },
+      {
+        "name": "발리 스윙 (우붓)",
+        "destination": "우붓, 인도네시아",
+        "description": "우붓 근교 정글과 계곡을 배경으로 대형 그네를 타며 인생샷을 남길 수 있는 발리의 대표 포토 스팟이다. 높이와 스타일이 다른 여러 종류의 그네와 함께 논밭, 카페, 포토존이 함께 조성되어 있어 반나절 코스로도 충분히 즐길 만하다. 이동이 다소 외진 곳에 있으므로 왕복 차량 픽업이 포함된 상품을 고르는 것이 편리하다.",
+        "tags": [
+          "발리스윙",
+          "우붓스윙",
+          "발리액티비티",
+          "발리포토스팟",
+          "우붓가볼만한곳",
+          "인도네시아여행",
+          "발리그네"
+        ],
+        "category": "투어/액티비티",
+        "country": "인도네시아",
+        "region": "우붓",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/3446243",
+          "klook": "https://www.klook.com/en-US/activity/20020-swing-ubud-bali/",
+          "kkday": "https://www.kkday.com/en/product/132508-desa-swing-admission-package-deal-bali",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/bali/real-bali-swing-36546293/",
+          "getyourguide": "https://www.getyourguide.com/bali-swing-l158531/"
+        }
+      },
+      {
+        "name": "에펠탑 전망대 입장권",
+        "destination": "파리, 프랑스",
+        "description": "파리의 상징인 에펠탑 2층 또는 정상 전망대에 올라 파리 시내와 센강을 한눈에 담을 수 있는 입장권이다. 해질 무렵 방문하면 노을과 함께 반짝이는 야경까지 이어서 즐길 수 있어 특히 추천된다. 정상 전망대 티켓은 성수기에 몇 주 전 매진되기도 하니 일정이 정해지면 서둘러 예약하는 것이 좋다.",
+        "tags": [
+          "에펠탑",
+          "에펠탑입장권",
+          "파리전망대",
+          "파리여행",
+          "파리가볼만한곳",
+          "에펠탑정상",
+          "에펠탑2층"
+        ],
+        "category": "전망대",
+        "country": "프랑스",
+        "region": "파리",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/59082",
+          "klook": "https://www.klook.com/ko/activity/102511-eiffel-tower-skip-the-line-entry-paris/",
+          "kkday": "https://www.kkday.com/en-us/product/18865-paris-eiffel-tower-skip-the-line-tickets",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/paris/eiffel-tower-78772/",
+          "getyourguide": "https://www.getyourguide.com/paris-l16/eiffel-tower-ticket-summit-or-2nd-floor-audioguide-t889406/"
+        }
+      },
+      {
+        "name": "예레바탄 지하궁전 입장권",
+        "destination": "이스탄불, 튀르키예",
+        "description": "비잔틴 시대에 지어진 336개의 대리석 기둥이 늘어선 지하 저수조로, 은은한 조명과 물소리가 만들어내는 신비로운 분위기가 인상적입니다. 기둥 받침대에 거꾸로 놓인 메두사 머리 조각이 가장 유명한 포토 스팟이며, 여름에도 서늘해 이스탄불 한낮 더위를 피하기 좋습니다. 아야소피아와 도보 5분 거리라 함께 묶어 관람하되, 인기 명소라 우선입장권을 미리 예매하면 줄을 서지 않고 들어갈 수 있습니다.",
+        "tags": [
+          "예레바탄지하궁전",
+          "바실리카시스턴",
+          "메두사머리",
+          "이스탄불여행",
+          "이스탄불명소",
+          "튀르키예여행",
+          "지하궁전입장권"
+        ],
+        "category": "티켓/입장권",
+        "country": "튀르키예",
+        "region": "이스탄불",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/151352",
+          "klook": "https://www.klook.com/en-US/activity/111661-basilica-cistern-skip-the-line-ticket/",
+          "kkday": "https://www.kkday.com/ko/product/172126",
+          "tripcom": "https://www.trip.com/things-to-do/detail/98366488/",
+          "getyourguide": "https://www.getyourguide.com/istanbul-l56/istanbul-basilica-cistern-skip-the-line-ticket-t698373/"
+        }
+      },
+      {
+        "name": "시드니 타워 아이 전망대 입장권",
+        "destination": "시드니, 호주",
+        "description": "시드니 시내 최고층 전망대로 지상 250m 높이에서 오페라하우스, 하버브리지, 블루마운틴까지 360도로 한눈에 담을 수 있습니다. 4D 시네마가 포함돼 있어 전망대 관람 전후로 시드니 명소를 영상으로 미리 체험할 수 있는 것도 특징입니다. 일몰 시간대에 방문하면 낮 풍경과 야경을 모두 볼 수 있어 가장 인기가 많으니 예매 시 시간대를 확인하는 것이 좋습니다.",
+        "tags": [
+          "시드니타워아이",
+          "시드니전망대",
+          "시드니타워",
+          "호주여행",
+          "시드니야경",
+          "오페라하우스뷰",
+          "시드니가볼만한곳"
+        ],
+        "category": "전망대",
+        "country": "호주",
+        "region": "시드니",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/28559",
+          "klook": "https://www.klook.com/en-US/activity/1781-tower-eye-sydney/",
+          "kkday": "https://www.kkday.com/en-us/product/6104-sydney-tower-eye-ticket-new-south-wales",
+          "tripcom": "https://sg.trip.com/things-to-do/detail/37340021/",
+          "getyourguide": "https://www.getyourguide.com/skywalk-sydney-tower-l90437/sydney-tower-eye-4d-experience-optional-skywalk-entry-t25475/"
+        }
+      },
+      {
+        "name": "런던아이 입장권",
+        "destination": "런던, 영국",
+        "description": "템스강변에 세워진 135m 높이의 대관람차로, 캡슐 하나에 최대 25명이 탑승해 약 30분간 런던 시내를 천천히 조망합니다. 빅벤, 국회의사당, 버킹엄궁까지 런던의 랜드마크를 한 번에 눈에 담을 수 있어 런던 여행의 필수 코스로 꼽힙니다. 대기 줄이 긴 편이라 패스트트랙 티켓을 예매하면 시간을 크게 아낄 수 있고, 해 질 무렵 탑승하면 노을과 야경을 함께 즐길 수 있습니다.",
+        "tags": [
+          "런던아이",
+          "런던아이입장권",
+          "런던대관람차",
+          "영국여행",
+          "런던여행",
+          "템스강",
+          "런던가볼만한곳"
+        ],
+        "category": "전망대",
+        "country": "영국",
+        "region": "런던",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/40962",
+          "klook": "https://www.klook.com/en-US/activity/3403-london-eye-ticket-london/",
+          "kkday": "https://www.kkday.com/en-us/product/1417-london-eye-discounted-admission-ticket-uk",
+          "tripcom": "https://us.trip.com/travel-guide/attraction/london/london-eye-81747/",
+          "getyourguide": "https://www.getyourguide.com/the-london-eye-l2711/coca-cola-london-eye-standard-or-fast-track-admission-t170451/"
+        }
+      },
+      {
+        "name": "뉴욕 엠파이어 스테이트 빌딩 전망대 입장권",
+        "destination": "뉴욕, 미국",
+        "description": "1931년 완공된 뉴욕의 상징적인 아르데코 빌딩으로, 86층 야외 전망대에서 센트럴파크와 자유의 여신상까지 맨해튼 전경을 360도로 감상할 수 있습니다. 유리로 둘러싸인 102층 전망대까지 올라가면 더 높은 곳에서 도시를 내려다볼 수 있어 두 층을 함께 이용하는 티켓이 인기입니다. 일몰 직전 시간대는 대기가 길어지는 편이라 오전이나 야간 입장권을 예매하면 비교적 여유롭게 관람할 수 있습니다.",
+        "tags": [
+          "엠파이어스테이트빌딩",
+          "엠파이어스테이트빌딩전망대",
+          "뉴욕전망대",
+          "뉴욕여행",
+          "86층전망대",
+          "맨해튼뷰",
+          "뉴욕가볼만한곳"
+        ],
+        "category": "전망대",
+        "country": "미국",
+        "region": "뉴욕",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/146348",
+          "klook": "https://www.klook.com/en-US/activity/2956-empire-state-building-new-york/",
+          "kkday": "https://www.kkday.com/ko/product/53-empire-state-building-general-admission-express-pass-86th-floor-new-york",
+          "tripcom": "https://www.trip.com/things-to-do/detail/15912971/",
+          "getyourguide": "https://www.getyourguide.com/empire-state-building-l2608/evite-fila-ingresso-empire-state-t6195/"
+        }
+      },
+      {
+        "name": "융프라우요흐 전망대 입장권",
+        "destination": "인터라켄, 스위스",
+        "description": "해발 3,454m, 유럽에서 가장 높은 기차역인 융프라우요흐는 '유럽의 지붕'이라 불리며 만년설과 알레치 빙하의 장관을 눈앞에서 볼 수 있습니다. 스핑크스 전망대와 아이스 팰리스, 알파인 센세이션 등 정상 곳곳에 볼거리가 많아 반나절 이상 머무르기 좋습니다. 인터라켄에서 산악열차를 타고 오르는데 좌석 예약이 필수이며, 스위스 트래블 패스 소지 시 할인을 받을 수 있으니 미리 확인하는 것이 좋습니다.",
+        "tags": [
+          "융프라우요흐",
+          "융프라우전망대",
+          "유럽의지붕",
+          "인터라켄",
+          "스위스여행",
+          "알프스산악열차",
+          "스위스패스"
+        ],
+        "category": "전망대",
+        "country": "스위스",
+        "region": "인터라켄",
+        "links": {
+          "myrealtrip": "https://www.myrealtrip.com/offers/61387",
+          "klook": "https://www.klook.com/en-US/activity/84853-jungfraujoch-top-europe-train-ticket-interlaken/",
+          "kkday": "https://www.kkday.com/en-us/product/263631-jungfraujoch-top-of-europe-round-trip-train-ticket",
+          "tripcom": "https://us.trip.com/things-to-do/detail/98377668/",
+          "getyourguide": "https://www.getyourguide.com/interlaken-l793/interlaken-to-jungfraujoch-by-train-to-the-top-of-europe-t186585/"
+        }
+      },
+      {
+        "name": "오슬롭 고래상어 투어",
+        "destination": "세부, 필리핀",
+        "description": "필리핀 세부 남쪽 오슬롭 앞바다에서 실제 야생 고래상어와 함께 스노클링할 수 있는 세계적으로 드문 체험입니다. 이른 아침 어선을 타고 나가 안전 브리핑을 받은 뒤 짧은 시간 동안 가까이서 고래상어를 관찰하며, 근처 투말록 폭포와 묶은 일일 투어로 진행되는 경우가 많습니다. 새벽 일찍 출발해야 확률 높게 만날 수 있어 세부 시내에서 호텔 픽업이 포함된 상품을 예매하는 것이 편리합니다.",
+        "tags": [
+          "오슬롭고래상어",
+          "세부투어",
+          "고래상어스노클링",
+          "필리핀세부",
+          "투말록폭포",
+          "세부액티비티",
+          "고래상어투어"
+        ],
+        "category": "투어/액티비티",
+        "country": "필리핀",
+        "region": "세부",
+        "links": {
+          "myrealtrip": "https://experiences.myrealtrip.com/products/5541921",
+          "klook": "https://www.klook.com/en-US/activity/3643-snorkel-whale-sharks-oslob-cebu/",
+          "kkday": "https://www.kkday.com/en-us/product/18479-oslob-whale-sharks-cebu-philippines",
+          "tripcom": "https://sg.trip.com/things-to-do/detail/94939592/",
+          "getyourguide": "https://www.getyourguide.com/oslob-l104271/oslob-whale-shark-swim-snorkeling-experience-tour-t879431/"
+        }
+      }
+    ]
   }
 ]
