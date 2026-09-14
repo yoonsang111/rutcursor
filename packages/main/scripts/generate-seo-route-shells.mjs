@@ -245,8 +245,46 @@ function pickDistinctiveTags(comboProducts, allProducts) {
     .map(([tag]) => tag);
 }
 
+const escapeHtml = (v) =>
+  String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// JS를 실행하지 않는 크롤러(네이버 Yeti 등)가 볼 수 있도록 #root 안에 정적 본문을 넣는다.
+// React가 마운트되면서 통째로 갈아끼우므로 사용자에게는 첫 페인트 잠깐만 보인다.
+function buildStaticBody(meta) {
+  const lines = [`<h1>${escapeHtml(meta.title.replace(/\s*\|\s*TourStream$/, ""))}</h1>`, `<p>${escapeHtml(meta.description)}</p>`];
+  if (meta.product) {
+    const p = meta.product;
+    const price = resolvePrice(p);
+    if (Number.isFinite(price)) lines.push(`<p>최저가 ${price.toLocaleString("ko-KR")}원</p>`);
+    if (p.description) lines.push(`<p>${escapeHtml(String(p.description).slice(0, 600))}</p>`);
+    const partners = (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).filter((l) => l?.url);
+    if (partners.length > 0) {
+      lines.push(
+        `<ul>${partners
+          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원` : ""}</li>`)
+          .join("")}</ul>`,
+      );
+    }
+  }
+  if (Array.isArray(meta.itemListProducts) && meta.itemListProducts.length > 0) {
+    lines.push(
+      `<ul>${meta.itemListProducts
+        .slice(0, 100)
+        .map((p) => {
+          const price = resolvePrice(p);
+          return `<li><a href="/product/${escapeHtml(p.id)}">${escapeHtml(p.name)}</a>${
+            Number.isFinite(price) ? ` ${price.toLocaleString("ko-KR")}원` : ""
+          }</li>`;
+        })
+        .join("")}</ul>`,
+    );
+  }
+  return `<main style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif">${lines.join("")}</main>`;
+}
+
 function buildRouteHtml(baseHtml, meta) {
   let html = baseHtml;
+  html = html.replace('<div id="root"></div>', `<div id="root">${buildStaticBody(meta)}</div>`);
   const canonicalUrl = `${SITE_URL}${meta.path}`;
 
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${meta.title}</title>`);
@@ -514,7 +552,16 @@ async function main() {
     written += 1;
   }
 
-  console.log(`[seo-shell] generated ${written} route html files`);
+  // 네이버 서치어드바이저는 다른 호스트(api.tourstream.kr)로 넘기는 sitemapindex를 따라가지 않으므로
+  // tourstream.kr/sitemap.xml 자체를 실제 URL 목록으로 만든다 (noindex 페이지는 제외).
+  const today = new Date().toISOString().slice(0, 10);
+  const sitemapUrls = ["/", ...Array.from(deduped.values()).filter((r) => !/noindex/.test(r.robots || "")).map((r) => r.path)];
+  const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapUrls
+    .map((u) => `  <url><loc>${SITE_URL}${u}</loc><lastmod>${today}</lastmod></url>`)
+    .join("\n")}\n</urlset>\n`;
+  await fs.writeFile(path.join(buildDir, "sitemap.xml"), sitemapXml, "utf8");
+
+  console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapUrls.length} urls`);
 }
 
 main().catch((error) => {

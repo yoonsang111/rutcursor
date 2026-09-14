@@ -6,5 +6,4 @@ Disallow: /search?*
 
 # Sitemap
 Sitemap: https://tourstream.kr/sitemap.xml
-Sitemap: https://api.tourstream.kr/sitemap.xml
 

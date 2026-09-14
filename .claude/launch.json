@@ -4,14 +4,32 @@
     {
       "name": "tourstream-main",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "main:start"],
+      "runtimeArgs": [
+        "run",
+        "main:start"
+      ],
       "port": 3000
     },
     {
       "name": "tourstream-admin",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "admin:start"],
+      "runtimeArgs": [
+        "run",
+        "admin:start"
+      ],
       "port": 3001
+    },
+    {
+      "name": "tourstream-main-build",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "-s",
+        "packages/main/build",
+        "-l",
+        "3005"
+      ],
+      "port": 3005
     }
   ]
 }
