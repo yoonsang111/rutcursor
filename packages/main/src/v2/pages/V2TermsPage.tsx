@@ -30,7 +30,7 @@ export default function V2TermsPage() {
           <ul className="list-disc pl-5 space-y-1">
             <li>"서비스"란 회사가 제공하는 여행 상품(투어, 티켓, 액티비티, 항공권 등) 가격비교 및 정보 제공 서비스를 말합니다.</li>
             <li>"이용자"란 본 약관에 따라 서비스를 이용하는 자를 말합니다.</li>
-            <li>"파트너사"란 마이리얼트립, KLOOK, KKday, GetYourGuide, 트립닷컴 등 서비스에 상품 정보 및 예약 링크를 제공하는 외부 사업자를 말합니다.</li>
+            <li>"파트너사"란 마이리얼트립, KLOOK, KKday, 와그, GetYourGuide, 트립닷컴 등 서비스에 상품 정보 및 예약 링크를 제공하는 외부 사업자를 말합니다.</li>
           </ul>
         </section>
 

@@ -107,7 +107,7 @@ export default function V2PrivacyPolicyPage() {
           <h2 className="text-lg font-bold text-slate-900 mb-3">6. 파트너사 링크 이용 시 유의사항</h2>
           <p>
             서비스는 여행 상품의 가격을 비교·안내하는 정보 제공 서비스이며, 이용자가 "이동" 등 버튼을 눌러
-            마이리얼트립, KLOOK, KKday, GetYourGuide, 트립닷컴 등 파트너사 사이트로 이동한 이후의 예약·결제 및
+            마이리얼트립, KLOOK, KKday, 와그, GetYourGuide, 트립닷컴 등 파트너사 사이트로 이동한 이후의 예약·결제 및
             그 과정에서 발생하는 개인정보 수집·처리는 각 파트너사의 개인정보처리방침이 적용되며, 회사는 이에
             관여하지 않습니다.
           </p>

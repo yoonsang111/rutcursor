@@ -32,6 +32,7 @@ const PARTNER_NAME_BY_KEY = {
   klook: 'KLOOK',
   kkday: 'KKday',
   tripcom: '트립닷컴',
+  waug: '와그',
   getyourguide: 'GetYourGuide',
 };
 
