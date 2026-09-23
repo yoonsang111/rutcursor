@@ -2,6 +2,10 @@ name: Deploy
 
 on:
   workflow_dispatch: {}
+  # 매일 00:30 KST(15:30 UTC) - 가격/평점 배치가 끝난 직후 메인 사이트만 다시 빌드해서
+  # 정적 셸의 가격·JSON-LD가 실제 가격과 하루 이상 벌어지지 않게 한다.
+  schedule:
+    - cron: '30 15 * * *'
 
 env:
   EC2_HOST: 43.201.66.181
@@ -40,6 +44,8 @@ jobs:
 
   deploy-admin:
     name: Deploy admin site (EC2 static)
+    # 예약 실행은 가격 최신화가 목적이라 메인 사이트만 배포한다 (admin/API 코드는 안 바뀜)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +72,7 @@ jobs:
 
   deploy-api:
     name: Deploy API (EC2 + PM2)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
