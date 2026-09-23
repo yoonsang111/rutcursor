@@ -62,6 +62,20 @@ export const pickRepresentativePrice = (options = [], sentinelPrices = new Set()
   return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원` };
 };
 
+// ── 파트너 표시가 ─────────────────────────────────────────────────────────────
+// 위의 옵션 역산은 파트너가 상품 가격을 안 알려줄 때만 쓰는 차선책이다.
+// 상세 API가 "파트너 사이트에 실제로 노출되는 대표가"를 주면 그게 정답이다.
+// 사용자가 링크를 눌렀을 때 보는 값과 정확히 같아지므로 다크패턴 걱정도 없다.
+const DETAIL_PRICE_FIELDS = ['salePrice', 'price', 'minPrice', 'lowestPrice', 'displayPrice', 'discountPrice'];
+
+export const pickListedPrice = (detail) => {
+  for (const field of DETAIL_PRICE_FIELDS) {
+    const value = Number(detail?.[field]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+};
+
 // 여러 상품의 옵션 가격을 모아, 서로 다른 상품 N개 이상에서 똑같이 나타나는 가격을 자리표시자로 판정한다.
 // (실제 판매가가 원 단위까지 다른 상품과 겹칠 확률은 사실상 0)
 export const detectSentinelPrices = (optionsByProduct = [], minProducts = 3) => {
@@ -90,6 +104,14 @@ const myrealtripIntegration = {
       rating: item.reviewScore,
       reviewCount: item.reviewCount,
     }));
+  },
+
+  // 마이리얼트립이 상품 페이지에 노출하는 대표가. 이게 있으면 옵션 역산은 필요 없다.
+  async fetchListedPrice(externalId) {
+    const detail = await myrealtrip.getTourTicketDetail(externalId);
+    const price = pickListedPrice(detail);
+    if (price === null) return null;
+    return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원` };
   },
 
   // 그날 예약 가능한 옵션들의 (가격, 이름)만 돌려준다. 대표가 선정은 pickRepresentativePrice 에서.

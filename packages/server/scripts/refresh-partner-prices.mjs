@@ -54,11 +54,27 @@ for (const product of products) {
   }
 }
 
+// 파트너가 상품 페이지에 노출하는 대표가가 있으면 그걸 쓰고, 없을 때만 옵션에서 역산한다.
+// (옵션 역산은 픽업 서비스·부가상품 같은 싼 옵션을 집는 사고가 있어서 차선책으로만 사용)
+const listedByExternalId = new Map();
 const optionsByExternalId = new Map();
 for (const { product, link, partnerKey } of targets) {
-  if (optionsByExternalId.has(link.externalId)) continue;
+  if (listedByExternalId.has(link.externalId) || optionsByExternalId.has(link.externalId)) continue;
+  const integration = getPartnerIntegration(partnerKey);
+
   try {
-    const integration = getPartnerIntegration(partnerKey);
+    const listed = integration.fetchListedPrice ? await integration.fetchListedPrice(link.externalId) : null;
+    if (listed) {
+      listedByExternalId.set(link.externalId, listed);
+      await sleep(CALL_INTERVAL_MS);
+      continue;
+    }
+  } catch (error) {
+    console.warn(`[refresh-partner-prices] 표시가 조회 실패, 옵션으로 대체 (상품 ${product.id}, ${link.partner}):`, error.message);
+  }
+  await sleep(CALL_INTERVAL_MS);
+
+  try {
     optionsByExternalId.set(link.externalId, await integration.fetchPriceOptions(link.externalId));
   } catch (error) {
     optionsByExternalId.set(link.externalId, null);
@@ -76,17 +92,20 @@ if (sentinelPrices.size > 0) {
 
 // 2차: 자리표시자 제외 + 성인 옵션 우선으로 대표가 선정 후 반영
 for (const { product, link } of targets) {
-  const options = optionsByExternalId.get(link.externalId);
-  if (!options) continue; // 조회 실패는 위에서 집계됨
-  const result = pickRepresentativePrice(options, sentinelPrices);
+  const listed = listedByExternalId.get(link.externalId);
+  const options = listed ? null : optionsByExternalId.get(link.externalId);
+  if (!listed && !options) continue; // 조회 실패는 위에서 집계됨
+  const result = listed || pickRepresentativePrice(options, sentinelPrices);
   if (!result) {
     skipped += 1;
     continue;
   }
 
-  // 기존 저장가가 이번에 감지된 자리표시자면(예전 로직이 잘못 저장한 값) 비교 기준이 될 수 없으므로 안전장치를 건너뛴다
+  // 파트너가 직접 알려준 표시가는 그 자체가 정답이므로 이상치 안전장치를 적용하지 않는다.
+  // (옵션 역산으로 잘못 저장돼 있던 값에서 크게 튀는 게 정상적인 교정이라 막으면 안 됨)
+  // 기존 저장가가 이번에 감지된 자리표시자면(예전 로직이 잘못 저장한 값) 비교 기준이 될 수 없으므로 마찬가지로 건너뛴다
   const previousPrice = Number(link.price);
-  if (Number.isFinite(previousPrice) && previousPrice > 0 && !sentinelPrices.has(previousPrice)) {
+  if (!listed && Number.isFinite(previousPrice) && previousPrice > 0 && !sentinelPrices.has(previousPrice)) {
     const ratio = result.price / previousPrice;
     if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
       flagged += 1;
@@ -101,7 +120,9 @@ for (const { product, link } of targets) {
   link.priceDisplay = result.priceDisplay;
   link.updatedAt = new Date().toISOString();
   refreshed += 1;
-  console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
+  console.log(
+    `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${listed ? '파트너 표시가' : '옵션 역산'})`
+  );
 }
 
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
