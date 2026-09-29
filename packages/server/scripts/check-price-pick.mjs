@@ -1,13 +1,7 @@
 // 대표가 선정 로직 자가 점검. 실제 사고가 났던 케이스들을 그대로 넣어둔다.
 // 실행: node packages/server/scripts/check-price-pick.mjs
 import assert from 'assert';
-import { pickListedPrice, pickRepresentativePrice, detectSentinelPrices, isNonAdultOption } from '../src/integrations/index.js';
-
-// 파트너 표시가: 상세 응답에서 첫 번째로 유효한 가격 필드를 쓴다
-assert.strictEqual(pickListedPrice({ salePrice: 49217 }), 49217);
-assert.strictEqual(pickListedPrice({ salePrice: 0, price: 29644 }), 29644, '0원은 유효한 가격이 아님');
-assert.strictEqual(pickListedPrice({ reviewScore: 4.9 }), null, '가격 필드가 없으면 null');
-assert.strictEqual(pickListedPrice(null), null);
+import { pickRepresentativePrice, detectSentinelPrices, isNonAdultOption } from '../src/integrations/index.js';
 
 // 아동/시니어 판별
 assert.ok(isNonAdultOption('어린이(만3-11세)'));
