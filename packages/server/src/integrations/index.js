@@ -106,6 +106,11 @@ const myrealtripIntegration = {
     }));
   },
 
+  // 상세 응답 원본 (어드민 진단용)
+  async fetchRawDetail(externalId) {
+    return myrealtrip.getTourTicketDetail(externalId);
+  },
+
   // 마이리얼트립이 상품 페이지에 노출하는 대표가. 이게 있으면 옵션 역산은 필요 없다.
   async fetchListedPrice(externalId) {
     const detail = await myrealtrip.getTourTicketDetail(externalId);
