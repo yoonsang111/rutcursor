@@ -786,6 +786,28 @@ app.get('/api/admin/partner-detail', requireAdminKey, async (req, res) => {
   }
 });
 
+// 어드민 - 파트너 상품의 예약 옵션 원본 조회.
+// 대표가 선정이 어떤 옵션을 보고 있는지(=왜 그 가격이 나왔는지) 확인할 때 쓴다.
+app.get('/api/admin/partner-options', requireAdminKey, async (req, res) => {
+  const { partner, externalId } = req.query;
+  if (!partner || typeof partner !== 'string') {
+    return res.status(400).json({ error: 'partner 쿼리 파라미터가 필요합니다' });
+  }
+  if (!externalId || typeof externalId !== 'string') {
+    return res.status(400).json({ error: 'externalId 쿼리 파라미터가 필요합니다' });
+  }
+  try {
+    const integration = getPartnerIntegration(partner);
+    if (!integration.fetchPriceOptions) {
+      return res.status(400).json({ error: `${partner}는 옵션 조회를 지원하지 않습니다` });
+    }
+    res.json({ options: await integration.fetchPriceOptions(externalId) });
+  } catch (error) {
+    console.error('[API] partner-options 오류:', error.message);
+    res.status(502).json({ error: error.message });
+  }
+});
+
 // 어드민 - 선택한 파트너 상품 URL을 어필리에이트 추적 링크로 변환
 app.post('/api/admin/partner-link', requireAdminKey, async (req, res) => {
   const { partner, url } = req.body || {};
@@ -1171,6 +1193,7 @@ app.use((req, res) => {
       'GET /api/counter',
       'GET /api/admin/partner-search',
       'GET /api/admin/partner-detail',
+      'GET /api/admin/partner-options',
       'POST /api/admin/partner-link',
       'GET /sitemap.xml'
     ]
