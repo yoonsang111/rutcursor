@@ -632,6 +632,14 @@ async function main() {
     if (stamps.length > 0) route.lastmod = stamps[stamps.length - 1];
   }
 
+  // 상품이 하나도 없는 목록 페이지는 색인 대상에서 뺀다.
+  // (빈 페이지를 사이트맵으로 제출하면 크롤링 예산만 쓰고 사이트 품질 평가에 불리하다.
+  //  페이지 자체는 남겨서 사용자가 들어와도 깨지지 않게 한다.)
+  for (const route of routes) {
+    if (!Array.isArray(route.itemListProducts) || route.robots) continue;
+    if (route.itemListProducts.length === 0) route.robots = "noindex, follow";
+  }
+
   const deduped = new Map();
   let homeMeta = null;
   for (const route of routes) {

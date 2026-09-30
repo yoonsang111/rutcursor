@@ -530,7 +530,10 @@ async function runV2ProductsFetch(): Promise<CachedV2Data> {
       : new Map<string, string[]>(finalCountries.map((country) => [country.id, country.regions]));
 
   const fallbackCategoryId = finalCategories[0]?.id || "uncategorized";
-  const fallbackCountryId = finalCountries[0]?.id || "unknown-country";
+  // 국가를 못 찾았을 때 목록의 첫 국가로 넣으면 엉뚱한 나라로 분류된다.
+  // (locations가 '기타'인 상품들이 전부 베트남으로 잡혀 구글 검색결과 빵부스러기에
+  //  "tourstream.kr › 베트남"으로 노출되던 문제) 모르면 비워두는 편이 맞다.
+  const fallbackCountryId = "";
 
   const mappedItems = rawProducts.map((raw) =>
     toV2Product(

@@ -131,12 +131,14 @@ export default function V2ProductDetailPage() {
       {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
+        // 국가를 모를 때 "국가"라는 빈 단계를 넣지 않고 아예 생략한다.
+        // (잘못된 나라가 검색결과 빵부스러기에 노출되던 문제와 같은 맥락)
         itemListElement: [
           { "@type": "ListItem", position: 1, name: "홈", item: "https://tourstream.kr/" },
-          country
-            ? { "@type": "ListItem", position: 2, name: country.name, item: `https://tourstream.kr/country/${getCountrySlug(country)}` }
-            : { "@type": "ListItem", position: 2, name: "국가", item: "https://tourstream.kr/" },
-          { "@type": "ListItem", position: 3, name: safeName, item: `https://tourstream.kr${canonicalPath}` },
+          ...(country
+            ? [{ "@type": "ListItem", position: 2, name: country.name, item: `https://tourstream.kr/country/${getCountrySlug(country)}` }]
+            : []),
+          { "@type": "ListItem", position: country ? 3 : 2, name: safeName, item: `https://tourstream.kr${canonicalPath}` },
         ],
       },
     ],
