@@ -30,6 +30,27 @@
         "3005"
       ],
       "port": 3005
+    },
+    {
+      "name": "tourstream-build-3000",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "-s",
+        "packages/main/build",
+        "-l",
+        "3000"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "tourstream-api-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "PORT=3102 DATA_DIR=/private/tmp/claude-501/-Users-iyunsang-rutcursor/f715bf7e-cee0-4c45-8ba5-34dd6f0d89e3/scratchpad/localdata CORS_ORIGIN=http://localhost:3000,http://localhost:3005 node packages/server/src/index.js"
+      ],
+      "port": 3102
     }
   ]
 }

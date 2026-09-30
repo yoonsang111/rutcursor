@@ -10,6 +10,12 @@ const indexPath = path.join(buildDir, "index.html");
 const API_BASE_URL = process.env.REACT_APP_API_URL || "https://api.tourstream.kr/api";
 const SITE_URL = "https://tourstream.kr";
 
+// 카테고리 안내는 React 화면(V2CategoryPage)과 같은 파일을 읽는다.
+// 화면과 크롤러가 보는 내용이 달라지면 클로킹이 되므로 출처를 하나로 유지한다.
+const categoryGuides = JSON.parse(
+  await fs.readFile(path.join(__dirname, "..", "src", "v2", "data", "categoryGuides.json"), "utf8"),
+);
+
 const COUNTRY_ENGLISH_MAP = {
   일본: "Japan",
   프랑스: "France",
@@ -339,6 +345,15 @@ function buildStaticBody(meta) {
         .join("")}</ul>`,
     );
   }
+  if (meta.guide) {
+    const g = meta.guide;
+    lines.push(`<h2>${escapeHtml(meta.guideTitle || "고르는 법")}</h2>`);
+    lines.push(`<p>${escapeHtml(g.intro)}</p>`);
+    (g.sections || []).forEach((section) => {
+      lines.push(`<h3>${escapeHtml(section.heading)}</h3>`);
+      lines.push(`<ul>${(section.items || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`);
+    });
+  }
   return `<main style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif">${lines.join("")}</main>`;
 }
 
@@ -522,6 +537,9 @@ async function main() {
       } 비교하세요. 제휴사별 최저가 링크를 제공합니다.`,
       ogType: "website",
       itemListProducts: categoryProducts,
+      // 화면(V2CategoryPage)이 필터 없는 카테고리 페이지에만 안내를 그리므로 셸도 동일하게 맞춘다
+      guide: categoryGuides[categoryName],
+      guideTitle: `${categoryName} 고르는 법`,
     });
   }
 

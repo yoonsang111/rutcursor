@@ -5,6 +5,12 @@ import { Search } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { findCategoryBySlug, findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
+import categoryGuides from "../data/categoryGuides.json";
+
+// 크롤러용 정적 셸(generate-seo-route-shells.mjs)도 같은 파일을 읽는다.
+// 화면과 셸 내용이 달라지면 클로킹으로 보일 수 있으므로 반드시 한 곳에서만 관리한다.
+type CategoryGuide = { intro: string; sections: Array<{ heading: string; items: string[] }> };
+const guides = categoryGuides as unknown as Record<string, CategoryGuide>;
 
 export default function V2CategoryPage() {
   const { id: categorySlug } = useParams<{ id: string }>();
@@ -39,6 +45,9 @@ export default function V2CategoryPage() {
     : `/category/${category ? getCategorySlug(category) : categorySlug || ""}${
         selectedCountry ? `?country=${encodeURIComponent(getCountrySlug(selectedCountry))}` : ""
       }`;
+
+  // 카테고리 전체를 볼 때만 안내를 노출한다 (국가/지역/검색 필터가 걸리면 문맥이 달라짐)
+  const guide = !selectedCountry && !regionName && !searchTerm ? guides[safeCategoryName] : undefined;
 
   const categoryMinPrice = filteredProducts.length > 0 ? Math.min(...filteredProducts.map((p) => p.price || Infinity)) : Infinity;
   const categoryPriceLabel = Number.isFinite(categoryMinPrice) ? `${categoryMinPrice.toLocaleString("ko-KR")}원` : null;
@@ -101,6 +110,25 @@ export default function V2CategoryPage() {
         </div>
         {filteredProducts.length === 0 && <div className="text-sm text-slate-500">검색 조건에 맞는 상품이 없습니다.</div>}
       </section>
+
+      {guide && (
+        <section className="py-8 border-t border-slate-100">
+          <h2 className="text-lg font-bold text-slate-900 mb-3">{safeCategoryName} 고르는 법</h2>
+          <p className="text-sm text-slate-600 leading-relaxed mb-6">{guide.intro}</p>
+          {guide.sections.map((section) => (
+            <div key={section.heading} className="mb-6">
+              <h3 className="text-sm font-bold text-slate-900 mb-2">{section.heading}</h3>
+              <ul className="list-disc pl-5 space-y-1.5">
+                {section.items.map((item) => (
+                  <li key={item} className="text-sm text-slate-600 leading-relaxed">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
