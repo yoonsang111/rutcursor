@@ -54,11 +54,29 @@ for (const product of products) {
   }
 }
 
+// 1순위는 파트너 상품 페이지에 실제로 노출되는 "부터" 가격. 그게 안 잡히는 상품만 옵션에서 역산한다.
+const displayedByExternalId = new Map();
 const optionsByExternalId = new Map();
 for (const { product, link, partnerKey } of targets) {
-  if (optionsByExternalId.has(link.externalId)) continue;
+  if (displayedByExternalId.has(link.externalId) || optionsByExternalId.has(link.externalId)) continue;
+  const integration = getPartnerIntegration(partnerKey);
+
+  if (integration.fetchDisplayedPrice) {
+    try {
+      const displayed = await integration.fetchDisplayedPrice(link.externalId, product.name);
+      await sleep(CALL_INTERVAL_MS);
+      if (displayed) {
+        displayedByExternalId.set(link.externalId, displayed);
+        continue;
+      }
+      console.warn(`[refresh-partner-prices] 노출가 미확인, 옵션으로 대체 (상품 ${product.id} ${product.name})`);
+    } catch (error) {
+      await sleep(CALL_INTERVAL_MS);
+      console.warn(`[refresh-partner-prices] 노출가 조회 실패, 옵션으로 대체 (상품 ${product.id}):`, error.message);
+    }
+  }
+
   try {
-    const integration = getPartnerIntegration(partnerKey);
     optionsByExternalId.set(link.externalId, await integration.fetchPriceOptions(link.externalId));
   } catch (error) {
     optionsByExternalId.set(link.externalId, null);
@@ -76,17 +94,20 @@ if (sentinelPrices.size > 0) {
 
 // 2차: 자리표시자 제외 + 성인 옵션 우선으로 대표가 선정 후 반영
 for (const { product, link } of targets) {
-  const options = optionsByExternalId.get(link.externalId);
-  if (!options) continue; // 조회 실패는 위에서 집계됨
-  const result = pickRepresentativePrice(options, sentinelPrices);
+  const displayed = displayedByExternalId.get(link.externalId);
+  const options = displayed ? null : optionsByExternalId.get(link.externalId);
+  if (!displayed && !options) continue; // 조회 실패는 위에서 집계됨
+  const result = displayed || pickRepresentativePrice(options, sentinelPrices);
   if (!result) {
     skipped += 1;
     continue;
   }
 
-  // 기존 저장가가 이번에 감지된 자리표시자면(예전 로직이 잘못 저장한 값) 비교 기준이 될 수 없으므로 안전장치를 건너뛴다
+  // 파트너 노출가는 파트너가 내건 값 자체라 이상치 판정 대상이 아니다.
+  // (잘못된 옵션 역산값에서 크게 튀는 게 정상적인 교정이므로 막으면 안 됨)
+  // 기존 저장가가 이번에 감지된 자리표시자여도 비교 기준이 될 수 없으므로 마찬가지로 건너뛴다.
   const previousPrice = Number(link.price);
-  if (Number.isFinite(previousPrice) && previousPrice > 0 && !sentinelPrices.has(previousPrice)) {
+  if (!displayed && Number.isFinite(previousPrice) && previousPrice > 0 && !sentinelPrices.has(previousPrice)) {
     const ratio = result.price / previousPrice;
     if (ratio < SUSPICIOUS_DROP_RATIO || ratio > SUSPICIOUS_RISE_RATIO) {
       flagged += 1;
@@ -101,7 +122,9 @@ for (const { product, link } of targets) {
   link.priceDisplay = result.priceDisplay;
   link.updatedAt = new Date().toISOString();
   refreshed += 1;
-  console.log(`[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay}`);
+  console.log(
+    `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${displayed ? '파트너 노출가' : '옵션 역산'})`
+  );
 }
 
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');

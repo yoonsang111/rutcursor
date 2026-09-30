@@ -59,13 +59,16 @@ export const pickRepresentativePrice = (options = [], sentinelPrices = new Set()
   const adult = candidates.filter((o) => !isNonAdultOption(o.name));
   const pool = adult.length > 0 ? adult : candidates;
   const price = Math.min(...pool.map((o) => o.price));
-  return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원` };
+  return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원~` };
 };
 
-// 참고(2026-09-29 확인): 마이리얼트립 상세 API 응답에는 가격도 상품명도 없다
-// (gid, title=빈문자열, description, reviewScore, reviewCount, included, excluded, itineraries).
-// 검색 API의 salePrice는 값이 있지만 옵션 역산과 최대 10배까지 어긋나고, 실제 현지가와 대조하면
-// 어느 쪽도 일관되게 맞지 않는다. 그래서 대표가는 계속 옵션에서 고른다.
+// ── 파트너 노출가 ─────────────────────────────────────────────────────────────
+// 어느 파트너도 "성인 1인 정가"를 주지 않는다. 주는 건 상품 페이지에 찍히는 "○○원~"(최저 옵션가)뿐이다.
+// 위의 옵션 역산은 성인가를 만들어내려던 시도인데, 그 결과가 파트너 페이지 어디에도 없는 숫자가 되는
+// 문제가 있었다(예: 도쿄 디즈니 10,000원 - 마이리얼트립 표시는 49,940원~).
+// 그래서 파트너가 노출하는 "부터" 가격을 그대로 미러링하고, 옵션 역산은 그게 안 될 때만 쓴다.
+// 확인(2026-09-30): 검색 API의 salePrice = 상품 페이지 하단 고정바의 "○○원~" 과 정확히 일치.
+// 상세 API는 가격도 상품명도 주지 않는다(gid, title=빈문자열, description, reviewScore, reviewCount, ...).
 
 // 여러 상품의 옵션 가격을 모아, 서로 다른 상품 N개 이상에서 똑같이 나타나는 가격을 자리표시자로 판정한다.
 // (실제 판매가가 원 단위까지 다른 상품과 겹칠 확률은 사실상 0)
@@ -95,6 +98,18 @@ const myrealtripIntegration = {
       rating: item.reviewScore,
       reviewCount: item.reviewCount,
     }));
+  },
+
+  // 파트너 상품 페이지에 노출되는 "부터" 가격.
+  // 검색으로만 얻을 수 있어서 상품명으로 찾되, gid가 정확히 일치하는 항목만 인정한다
+  // (이름이 비슷한 다른 상품 가격을 집는 사고를 원천 차단).
+  async fetchDisplayedPrice(externalId, keyword) {
+    if (!keyword) return null;
+    const results = await this.search(keyword);
+    const hit = results.find((r) => String(r.externalId) === String(externalId));
+    const price = Number(hit?.price);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    return { price, priceDisplay: `${price.toLocaleString('ko-KR')}원~` };
   },
 
   // 상세 응답 원본 (어드민 진단용)

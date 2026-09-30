@@ -255,13 +255,13 @@ function buildStaticBody(meta) {
   if (meta.product) {
     const p = meta.product;
     const price = resolvePrice(p);
-    if (Number.isFinite(price)) lines.push(`<p>최저가 ${price.toLocaleString("ko-KR")}원</p>`);
+    if (Number.isFinite(price)) lines.push(`<p>최저가 ${price.toLocaleString("ko-KR")}원~</p>`);
     if (p.description) lines.push(`<p>${escapeHtml(String(p.description).slice(0, 600))}</p>`);
     const partners = (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).filter((l) => l?.url);
     if (partners.length > 0) {
       lines.push(
         `<ul>${partners
-          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원` : ""}</li>`)
+          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : ""}</li>`)
           .join("")}</ul>`,
       );
     }
@@ -273,7 +273,7 @@ function buildStaticBody(meta) {
         .map((p) => {
           const price = resolvePrice(p);
           return `<li><a href="/product/${escapeHtml(p.id)}">${escapeHtml(p.name)}</a>${
-            Number.isFinite(price) ? ` ${price.toLocaleString("ko-KR")}원` : ""
+            Number.isFinite(price) ? ` ${price.toLocaleString("ko-KR")}원~` : ""
           }</li>`;
         })
         .join("")}</ul>`,

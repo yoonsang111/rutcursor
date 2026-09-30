@@ -79,7 +79,7 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
             >
               <span className={`font-bold ${isBest ? "text-brand" : "text-slate-400"}`}>{link.name}</span>
               <span className="font-extrabold text-slate-900">
-                {link.priceDisplay || (link.price !== undefined ? `${link.price.toLocaleString()}원` : "확인 필요")}
+                {link.priceDisplay || (link.price !== undefined ? `${link.price.toLocaleString()}원~` : "확인 필요")}
               </span>
             </a>
           );
