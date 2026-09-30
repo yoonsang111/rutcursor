@@ -59,8 +59,11 @@ export default function V2HomePage() {
     .map((p) => p.name);
 
   useV2Seo({
-    title: "TourStream - 여행 상품 가격 비교",
-    description: "국가/지역/카테고리별 여행 상품을 비교하고 최저가 파트너를 확인하세요.",
+    // 정적 셸(generate-seo-route-shells.mjs)과 같은 값이어야 한다.
+    // 다르면 JS를 실행하는 검색엔진이 마운트 후의 값을 보게 되어 셸의 SEO 문구가 무효가 된다.
+    title: "일본·해외 입장권 교통패스 최저가 비교 | 클룩·마이리얼트립·KKday | TourStream",
+    description:
+      "오사카·도쿄 등 일본 여행 입장권부터 교통패스·전망대·테마파크까지, 클룩·마이리얼트립·KKday 가격을 한 번에 비교하고 최저가로 예약하세요.",
     canonicalPath: "/",
     ogType: "website",
     jsonLd: [

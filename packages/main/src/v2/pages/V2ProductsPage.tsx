@@ -73,10 +73,11 @@ export default function V2ProductsPage() {
   };
 
   useV2Seo({
-    title: keyword.trim() ? `"${keyword.trim()}" 검색 결과 | TourStream` : "전체 상품 | TourStream",
+    // 검색어가 없을 때의 값은 정적 셸과 동일해야 한다 (다르면 셸 문구가 무효가 됨)
+    title: keyword.trim() ? `"${keyword.trim()}" 검색 결과 | TourStream` : "해외여행 입장권·교통패스 전체 상품 | TourStream",
     description: keyword.trim()
       ? `"${keyword.trim()}" 관련 여행 상품 검색 결과입니다.`
-      : "TourStream 전체 여행 상품 목록 페이지입니다.",
+      : "일본·대만·싱가포르 등 해외여행 입장권, 교통패스, 전망대, 테마파크 상품을 한눈에. 클룩·마이리얼트립·KKday 등 제휴사별 최저가를 비교하세요.",
     canonicalPath: keyword.trim() ? `/products?q=${encodeURIComponent(keyword.trim())}` : "/products",
     ogType: "website",
     ogImage: filtered[0]?.image,

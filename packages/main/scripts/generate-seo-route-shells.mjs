@@ -248,6 +248,15 @@ function pickDistinctiveTags(comboProducts, allProducts) {
 const escapeHtml = (v) =>
   String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// 상품/링크의 마지막 갱신 시각. 사이트맵 lastmod에 쓴다 (없으면 null → 빌드일로 대체하지 않고 생략).
+function productLastmod(product) {
+  const stamps = (Array.isArray(product.partnerLinks) ? product.partnerLinks : [])
+    .map((l) => l?.updatedAt)
+    .filter((v) => typeof v === "string" && v);
+  if (stamps.length === 0) return null;
+  return stamps.sort().pop().slice(0, 10);
+}
+
 // JS를 실행하지 않는 크롤러(네이버 Yeti 등)가 볼 수 있도록 #root 안에 정적 본문을 넣는다.
 // React가 마운트되면서 통째로 갈아끼우므로 사용자에게는 첫 페인트 잠깐만 보인다.
 function buildStaticBody(meta) {
@@ -255,13 +264,60 @@ function buildStaticBody(meta) {
   if (meta.product) {
     const p = meta.product;
     const price = resolvePrice(p);
-    if (Number.isFinite(price)) lines.push(`<p>최저가 ${price.toLocaleString("ko-KR")}원~</p>`);
+    const locations = (Array.isArray(p.locations) ? p.locations : []).filter(Boolean);
+    const categories = (Array.isArray(p.categories) ? p.categories : []).filter(Boolean);
+
+    // 어디의 무슨 상품인지 - 상품마다 실제로 달라지는 정보라 중복 판정을 피하는 데 가장 중요
+    const facts = [];
+    if (locations.length > 0) facts.push(`${locations.slice().reverse().join(" ")} 여행 상품`);
+    if (categories.length > 0) facts.push(`분류: ${categories.join(", ")}`);
+    if (facts.length > 0) lines.push(`<p>${escapeHtml(facts.join(" · "))}</p>`);
+
     if (p.description) lines.push(`<p>${escapeHtml(String(p.description).slice(0, 600))}</p>`);
+    // 어드민이 따로 저장해 둔 SEO 설명이 본문 설명과 다르면 함께 노출 (85개 상품이 보유)
+    const seoDesc = String(p.seo?.description || "").trim();
+    if (seoDesc && seoDesc !== String(p.description || "").trim()) lines.push(`<p>${escapeHtml(seoDesc.slice(0, 300))}</p>`);
+
     const partners = (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).filter((l) => l?.url);
+    const priced = partners.filter((l) => Number(l.price) > 0);
+    if (Number.isFinite(price)) {
+      const range =
+        priced.length >= 2
+          ? `${Math.min(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원~${Math.max(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원`
+          : `${price.toLocaleString("ko-KR")}원~`;
+      lines.push(
+        `<p>예약 사이트 ${partners.length}곳 가격을 비교합니다. 확인된 가격대는 ${escapeHtml(range)}이고, 표시 가격은 각 사이트의 최저 옵션가 기준입니다.</p>`,
+      );
+    } else {
+      lines.push(`<p>예약 사이트 ${partners.length}곳의 링크를 제공합니다. 가격은 각 사이트에서 확인하세요.</p>`);
+    }
+
+    const rating = Number(p.rating);
+    const reviewCount = Number(p.reviewCount);
+    if (Number.isFinite(rating) && rating > 0 && Number.isFinite(reviewCount) && reviewCount > 0) {
+      lines.push(`<p>파트너사 이용자 평점 ${rating}점 / 후기 ${reviewCount.toLocaleString("ko-KR")}건.</p>`);
+    }
+
     if (partners.length > 0) {
       lines.push(
         `<ul>${partners
-          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : ""}</li>`)
+          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : " 가격 확인 필요"}</li>`)
+          .join("")}</ul>`,
+      );
+    }
+
+    // 같은 지역/분류의 다른 상품으로 가는 내부 링크. 크롤러가 홈 밖으로 퍼져나갈 통로가 된다.
+    const related = Array.isArray(meta.relatedProducts) ? meta.relatedProducts : [];
+    if (related.length > 0) {
+      lines.push(`<p>함께 비교되는 상품</p>`);
+      lines.push(
+        `<ul>${related
+          .map((r) => {
+            const rp = resolvePrice(r);
+            return `<li><a href="/product/${escapeHtml(r.id)}">${escapeHtml(r.name)}</a>${
+              Number.isFinite(rp) ? ` ${rp.toLocaleString("ko-KR")}원~` : ""
+            }</li>`;
+          })
           .join("")}</ul>`,
       );
     }
@@ -348,6 +404,10 @@ async function main() {
       title: "일본·해외 입장권 교통패스 최저가 비교 | 클룩·마이리얼트립·KKday | TourStream",
       description: "오사카·도쿄 등 일본 여행 입장권부터 교통패스·전망대·테마파크까지, 클룩·마이리얼트립·KKday 가격을 한 번에 비교하고 최저가로 예약하세요.",
       ogType: "website",
+      // 홈 정적 본문이 제목 한 줄뿐이면 크롤러가 따라갈 링크가 없다. 조회 상위 상품을 내보낸다.
+      itemListProducts: (Array.isArray(products) ? [...products] : [])
+        .sort((a, b) => (Number(b.recentViews7d) || Number(b.views) || 0) - (Number(a.recentViews7d) || Number(a.views) || 0))
+        .slice(0, 24),
     },
     {
       path: "/products",
@@ -394,12 +454,29 @@ async function main() {
       ? ` 최저 ${priceLabel}부터${partnerCount >= 2 ? `, 파트너사 ${partnerCount}곳` : ""} 가격을 비교해보세요.`
       : " 여러 예약 사이트에서 최저가로 비교하세요.";
 
+    // 같은 지역의 다른 상품 우선, 모자라면 같은 분류에서 채운다 (자기 자신 제외, 최대 6개)
+    const pool = Array.isArray(products) ? products : [];
+    const sameRegion = pool.filter(
+      (o) => String(o.id) !== String(product.id) && locations && Array.isArray(o.locations) && o.locations.includes(locations),
+    );
+    const sameCategory = pool.filter(
+      (o) =>
+        String(o.id) !== String(product.id) &&
+        categories &&
+        Array.isArray(o.categories) &&
+        o.categories.includes(categories) &&
+        !sameRegion.some((r) => String(r.id) === String(o.id)),
+    );
+    const relatedProducts = [...sameRegion, ...sameCategory].slice(0, 6);
+
     routes.push({
       path: `/product/${product.id}`,
       title,
       description: `${baseDesc}${priceSentence}`.slice(0, 155),
       ogType: "product",
       product, // JSON-LD 생성에 사용
+      relatedProducts,
+      lastmod: productLastmod(product),
     });
   }
 
@@ -527,6 +604,14 @@ async function main() {
     }
   }
 
+  // 목록 페이지의 lastmod는 소속 상품들 중 가장 최근 갱신일
+  for (const route of routes) {
+    if (route.lastmod) continue;
+    const members = Array.isArray(route.itemListProducts) ? route.itemListProducts : [];
+    const stamps = members.map(productLastmod).filter(Boolean).sort();
+    if (stamps.length > 0) route.lastmod = stamps[stamps.length - 1];
+  }
+
   const deduped = new Map();
   let homeMeta = null;
   for (const route of routes) {
@@ -554,14 +639,20 @@ async function main() {
 
   // 네이버 서치어드바이저는 다른 호스트(api.tourstream.kr)로 넘기는 sitemapindex를 따라가지 않으므로
   // tourstream.kr/sitemap.xml 자체를 실제 URL 목록으로 만든다 (noindex 페이지는 제외).
-  const today = new Date().toISOString().slice(0, 10);
-  const sitemapUrls = ["/", ...Array.from(deduped.values()).filter((r) => !/noindex/.test(r.robots || "")).map((r) => r.path)];
-  const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapUrls
-    .map((u) => `  <url><loc>${SITE_URL}${u}</loc><lastmod>${today}</lastmod></url>`)
+  // lastmod는 실제로 내용이 바뀐 날만 적는다. 매일 전체를 오늘 날짜로 찍으면
+  // 검색엔진이 lastmod를 신뢰하지 않게 되고 크롤링 예산만 낭비된다.
+  const sitemapEntries = [
+    ...(homeMeta ? [{ path: "/", lastmod: homeMeta.lastmod }] : [{ path: "/", lastmod: null }]),
+    ...Array.from(deduped.values())
+      .filter((r) => !/noindex/.test(r.robots || ""))
+      .map((r) => ({ path: r.path, lastmod: r.lastmod || null })),
+  ];
+  const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries
+    .map((e) => `  <url><loc>${SITE_URL}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod}</lastmod>` : ""}</url>`)
     .join("\n")}\n</urlset>\n`;
   await fs.writeFile(path.join(buildDir, "sitemap.xml"), sitemapXml, "utf8");
 
-  console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapUrls.length} urls`);
+  console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapEntries.length} urls`);
 }
 
 main().catch((error) => {
