@@ -1,4 +1,13 @@
 import { Category, Country } from "../data";
+import slugMap from "../data/slugMap.json";
+
+// 로마자 자동변환(gyotong-paeseu)을 쓰기 좋은 영어 슬러그로 대체하는 표.
+// 크롤러용 셸 생성기도 같은 파일을 읽으므로 두 곳이 어긋나지 않는다.
+const SLUG_MAP = slugMap as unknown as {
+  categories: Record<string, string>;
+  countries: Record<string, string>;
+  regions: Record<string, string>;
+};
 
 const L_TABLE = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"];
 const V_TABLE = [
@@ -103,15 +112,15 @@ export function toEnglishSlug(value?: string) {
 }
 
 export function getCountrySlug(country: Country) {
-  return toEnglishSlug(country.englishName || country.name);
+  return SLUG_MAP.countries[country.name] || toEnglishSlug(country.englishName || country.name);
 }
 
 export function getCategorySlug(category: Category) {
-  return toEnglishSlug(category.name);
+  return SLUG_MAP.categories[category.name] || toEnglishSlug(category.name);
 }
 
 export function getRegionSlug(regionName: string) {
-  return toEnglishSlug(regionName);
+  return SLUG_MAP.regions[regionName] || toEnglishSlug(regionName);
 }
 
 export function findCountryBySlug(countries: Country[], slug?: string | null) {

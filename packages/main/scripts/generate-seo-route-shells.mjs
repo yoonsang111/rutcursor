@@ -16,18 +16,13 @@ const categoryGuides = JSON.parse(
   await fs.readFile(path.join(__dirname, "..", "src", "v2", "data", "categoryGuides.json"), "utf8"),
 );
 
-const COUNTRY_ENGLISH_MAP = {
-  일본: "Japan",
-  프랑스: "France",
-  태국: "Thailand",
-  베트남: "Vietnam",
-  한국: "Korea",
-  대만: "Taiwan",
-  홍콩: "Hong Kong",
-  싱가포르: "Singapore",
-  미국: "United States",
-  이탈리아: "Italy",
-};
+// 슬러그 표는 React(urlSlugs.ts)와 같은 파일을 읽는다. 두 곳이 갈리면 같은 페이지가 URL 두 개로 생긴다.
+const SLUG_MAP = JSON.parse(
+  await fs.readFile(path.join(__dirname, "..", "src", "v2", "data", "slugMap.json"), "utf8"),
+);
+const categorySlug = (name) => SLUG_MAP.categories[name] || toSlug(name);
+const countrySlug = (name) => SLUG_MAP.countries[name] || toSlug(name);
+const regionSlug = (name) => SLUG_MAP.regions[name] || toSlug(name);
 
 const L_TABLE = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"];
 const V_TABLE = [
@@ -522,7 +517,7 @@ async function main() {
     const categoryName = typeof category === "string" ? category : category?.name || "";
     const categoryId = typeof category === "string" ? "" : category?.id || "";
     if (!categoryName && !categoryId) continue;
-    const slug = toSlug(categoryName || categoryId);
+    const slug = categorySlug(categoryName || categoryId);
     const categoryProducts = (Array.isArray(products) ? products : []).filter(
       (p) => Array.isArray(p.categories) && p.categories.includes(categoryName),
     );
@@ -552,8 +547,7 @@ async function main() {
     const countryName = typeof country === "string" ? country : country?.name || "";
     const countryId = typeof country === "string" ? "" : country?.id || "";
     if (!countryName && !countryId) continue;
-    const englishName = COUNTRY_ENGLISH_MAP[countryName] || countryName || countryId;
-    const slug = toSlug(englishName);
+    const slug = countrySlug(countryName || countryId);
     const countryProducts = (Array.isArray(products) ? products : []).filter(
       (p) => Array.isArray(p.locations) && p.locations.includes(countryName),
     );
@@ -581,7 +575,7 @@ async function main() {
     for (const region of countryRegions) {
       const regionName = typeof region === "string" ? region : region?.name || "";
       if (!regionName) continue;
-      const regionSlug = toSlug(regionName);
+      const regionSlugValue = regionSlug(regionName);
       const regionProducts = (Array.isArray(products) ? products : []).filter(
         (p) => Array.isArray(p.locations) && p.locations.includes(regionName),
       );
@@ -589,7 +583,7 @@ async function main() {
       const regionPriceLabel = Number.isFinite(regionMinPrice) ? `${regionMinPrice.toLocaleString("ko-KR")}원` : null;
 
       routes.push({
-        path: `/region/${regionSlug}`,
+        path: `/region/${regionSlugValue}`,
         title: regionPriceLabel
           ? `${regionName} 최저 ${regionPriceLabel}부터 | 가격비교 TourStream`
           : `${regionName} 여행 액티비티 가격비교 | TourStream`,
@@ -609,12 +603,12 @@ async function main() {
   for (const region of regions) {
     const regionName = typeof region === "string" ? region : region?.name || "";
     if (!regionName) continue;
-    const regionSlug = toSlug(regionName);
+    const regionSlugValue = regionSlug(regionName);
 
     for (const category of mainCategories) {
       const categoryName = typeof category === "string" ? category : category?.name || "";
       if (!categoryName) continue;
-      const categorySlug = toSlug(categoryName);
+      const categorySlugValue = categorySlug(categoryName);
 
       const comboProducts = allProducts.filter(
         (p) => Array.isArray(p.locations) && p.locations.includes(regionName) && Array.isArray(p.categories) && p.categories.includes(categoryName),
@@ -631,7 +625,7 @@ async function main() {
         distinctiveTags.length > 0 ? `${baseDesc} ${distinctiveTags.join(", ")} 등 인기 옵션도 함께 확인할 수 있어요.` : baseDesc;
 
       routes.push({
-        path: `/destination/${regionSlug}/${categorySlug}`,
+        path: `/destination/${regionSlugValue}/${categorySlugValue}`,
         title: comboPriceLabel
           ? `${regionName} ${categoryName} 최저 ${comboPriceLabel}부터 | TourStream`
           : `${regionName} ${categoryName} 가격비교 | TourStream`,
