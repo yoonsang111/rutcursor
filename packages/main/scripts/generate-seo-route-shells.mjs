@@ -277,11 +277,15 @@ function buildStaticBody(meta) {
     if (categories.length > 0) facts.push(`분류: ${categories.join(", ")}`);
     if (facts.length > 0) lines.push(`<p>${escapeHtml(facts.join(" · "))}</p>`);
 
-    if (p.description) lines.push(`<p>${escapeHtml(String(p.description).slice(0, 600))}</p>`);
-    // 어드민이 따로 저장해 둔 SEO 설명이 본문 설명과 다르면 함께 노출 (85개 상품이 보유)
-    const seoDesc = String(p.seo?.description || "").trim();
-    if (seoDesc && seoDesc !== String(p.description || "").trim()) lines.push(`<p>${escapeHtml(seoDesc.slice(0, 300))}</p>`);
-
+    const descLines = String(p.description || "")
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*[-•]\s*/, "").trim())
+      .filter(Boolean);
+    if (descLines.length > 1) {
+      lines.push(`<ul>${descLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`);
+    } else if (descLines.length === 1) {
+      lines.push(`<p>${escapeHtml(descLines[0].slice(0, 600))}</p>`);
+    }
     const partners = (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).filter((l) => l?.url);
     const priced = partners.filter((l) => Number(l.price) > 0);
     if (Number.isFinite(price)) {
@@ -289,11 +293,7 @@ function buildStaticBody(meta) {
         priced.length >= 2
           ? `${Math.min(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원~${Math.max(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원`
           : `${price.toLocaleString("ko-KR")}원~`;
-      lines.push(
-        `<p>예약 사이트 ${partners.length}곳 가격을 비교합니다. 확인된 가격대는 ${escapeHtml(range)}이고, 표시 가격은 각 사이트의 최저 옵션가 기준입니다.</p>`,
-      );
-    } else {
-      lines.push(`<p>예약 사이트 ${partners.length}곳의 링크를 제공합니다. 가격은 각 사이트에서 확인하세요.</p>`);
+      lines.push(`<p>확인된 가격대는 ${escapeHtml(range)}이며, 표시 가격은 각 사이트의 최저 옵션가 기준입니다.</p>`);
     }
 
     const rating = Number(p.rating);
@@ -343,6 +343,14 @@ function buildStaticBody(meta) {
 }
 
 // 상품 설명에 줄바꿈이나 &, " 가 그대로 들어있으면 meta 태그가 깨지거나 엔티티로 잘못 읽힌다.
+// 설명이 "- 항목" 여러 줄이면 meta 태그에는 기호를 떼고 한 줄로 이어 붙인다.
+const flattenBullets = (v) =>
+  String(v ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[-•]\s*/, "").trim())
+    .filter(Boolean)
+    .join(". ");
+
 const metaText = (v) => escapeHtml(String(v ?? "").replace(/\s+/g, " ").trim());
 
 function buildRouteHtml(baseHtml, meta) {
@@ -457,26 +465,29 @@ async function main() {
     const title = priceLabel ? `${productName} 최저가 ${priceLabel} | TourStream` : `${productName} 가격비교 | TourStream`;
 
     const baseDesc = product.description
-      ? product.description.slice(0, 90)
+      ? flattenBullets(product.description).slice(0, 90)
       : `${contextHint ? contextHint + " " : ""}${productName}`;
     const priceSentence = priceLabel
       ? ` 최저 ${priceLabel}부터${partnerCount >= 2 ? `, 파트너사 ${partnerCount}곳` : ""} 가격을 비교해보세요.`
       : " 여러 예약 사이트에서 최저가로 비교하세요.";
 
-    // 같은 지역의 다른 상품 우선, 모자라면 같은 분류에서 채운다 (자기 자신 제외, 최대 6개)
+    // 연관 상품: 겹치는 지역이 많을수록(도쿄 > 일본) 먼저, 그다음 같은 분류.
+    // locations 배열의 순서가 상품마다 [국가, 지역]/[지역, 국가]로 제각각이라 첫 항목만 보면
+    // 도쿄 상품에 오사카 상품이 붙는다. 교집합 크기로 판단한다.
     const pool = Array.isArray(products) ? products : [];
-    const sameRegion = pool.filter(
-      (o) => String(o.id) !== String(product.id) && locations && Array.isArray(o.locations) && o.locations.includes(locations),
-    );
-    const sameCategory = pool.filter(
-      (o) =>
-        String(o.id) !== String(product.id) &&
-        categories &&
-        Array.isArray(o.categories) &&
-        o.categories.includes(categories) &&
-        !sameRegion.some((r) => String(r.id) === String(o.id)),
-    );
-    const relatedProducts = [...sameRegion, ...sameCategory].slice(0, 6);
+    const myLocations = new Set((Array.isArray(product.locations) ? product.locations : []).filter(Boolean));
+    const myCategories = new Set((Array.isArray(product.categories) ? product.categories : []).filter(Boolean));
+    const relatedProducts = pool
+      .filter((o) => String(o.id) !== String(product.id))
+      .map((o) => {
+        const locHit = (Array.isArray(o.locations) ? o.locations : []).filter((l) => myLocations.has(l)).length;
+        const catHit = (Array.isArray(o.categories) ? o.categories : []).filter((c) => myCategories.has(c)).length;
+        return { product: o, score: locHit * 10 + catHit };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map((x) => x.product);
 
     routes.push({
       path: `/product/${product.id}`,
