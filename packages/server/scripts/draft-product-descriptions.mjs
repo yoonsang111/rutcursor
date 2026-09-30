@@ -18,6 +18,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://api.tourstream.kr/api').replace(/\/$/, '');
 const MIN_LENGTH = Number(process.env.MIN_LENGTH || 50);
 const OUT_FILE = process.env.OUT_FILE || path.resolve(__dirname, '../../../docs/product-description-drafts.json');
+// 이미 초안이 반영된 뒤 다시 만들 때, 사람이 쓴 원래 설명을 이 파일에서 가져온다.
+// (안 주면 운영 데이터의 현재 설명을 원문으로 본다)
+const BASE_FILE = process.env.BASE_FILE || '';
 
 const won = (n) => `${Number(n).toLocaleString('ko-KR')}원`;
 
@@ -62,18 +65,23 @@ const buildDraft = (product) => {
 
   const sentences = [];
 
-  // 1. 무엇을 어디서 - 상품마다 반드시 달라지는 부분
-  const opener = pickBy(product.id, [
-    place && category ? `${name}은 ${place}에서 이용할 수 있는 ${category} 상품입니다.` : `${name} 상품입니다.`,
-    place ? `${place} 여행을 준비한다면 ${name}을 확인해보세요.` : `${name}을 확인해보세요.`,
-    place && category ? `${place} ${category} 중에서도 자주 찾는 ${name}입니다.` : `${name}입니다.`,
-  ]);
-  sentences.push(opener);
+  // 1. 사람이 쓴 설명이 있으면 무조건 맨 앞. 검색결과 스니펫은 앞 90자로 만들어지므로
+  //    이 자리에 상투어가 오면 클릭률이 떨어진다.
+  const human = existing && !existing.includes('가격비교') && existing.length > 5 ? existing : '';
+  if (human) sentences.push(human.endsWith('.') ? human : `${human}.`);
 
-  // 2. 기존에 적어둔 짧은 설명이 있으면 살린다 (사람이 쓴 정보라 우선)
-  if (existing && !existing.includes('가격비교') && existing.length > 5) {
-    sentences.push(existing.endsWith('.') ? existing : `${existing}.`);
-  }
+  // 2. 어디서 이용하는 무슨 상품인지 (사람 설명이 없으면 이게 첫 문장이 된다)
+  sentences.push(
+    human
+      ? place && category
+        ? `${place}에서 이용할 수 있는 ${category} 상품입니다.`
+        : `${name} 상품입니다.`
+      : pickBy(product.id, [
+          place && category ? `${name}은 ${place}에서 이용할 수 있는 ${category} 상품입니다.` : `${name} 상품입니다.`,
+          place ? `${place} 여행을 준비한다면 ${name}을 확인해보세요.` : `${name}을 확인해보세요.`,
+          place && category ? `${place} ${category} 중에서도 자주 찾는 ${name}입니다.` : `${name}입니다.`,
+        ]),
+  );
 
   // 3. 태그로 남아 있는 특징
   if (tags.length > 0) {
@@ -110,16 +118,27 @@ const main = async () => {
   if (!res.ok) throw new Error(`상품 조회 실패 (${res.status})`);
   const products = await res.json();
 
+  // 원문(사람이 쓴 설명) 기준표. BASE_FILE이 있으면 그 쪽 currentDescription을 원문으로 본다.
+  const originals = new Map();
+  if (BASE_FILE) {
+    const base = JSON.parse(fs.readFileSync(BASE_FILE, 'utf8'));
+    (base.drafts || []).forEach((d) => originals.set(String(d.id), String(d.currentDescription || '').trim()));
+  }
+  const originalOf = (p) => (originals.has(String(p.id)) ? originals.get(String(p.id)) : String(p.description || '').trim());
+
   const targets = products.filter(
-    (p) => p.isAvailable !== false && String(p.description || '').trim().length <= MIN_LENGTH,
+    (p) => p.isAvailable !== false && (BASE_FILE ? originals.has(String(p.id)) : String(p.description || '').trim().length <= MIN_LENGTH),
   );
 
   const drafts = targets.map((p) => ({
     id: p.id,
     name: p.name,
+    // 안전장치 비교용: 운영에 지금 들어있는 값
     currentDescription: String(p.description || '').trim(),
     currentLength: String(p.description || '').trim().length,
-    draft: buildDraft(p),
+    // 내용 생성 기준: 사람이 쓴 원문
+    originalDescription: originalOf(p),
+    draft: buildDraft({ ...p, description: originalOf(p) }),
   }));
 
   fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });

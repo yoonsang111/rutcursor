@@ -260,7 +260,11 @@ function productLastmod(product) {
 // JS를 실행하지 않는 크롤러(네이버 Yeti 등)가 볼 수 있도록 #root 안에 정적 본문을 넣는다.
 // React가 마운트되면서 통째로 갈아끼우므로 사용자에게는 첫 페인트 잠깐만 보인다.
 function buildStaticBody(meta) {
-  const lines = [`<h1>${escapeHtml(meta.title.replace(/\s*\|\s*TourStream$/, ""))}</h1>`, `<p>${escapeHtml(meta.description)}</p>`];
+  const lines = [`<h1>${escapeHtml(meta.title.replace(/\s*\|\s*TourStream$/, ""))}</h1>`];
+  // meta description은 상품 설명의 앞부분을 잘라 만든 것이라, 상품 설명을 아래에 그대로 싣는
+  // 상품 페이지에서는 같은 문장이 두 번 나온다. 그 경우엔 생략한다.
+  const descIsExcerpt = Boolean(meta.product && String(meta.product.description || '').trim());
+  if (!descIsExcerpt) lines.push(`<p>${escapeHtml(meta.description)}</p>`);
   if (meta.product) {
     const p = meta.product;
     const price = resolvePrice(p);
@@ -338,26 +342,31 @@ function buildStaticBody(meta) {
   return `<main style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif">${lines.join("")}</main>`;
 }
 
+// 상품 설명에 줄바꿈이나 &, " 가 그대로 들어있으면 meta 태그가 깨지거나 엔티티로 잘못 읽힌다.
+const metaText = (v) => escapeHtml(String(v ?? "").replace(/\s+/g, " ").trim());
+
 function buildRouteHtml(baseHtml, meta) {
   let html = baseHtml;
+  const title = metaText(meta.title);
+  const description = metaText(meta.description);
   html = html.replace('<div id="root"></div>', `<div id="root">${buildStaticBody(meta)}</div>`);
   const canonicalUrl = `${SITE_URL}${meta.path}`;
 
-  html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${meta.title}</title>`);
-  html = upsertTag(html, /<meta[^>]*name=["']description["'][^>]*>/i, `<meta name="description" content="${meta.description}" />`);
-  html = upsertTag(html, /<meta[^>]*property=["']og:title["'][^>]*>/i, `<meta property="og:title" content="${meta.title}" />`);
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  html = upsertTag(html, /<meta[^>]*name=["']description["'][^>]*>/i, `<meta name="description" content="${description}" />`);
+  html = upsertTag(html, /<meta[^>]*property=["']og:title["'][^>]*>/i, `<meta property="og:title" content="${title}" />`);
   html = upsertTag(
     html,
     /<meta[^>]*property=["']og:description["'][^>]*>/i,
-    `<meta property="og:description" content="${meta.description}" />`,
+    `<meta property="og:description" content="${description}" />`,
   );
   html = upsertTag(html, /<meta[^>]*property=["']og:url["'][^>]*>/i, `<meta property="og:url" content="${canonicalUrl}" />`);
   html = upsertTag(html, /<meta[^>]*property=["']og:type["'][^>]*>/i, `<meta property="og:type" content="${meta.ogType || "website"}" />`);
-  html = upsertTag(html, /<meta[^>]*name=["']twitter:title["'][^>]*>/i, `<meta name="twitter:title" content="${meta.title}" />`);
+  html = upsertTag(html, /<meta[^>]*name=["']twitter:title["'][^>]*>/i, `<meta name="twitter:title" content="${title}" />`);
   html = upsertTag(
     html,
     /<meta[^>]*name=["']twitter:description["'][^>]*>/i,
-    `<meta name="twitter:description" content="${meta.description}" />`,
+    `<meta name="twitter:description" content="${description}" />`,
   );
   html = upsertTag(html, /<link[^>]*rel=["']canonical["'][^>]*>/i, `<link rel="canonical" href="${canonicalUrl}" />`);
   html = upsertTag(html, /<meta[^>]*name=["']robots["'][^>]*>/i, `<meta name="robots" content="${meta.robots || "index, follow"}" />`);
