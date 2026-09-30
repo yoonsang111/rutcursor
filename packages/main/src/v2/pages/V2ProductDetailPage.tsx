@@ -272,7 +272,7 @@ export default function V2ProductDetailPage() {
                   <Zap className="w-3.5 h-3.5" /> 최근 갱신 최저가
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <div className="text-xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">{hasPrice ? product.price.toLocaleString() : "가격 확인 필요"}</div>
+                  <div className="text-xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">{hasPrice ? product.price.toLocaleString() : "판매처에서 확인"}</div>
                   {hasPrice && <div className="text-sm font-bold text-slate-500">원~</div>}
                 </div>
               </div>
@@ -340,7 +340,7 @@ export default function V2ProductDetailPage() {
         <div className="flex flex-col">
           <div className="text-[11px] text-slate-400">최근 갱신 최저가</div>
           <div className="text-lg font-extrabold text-slate-900 tracking-tight">
-            {hasPrice ? `${product.price.toLocaleString()}원~` : "가격 확인 필요"}
+            {hasPrice ? `${product.price.toLocaleString()}원~` : "판매처에서 확인"}
           </div>
         </div>
         <button

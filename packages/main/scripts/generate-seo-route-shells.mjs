@@ -305,7 +305,7 @@ function buildStaticBody(meta) {
     if (partners.length > 0) {
       lines.push(
         `<ul>${partners
-          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : " 가격 확인 필요"}</li>`)
+          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : " 판매처에서 가격 확인"}</li>`)
           .join("")}</ul>`,
       );
     }
