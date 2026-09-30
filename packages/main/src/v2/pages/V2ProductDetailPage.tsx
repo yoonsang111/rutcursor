@@ -94,7 +94,12 @@ export default function V2ProductDetailPage() {
     ogType: "product",
     ogImage: product?.image,
     // 삭제/비활성화된 상품은 200을 주면서 "찾을 수 없습니다"만 보여주게 되어 soft 404로 잡히므로 noindex
-    robots: !loading && !product ? "noindex, follow" : "index, follow",
+    // 예약 링크가 하나도 없는 상품은 들어와도 할 수 있는 게 없는 막다른 페이지라 색인 대상에서 뺀다.
+    // (링크가 등록되면 자동으로 다시 색인 대상이 된다)
+    robots:
+      !loading && (!product || (product.partnerLinks || []).filter((l) => l.url).length === 0)
+        ? "noindex, follow"
+        : "index, follow",
     jsonLd: [
       {
         "@context": "https://schema.org",

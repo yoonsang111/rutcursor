@@ -512,6 +512,8 @@ async function main() {
       product, // JSON-LD 생성에 사용
       relatedProducts,
       lastmod: productLastmod(product),
+      // 예약 링크가 하나도 없으면 사용자가 할 수 있는 게 없는 막다른 페이지라 색인에서 뺀다
+      robots: partnerCount === 0 ? "noindex, follow" : "index, follow",
     });
   }
 
