@@ -715,21 +715,37 @@ async function main() {
   await fs.writeFile(path.join(buildDir, "sitemap.xml"), sitemapXml, "utf8");
 
   // 없는 주소 전용 404 페이지. CloudFront가 404 상태코드와 함께 내려준다.
-  // (지금까지는 모든 오타 주소가 200 + 홈 화면이라 검색엔진이 소프트 404로 판단했다)
-  const notFoundHtml = buildRouteHtml(baseHtml, {
-    path: "/404.html",
-    title: "페이지를 찾을 수 없습니다 | TourStream",
-    description: "요청하신 주소의 페이지가 없습니다.",
-    ogType: "website",
-    robots: "noindex, follow",
-  }).replace(
-    '<div id="root">',
-    '<div id="root"><main style="max-width:960px;margin:0 auto;padding:48px 24px;font-family:sans-serif">' +
-      "<h1>페이지를 찾을 수 없습니다</h1>" +
-      "<p>주소가 바뀌었거나 삭제된 페이지입니다.</p>" +
-      '<p><a href="/">홈으로</a> · <a href="/products">전체 상품 보기</a></p>' +
-      "</main>",
-  );
+  // React 번들을 넣지 않는다 - 넣으면 앱이 마운트되면서 주소에 맞는 빈 페이지로 바뀌어
+  // 사용자에게는 깨진 화면처럼 보인다.
+  const notFoundHtml = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, follow" />
+<title>페이지를 찾을 수 없습니다 | TourStream</title>
+<style>
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;color:#0f172a;background:#fff}
+  main{max-width:560px;margin:0 auto;padding:96px 24px;text-align:center}
+  h1{font-size:22px;margin:0 0 12px}
+  p{color:#475569;font-size:15px;line-height:1.6;margin:0 0 28px}
+  a{display:inline-block;margin:0 6px;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px}
+  .primary{background:#0F46D6;color:#fff}
+  .ghost{border:1px solid #e2e8f0;color:#0f172a}
+  .brand{font-weight:800;font-size:16px;color:#0F46D6;text-decoration:none;display:block;margin-bottom:40px}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/">TourStream</a>
+  <h1>페이지를 찾을 수 없습니다</h1>
+  <p>주소가 바뀌었거나 삭제된 페이지입니다.<br />아래에서 다시 찾아보세요.</p>
+  <a class="primary" href="/products">전체 상품 보기</a>
+  <a class="ghost" href="/">홈으로</a>
+</main>
+</body>
+</html>
+`;
   await fs.writeFile(path.join(buildDir, "404.html"), notFoundHtml, "utf8");
 
   console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapEntries.length} urls`);
