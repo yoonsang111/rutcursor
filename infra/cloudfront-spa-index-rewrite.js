@@ -12,6 +12,24 @@ function handler(event) {
     var request = event.request;
     var uri = request.uri;
 
+    // www 는 정규 주소(apex)로 보낸다. 같은 내용이 두 호스트로 색인되는 것을 막는다.
+    var host = request.headers.host ? request.headers.host.value : '';
+    if (host.indexOf('www.') === 0) {
+        var q = '';
+        if (request.querystring) {
+            var parts2 = [];
+            for (var k2 in request.querystring) {
+                parts2.push(request.querystring[k2].value ? k2 + '=' + request.querystring[k2].value : k2);
+            }
+            if (parts2.length) q = '?' + parts2.join('&');
+        }
+        return {
+            statusCode: 301,
+            statusDescription: 'Moved Permanently',
+            headers: { location: { value: 'https://' + host.substring(4) + uri + q } }
+        };
+    }
+
     // 레거시 /v2/* 경로는 현재 디자인과 같은 화면이라 정규 주소로 보낸다
     if (uri === '/v2' || uri.indexOf('/v2/') === 0) {
         var to = uri === '/v2' ? '/' : uri.substring(3);
