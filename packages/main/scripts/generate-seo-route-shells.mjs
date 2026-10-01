@@ -453,6 +453,26 @@ async function main() {
       ),
     },
     {
+      path: "/privacy",
+      title: "개인정보처리방침 | TourStream",
+      description: "TourStream의 개인정보 수집·이용 및 제휴사 링크 이동에 관한 안내입니다.",
+      ogType: "website",
+    },
+    {
+      path: "/terms",
+      title: "이용약관 | TourStream",
+      description: "TourStream 서비스 이용약관과 제휴사 예약에 관한 책임 범위를 안내합니다.",
+      ogType: "website",
+    },
+    {
+      // 찜 목록은 브라우저에 저장된 개인 데이터라 검색결과에 올릴 내용이 없다
+      path: "/favorites",
+      title: "찜한 상품 | TourStream",
+      description: "저장해둔 여행 상품을 모아봅니다.",
+      ogType: "website",
+      robots: "noindex, follow",
+    },
+    {
       path: "/flights",
       title: "항공권 검색 | TourStream",
       description: "출발지와 도착지, 날짜를 입력하고 마이리얼트립 항공권 검색결과를 확인하세요.",
@@ -693,6 +713,24 @@ async function main() {
     .map((e) => `  <url><loc>${SITE_URL}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod}</lastmod>` : ""}</url>`)
     .join("\n")}\n</urlset>\n`;
   await fs.writeFile(path.join(buildDir, "sitemap.xml"), sitemapXml, "utf8");
+
+  // 없는 주소 전용 404 페이지. CloudFront가 404 상태코드와 함께 내려준다.
+  // (지금까지는 모든 오타 주소가 200 + 홈 화면이라 검색엔진이 소프트 404로 판단했다)
+  const notFoundHtml = buildRouteHtml(baseHtml, {
+    path: "/404.html",
+    title: "페이지를 찾을 수 없습니다 | TourStream",
+    description: "요청하신 주소의 페이지가 없습니다.",
+    ogType: "website",
+    robots: "noindex, follow",
+  }).replace(
+    '<div id="root">',
+    '<div id="root"><main style="max-width:960px;margin:0 auto;padding:48px 24px;font-family:sans-serif">' +
+      "<h1>페이지를 찾을 수 없습니다</h1>" +
+      "<p>주소가 바뀌었거나 삭제된 페이지입니다.</p>" +
+      '<p><a href="/">홈으로</a> · <a href="/products">전체 상품 보기</a></p>' +
+      "</main>",
+  );
+  await fs.writeFile(path.join(buildDir, "404.html"), notFoundHtml, "utf8");
 
   console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapEntries.length} urls`);
 }

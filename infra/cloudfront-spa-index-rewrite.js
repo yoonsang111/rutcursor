@@ -12,6 +12,16 @@ function handler(event) {
     var request = event.request;
     var uri = request.uri;
 
+    // 레거시 /v2/* 경로는 현재 디자인과 같은 화면이라 정규 주소로 보낸다
+    if (uri === '/v2' || uri.indexOf('/v2/') === 0) {
+        var to = uri === '/v2' ? '/' : uri.substring(3);
+        return {
+            statusCode: 301,
+            statusDescription: 'Moved Permanently',
+            headers: { location: { value: to } }
+        };
+    }
+
     var parts = uri.split('/');
     // ['', 'category', 'gyotong-paeseu'] 또는 ['', 'destination', '<region>', '<category>']
     var moved = false;
