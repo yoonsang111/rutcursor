@@ -881,146 +881,12 @@ app.get('/api/counter', (req, res) => {
   res.json({ counter });
 });
 
-// 동적 Sitemap 생성
+// Sitemap은 메인 사이트 빌드(generate-seo-route-shells.mjs)가 생성한다.
+// 이 서버가 만들던 버전은 슬러그 규칙과 noindex 규칙을 모르기 때문에,
+// 옛 주소와 색인 제외 대상까지 담아 검색엔진에 잘못된 목록을 주고 있었다.
+// 과거에 제출/링크된 주소가 남아 있으므로 404 대신 정규 사이트맵으로 영구 이동시킨다.
 app.get('/sitemap.xml', (req, res) => {
-  try {
-    // isAvailable(관리자의 "활성화" 토글)이 false인 상품은 sitemap에서 제외
-    const products = readProducts().filter((p) => p.isAvailable !== false);
-    const categoriesFile = path.join(DATA_DIR, 'categories.json');
-    const locationsFile = path.join(DATA_DIR, 'locations.json');
-    
-    const baseUrl = 'https://tourstream.kr';
-    const now = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
-    
-    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-    const seenLocs = new Set();
-    const appendUrl = (loc, changefreq, priority) => {
-      if (!loc || seenLocs.has(loc)) return;
-      seenLocs.add(loc);
-      xml += '  <url>\n';
-      xml += `    <loc>${loc}</loc>\n`;
-      xml += `    <lastmod>${now}</lastmod>\n`;
-      xml += `    <changefreq>${changefreq}</changefreq>\n`;
-      xml += `    <priority>${priority}</priority>\n`;
-      xml += '  </url>\n';
-    };
-    
-    // 한국어 이름 → 로마자 슬러그 변환 (앱의 toEnglishSlug 와 동일 로직)
-    const L_TABLE = ["g","kk","n","d","tt","r","m","b","pp","s","ss","","j","jj","ch","k","t","p","h"];
-    const V_TABLE = ["a","ae","ya","yae","eo","e","yeo","ye","o","wa","wae","oe","yo","u","wo","we","wi","yu","eu","ui","i"];
-    const T_TABLE = ["","k","k","ks","n","nj","nh","t","l","lk","lm","lb","ls","lt","lp","lh","m","p","ps","t","t","ng","t","t","k","t","p","h"];
-    const romanizeKorean = (text) => {
-      let result = '';
-      for (const ch of text) {
-        const code = ch.charCodeAt(0);
-        if (code >= 0xAC00 && code <= 0xD7A3) {
-          const s = code - 0xAC00;
-          result += `${L_TABLE[Math.floor(s/588)]}${V_TABLE[Math.floor((s%588)/28)]}${T_TABLE[s%28]}`;
-        } else {
-          result += ch;
-        }
-      }
-      return result;
-    };
-    const toSlug = (value) => {
-      if (!value) return '';
-      const romanized = romanizeKorean(String(value).trim());
-      const cleaned = romanized.toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/&/g, '-and-')
-        .replace(/[^a-z0-9\s-]/g, ' ')
-        .replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-      return cleaned || `item-${Math.abs(Array.from(value).reduce((h,c)=>(h<<5)-h+c.charCodeAt(0),0)).toString(36).slice(0,6)}`;
-    };
-    const COUNTRY_ENGLISH = { '일본':'japan','프랑스':'france','태국':'thailand','베트남':'vietnam','한국':'korea','대만':'taiwan','홍콩':'hong-kong','싱가포르':'singapore','미국':'united-states','이탈리아':'italy','중국':'china','마카오':'macau','말레이시아':'malaysia' };
-
-    // 홈페이지
-    appendUrl(`${baseUrl}/`, 'daily', '1.0');
-    
-    // 상품 목록 페이지
-    appendUrl(`${baseUrl}/products`, 'daily', '0.9');
-
-    // 인기 페이지
-    appendUrl(`${baseUrl}/popular`, 'daily', '0.85');
-
-    // 항공권 검색 페이지
-    appendUrl(`${baseUrl}/flights`, 'weekly', '0.8');
-
-    // 모든 상품 페이지
-    products.forEach(product => {
-      if (!product?.id) return;
-      appendUrl(`${baseUrl}/product/${escapeXml(product.id)}`, 'weekly', '0.8');
-    });
-    
-    // 카테고리 페이지 (/category/:id 라우트 - slug 형식)
-    const categoriesData = readJsonIfExists(categoriesFile, { mainCategories: [], subCategories: [] });
-    const mainCats = Array.isArray(categoriesData.mainCategories) ? categoriesData.mainCategories : [];
-    mainCats.forEach(category => {
-      if (!category) return;
-      const name = typeof category === 'string' ? category : String(category.name || '').trim();
-      if (!name) return;
-      const slug = toSlug(name);
-      if (slug) appendUrl(`${baseUrl}/category/${escapeXml(slug)}`, 'weekly', '0.7');
-    });
-    
-    // 국가 페이지 (/country/:id 라우트 - 앱과 동일한 영문 슬러그)
-    const locationsData = readJsonIfExists(locationsFile, { countries: [], regions: [] });
-    const countries = Array.isArray(locationsData.countries) ? locationsData.countries : [];
-    countries.forEach(country => {
-      if (!country) return;
-      const name = typeof country === 'string' ? country : String(country.name || '').trim();
-      if (!name) return;
-      // 앱의 COUNTRY_ENGLISH_MAP 과 동일 매핑 우선 사용, 없으면 로마자 변환
-      const slug = COUNTRY_ENGLISH[name] || toSlug(name);
-      if (slug) appendUrl(`${baseUrl}/country/${escapeXml(slug)}`, 'weekly', '0.7');
-    });
-
-    // 지역 페이지 (/region/:name 라우트 - 국가 하위 경로가 아닌 독립 경로)
-    const regions = Array.isArray(locationsData.regions) ? locationsData.regions : [];
-    regions.forEach(region => {
-      if (!region) return;
-      const name = typeof region === 'string' ? region : String(region.name || '').trim();
-      if (!name) return;
-      const slug = toSlug(name);
-      if (slug) appendUrl(`${baseUrl}/region/${escapeXml(slug)}`, 'weekly', '0.65');
-    });
-
-    // 목적지 조합 페이지 (/destination/:region/:category) - 실제 겹치는 상품이 3개 이상인(인덱싱 대상) 조합만 포함
-    // shell 생성 스크립트의 noindex 기준(MIN_PRODUCTS_TO_INDEX=3)과 동일하게 맞춤
-    const MIN_PRODUCTS_TO_INDEX = 3;
-    regions.forEach(region => {
-      const regionName = typeof region === 'string' ? region : String(region?.name || '').trim();
-      if (!regionName) return;
-      const regionSlug = toSlug(regionName);
-      if (!regionSlug) return;
-
-      mainCats.forEach(category => {
-        const categoryName = typeof category === 'string' ? category : String(category?.name || '').trim();
-        if (!categoryName) return;
-        const categorySlug = toSlug(categoryName);
-        if (!categorySlug) return;
-
-        const comboCount = products.filter(p =>
-          Array.isArray(p.locations) && p.locations.includes(regionName) &&
-          Array.isArray(p.categories) && p.categories.includes(categoryName)
-        ).length;
-        if (comboCount < MIN_PRODUCTS_TO_INDEX) return;
-
-        appendUrl(`${baseUrl}/destination/${escapeXml(regionSlug)}/${escapeXml(categorySlug)}`, 'weekly', '0.7');
-      });
-    });
-
-    xml += '</urlset>';
-    
-    res.set('Content-Type', 'application/xml');
-    res.send(xml);
-    
-    console.log(`[Sitemap] 생성 완료: ${products.length}개 상품, ${now}`);
-  } catch (error) {
-    console.error('[Sitemap] 생성 오류:', error);
-    res.status(500).send('Sitemap 생성 중 오류가 발생했습니다');
-  }
+  res.redirect(301, 'https://tourstream.kr/sitemap.xml');
 });
 
 // 카테고리 목록 조회
@@ -1195,7 +1061,7 @@ app.use((req, res) => {
       'GET /api/admin/partner-detail',
       'GET /api/admin/partner-options',
       'POST /api/admin/partner-link',
-      'GET /sitemap.xml'
+      'GET /sitemap.xml (301 -> https://tourstream.kr/sitemap.xml)'
     ]
   });
 });
