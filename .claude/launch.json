@@ -48,7 +48,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "PORT=3102 DATA_DIR=/private/tmp/claude-501/-Users-iyunsang-rutcursor/f715bf7e-cee0-4c45-8ba5-34dd6f0d89e3/scratchpad/localdata CORS_ORIGIN=http://localhost:3000,http://localhost:3005 node packages/server/src/index.js"
+        "PORT=3102 DATA_DIR=/private/tmp/claude-501/-Users-iyunsang-rutcursor/f715bf7e-cee0-4c45-8ba5-34dd6f0d89e3/scratchpad/localdata ADMIN_API_KEY=localtest PUBLIC_API_URL=http://localhost:3102 CORS_ORIGIN=http://localhost:3000,http://localhost:3005 node packages/server/src/index.js"
       ],
       "port": 3102
     }

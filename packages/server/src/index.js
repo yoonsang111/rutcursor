@@ -104,6 +104,10 @@ const LEGACY_DATA_DIR = process.env.DATA_DIR && !path.isAbsolute(process.env.DAT
   : null;
 
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+// 상품 이미지는 products.json 안에 base64로 들어오면 파일로 떼어내 여기에 저장한다.
+// (data 디렉터리는 배포 rsync에서 제외되므로 배포해도 지워지지 않는다)
+const IMAGES_DIR = path.join(DATA_DIR, 'images');
+const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://api.tourstream.kr').replace(/\/$/, '');
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 
@@ -111,6 +115,35 @@ const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+if (!fs.existsSync(IMAGES_DIR)) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+}
+
+// 떼어낸 이미지 파일 서빙. 파일명이 내용 해시라 내용이 바뀌면 이름도 바뀌므로 영구 캐시해도 안전하다.
+app.use('/images', express.static(IMAGES_DIR, { maxAge: '365d', immutable: true }));
+
+const EXT_BY_MIME = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
+
+// base64 data URI를 파일로 저장하고 URL을 돌려준다. 이미 URL이면 그대로 둔다.
+const externalizeImage = (value) => {
+  const src = String(value || '').trim();
+  if (!src.startsWith('data:')) return src;
+  const m = src.match(/^data:([^;,]+);base64,(.+)$/s);
+  if (!m) return '';
+  const ext = EXT_BY_MIME[m[1].toLowerCase()];
+  if (!ext) return '';
+  try {
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length === 0) return '';
+    const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
+    const file = path.join(IMAGES_DIR, name);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    return `${PUBLIC_API_URL}/images/${name}`;
+  } catch (error) {
+    console.error('[이미지] 파일 저장 실패:', error.message);
+    return '';
+  }
+};
 
 // 레거시 경로에만 데이터가 있는 경우 자동 이관
 if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR) {
@@ -383,7 +416,12 @@ const normalizeProductPayload = async (payload = {}) => {
     categories: categories.length > 0 ? categories : ['미분류'],
     locations: locations.length > 0 ? locations : ['기타'],
     tags: toTrimmedStringArray(payload.tags),
-    images: toTrimmedStringArray(payload.images).filter((img) => !img.includes('via.placeholder.com') && !img.includes('placeholder.com')),
+    // base64로 들어온 이미지는 파일로 떼어낸다. 안 그러면 /api/products 응답에 전부 실려
+    // 방문자가 어느 페이지를 열든 수 MB를 내려받게 된다.
+    images: toTrimmedStringArray(payload.images)
+      .filter((img) => !img.includes('via.placeholder.com') && !img.includes('placeholder.com'))
+      .map(externalizeImage)
+      .filter(Boolean),
     isRecommended: Boolean(payload.isRecommended),
     isAvailable: payload.isAvailable !== false,
   };
