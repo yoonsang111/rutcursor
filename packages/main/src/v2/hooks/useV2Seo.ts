@@ -44,7 +44,10 @@ export const useV2Seo = (config: V2SeoConfig) => {
       : `${BASE_URL}${location.pathname}${location.search}`;
     const robots = config.robots || DEFAULT_ROBOTS;
     const ogType = config.ogType || "website";
-    const ogImage = config.ogImage || `${BASE_URL}/logo192.png`;
+    // 상품 이미지가 base64 data URI로 저장된 경우가 있는데, SNS·검색엔진 크롤러는
+    // data URI를 가져갈 수 없어 공유 썸네일이 비어 버린다. 그럴 땐 로고로 대체한다.
+    const configImage = config.ogImage && !config.ogImage.startsWith("data:") ? config.ogImage : "";
+    const ogImage = configImage || `${BASE_URL}/logo192.png`;
 
     document.title = config.title;
     upsertCanonical(canonical);

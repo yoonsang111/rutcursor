@@ -105,7 +105,11 @@ function resolvePrice(product) {
 function buildProductJsonLd(product) {
   const resolvedPrice = resolvePrice(product);
   const safePrice = Number.isFinite(resolvedPrice) ? resolvedPrice : 0;
-  const productImage = (Array.isArray(product.images) && product.images[0]) || product.image || null;
+  // base64 data URI는 JSON-LD에 넣지 않는다.
+  // 구글 리치결과의 image는 크롤링 가능한 URL이어야 하고(data URI는 인정되지 않음),
+  // 이미지 하나가 800KB를 넘는 경우가 있어 상품 페이지 HTML이 통째로 부풀었다.
+  const rawImage = (Array.isArray(product.images) && product.images[0]) || product.image || null;
+  const productImage = typeof rawImage === "string" && !rawImage.startsWith("data:") ? rawImage : null;
   const description = product.description
     ? product.description.slice(0, 200)
     : `${product.name} 여행 상품을 여러 예약 사이트에서 최저가로 비교하세요.`;
