@@ -20,9 +20,15 @@ export function V2HomeHero({ trending }: V2HomeHeroProps) {
   return (
     <section className="px-6 pt-8 pb-10 md:pt-12 md:pb-14 text-center border-b border-slate-100">
       <div className="flex items-center justify-center mb-7">
-        <span className="font-black text-3xl md:text-4xl tracking-tight">
-          Tour<span className="text-brand">Stream</span>
-        </span>
+        <img
+          src="/logo-wordmark.png"
+          alt="TourStream"
+          width={600}
+          height={138}
+          loading="eager"
+          decoding="async"
+          className="h-9 md:h-11 w-auto"
+        />
       </div>
 
       <div className="inline-flex gap-1 p-1 rounded-full bg-brand-tint mb-6">

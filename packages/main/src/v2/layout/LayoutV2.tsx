@@ -40,10 +40,18 @@ const LayoutV2: React.FC<LayoutV2Props> = ({ children }) => {
     >
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.03)]">
         <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between gap-8">
-          <Link to="/" className="flex items-center relative z-10">
-            <span className="font-black text-2xl tracking-tight">
-              Tour<span className="text-brand">Stream</span>
-            </span>
+          <Link to="/" className="flex items-center relative z-10" aria-label="TourStream 홈">
+            {/* 로고는 화면 최상단이라 지연 로딩하면 잠깐 비어 보인다. eager + 높은 우선순위로 받는다. */}
+            <img
+              src="/logo-wordmark.png"
+              alt="TourStream"
+              width={600}
+              height={138}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-7 md:h-8 w-auto"
+            />
           </Link>
 
           <div className="relative" ref={menuRef}>
@@ -80,9 +88,7 @@ const LayoutV2: React.FC<LayoutV2Props> = ({ children }) => {
         <div className="max-w-[1400px] mx-auto px-6">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
             <div className="space-y-6">
-              <span className="font-black text-xl tracking-tight">
-                Tour<span className="text-brand">Stream</span>
-              </span>
+              <img src="/logo-wordmark.png" alt="TourStream" width={600} height={138} loading="lazy" decoding="async" className="h-6 w-auto" />
               <div className="text-[13px] text-slate-500 space-y-2">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="font-semibold text-slate-700">주식회사 알유티</span>
