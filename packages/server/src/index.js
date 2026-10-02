@@ -245,10 +245,25 @@ const writeViewEvents = (viewEvents) => {
   }
 };
 
+// 조회수에서 제외할 자동 접근.
+// 'bot'이 안 들어가는 크롤러가 많아서(네이버 yeti, 다음 daumoa 등) 이름을 직접 나열한다.
+// 특히 yeti가 빠져 있어 네이버가 사이트를 돌 때마다 조회수가 올라가고 있었다.
+// 'naver'를 통째로 넣으면 네이버 앱 인앱브라우저로 보는 실제 사용자까지 빠지므로 크롤러 이름만 쓴다.
+const BOT_UA_PATTERN = new RegExp(
+  [
+    'bot', 'crawler', 'spider', 'crawl', // 일반
+    'bingpreview', 'slurp', 'mediapartners-google', 'adsbot', // 검색엔진
+    'yeti', 'daumoa', 'yandex', 'baidu', 'duckduck', 'applebot', 'petalbot', 'seznam',
+    'facebookexternalhit', 'discordbot', 'telegrambot', 'twitterbot', 'kakaotalk-scrap', 'slackbot', // SNS 미리보기
+    'curl', 'wget', 'python-requests', 'node-fetch', 'axios', 'go-http-client', 'headlesschrome', 'lighthouse', // 도구
+  ].join('|'),
+);
+
 const isBotUserAgent = (userAgent = '') => {
   const normalized = String(userAgent || '').toLowerCase();
-  if (!normalized) return false;
-  return /(bot|crawler|spider|bingpreview|slurp|mediapartners-google|adsbot|facebookexternalhit|discordbot|telegrambot)/.test(normalized);
+  // UA가 비어 있는 요청은 사람 브라우저가 아니다
+  if (!normalized) return true;
+  return BOT_UA_PATTERN.test(normalized);
 };
 
 const DAYS_7_MS = 7 * 24 * 60 * 60 * 1000;
