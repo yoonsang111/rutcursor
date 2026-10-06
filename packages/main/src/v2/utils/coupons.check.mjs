@@ -70,4 +70,32 @@ assert.strictEqual(daysLeft(kstEdge, new Date(2026, 9, 31)), 0, '마감 당일�
 assert.strictEqual(daysLeft(kstEdge, new Date(2026, 10, 2)), -2, '지난 쿠폰은 음수');
 assert.strictEqual(formatDeadline({}), '');
 
-console.log('쿠폰 매칭·마감일 점검 통과 (매칭 8건, 날짜 5건)');
+// 배지에 들어갈 짧은 할인 표기 (원본이 제각각이라 그대로 쓰면 배지가 깨진다)
+const CURRENCY_SUFFIX = { JPY: '엔', KRW: '원', USD: '달러', TWD: '대만달러', HKD: '홍콩달러', EUR: '유로', SGD: '싱가포르달러', THB: '바트' };
+const formatDiscount = (raw) => {
+  const text = String(raw || '').trim();
+  const p = text.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (p) return `${p[1]}%`;
+  const a = text.match(/([A-Z]{3})\s*([\d,]+)/);
+  if (a) return `${a[2]}${CURRENCY_SUFFIX[a[1]] || a[1]}`;
+  return text.replace(/\s*할인!?$/, '') || '할인';
+};
+
+assert.strictEqual(formatDiscount('5% 할인'), '5%');
+assert.strictEqual(formatDiscount('20% 할인'), '20%');
+assert.strictEqual(formatDiscount('숙소 5% 할인!'), '5%', '배지에 "숙소"가 들어가면 두 줄로 깨진다');
+assert.strictEqual(formatDiscount('JPY2,800'), '2,800엔', '통화 코드를 그대로 노출하면 안 됨');
+assert.strictEqual(formatDiscount('KRW5,000'), '5,000원');
+assert.strictEqual(formatDiscount(''), '할인');
+
+// D-day는 임박했을 때만 보여준다 (유효기간이 2200년인 쿠폰이 있어 D-63638 같은 값이 나온다)
+const shouldShowDday = (c, now) => {
+  const d = daysLeft(c, now);
+  return d !== null && d <= 30;
+};
+const now = new Date(2026, 9, 6);
+assert.ok(shouldShowDday({ registerBy: '2026-10-11T22:59:59+08:00' }, now), '5일 남았으면 표시');
+assert.ok(!shouldShowDday({ registerBy: '2027-03-31T23:59:59+08:00' }, now), '176일 남았으면 숨김');
+assert.ok(!shouldShowDday({ registerBy: '2200-12-31T23:59:59+08:00' }, now), '2200년이면 숨김');
+
+console.log('쿠폰 점검 통과 (매칭 8건, 날짜 5건, 할인표기 6건, D-day 3건)');

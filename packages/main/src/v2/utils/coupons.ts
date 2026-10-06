@@ -62,6 +62,24 @@ export function couponsForProduct(coupons: Coupon[], product: Product, lookup: C
   return coupons.filter((c) => productMatchesCoupon(product, c, lookup));
 }
 
+// 배지에 넣을 짧은 할인 표기.
+// 원본은 "5% 할인", "숙소 5% 할인!", "JPY2,800" 처럼 제각각이라 그대로 쓰면 배지가 깨진다.
+const CURRENCY_SUFFIX: Record<string, string> = {
+  JPY: "엔", KRW: "원", USD: "달러", TWD: "대만달러", HKD: "홍콩달러", EUR: "유로", SGD: "싱가포르달러", THB: "바트",
+};
+
+export function formatDiscount(raw: string): string {
+  const text = String(raw || "").trim();
+  const percent = text.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (percent) return `${percent[1]}%`;
+  const amount = text.match(/([A-Z]{3})\s*([\d,]+)/);
+  if (amount) {
+    const suffix = CURRENCY_SUFFIX[amount[1]] || amount[1];
+    return `${amount[2]}${suffix}`;
+  }
+  return text.replace(/\s*할인!?$/, "") || "할인";
+}
+
 // 마감일은 판매처가 적어둔 날짜(쿠폰 기준 시간대)를 그대로 보여준다.
 // 한국 시각으로 환산하면 "10월 31일 23:59 GMT+8"이 "11월 1일"로 보여 사용자가 헷갈린다.
 const deadlineParts = (coupon: Coupon) => {
@@ -78,6 +96,13 @@ export function daysLeft(coupon: Coupon, now = new Date()): number | null {
   const end = Date.UTC(p.year, p.month - 1, p.day);
   const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((end - today) / 86400000);
+}
+
+// 마감이 한참 남았으면 D-day를 숨긴다 (유효기간을 2200년으로 넣어둔 쿠폰도 있다)
+export const DDAY_VISIBLE_DAYS = 30;
+export function shouldShowDday(coupon: Coupon, now = new Date()): boolean {
+  const left = daysLeft(coupon, now);
+  return left !== null && left <= DDAY_VISIBLE_DAYS;
 }
 
 export function formatDeadline(coupon: Coupon): string {

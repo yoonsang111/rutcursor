@@ -5,7 +5,7 @@ import { useV2Products } from "../hooks/useV2Products";
 import { useV2Coupons } from "../hooks/useV2Coupons";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { getCountrySlug } from "../utils/urlSlugs";
-import { Coupon, CouponLookup, daysLeft, formatDeadline, productsForCoupon } from "../utils/coupons";
+import { Coupon, CouponLookup, daysLeft, formatDeadline, formatDiscount, productsForCoupon, shouldShowDday } from "../utils/coupons";
 import { trackEvent } from "../../utils/analytics";
 
 // 적용 상품이 이보다 많으면 칩으로 나열하지 않고 "N개에 적용" 한 줄로 접는다.
@@ -94,6 +94,7 @@ export default function V2CouponsPage() {
           const matched = productsForCoupon(items, coupon, lookup);
           const left = daysLeft(coupon);
           const urgent = left !== null && left <= 3;
+          const showDday = shouldShowDday(coupon);
           const country = coupon.match.type === "location" ? countries.find((c) => c.name === coupon.match.values?.[0]) : undefined;
 
           return (
@@ -103,13 +104,19 @@ export default function V2CouponsPage() {
             >
               <div className="w-[76px] h-[76px] md:w-[84px] md:h-[84px] rounded-xl flex-shrink-0 bg-brand-tint flex flex-col items-center justify-center gap-0.5">
                 <span className="text-[10px] font-extrabold text-brand tracking-tight">{coupon.partner}</span>
-                <span className="text-xl md:text-2xl font-extrabold text-brand leading-none">{coupon.discount.replace(/\s*할인!?$/, "")}</span>
+                <span
+                  className={`font-extrabold text-brand leading-none ${
+                    formatDiscount(coupon.discount).length > 4 ? "text-sm md:text-base" : "text-xl md:text-2xl"
+                  }`}
+                >
+                  {formatDiscount(coupon.discount)}
+                </span>
               </div>
 
               <div className="flex-[1_1_calc(100%-96px)] md:flex-[0_1_260px] md:min-w-[180px] order-2 md:order-none">
                 <div className="font-bold text-sm text-slate-900 leading-snug mb-1 line-clamp-2">{coupon.label}</div>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mb-2">
-                  {left !== null && (
+                  {showDday && left !== null && (
                     <span
                       className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${
                         urgent ? "text-amber-700 bg-amber-100" : "text-brand bg-brand-tint"
@@ -137,9 +144,9 @@ export default function V2CouponsPage() {
                 {coupon.terms && <div className="text-[11px] text-slate-400 mt-1.5">{coupon.terms}</div>}
               </div>
 
-              <div className="flex-1 flex flex-wrap gap-2 items-center min-w-0">
+              <div className="flex-1 flex flex-wrap gap-2 items-center min-w-0 order-3 md:order-none">
                 {matched.length === 0 && (
-                  <span className="text-xs text-slate-400">우리 사이트에 없는 분류예요. 판매처에서 바로 사용하세요.</span>
+                  <span className="text-xs text-slate-400">판매처에서 바로 사용하세요.</span>
                 )}
                 {matched.length > 0 && matched.length <= MAX_CHIPS &&
                   matched.map((p) => (
@@ -159,7 +166,7 @@ export default function V2CouponsPage() {
                     to={country ? `/country/${getCountrySlug(country)}` : "/products"}
                     className="flex items-center gap-1 px-3 py-2 rounded-lg border border-brand bg-brand-tint text-xs font-bold text-brand"
                   >
-                    이 쿠폰을 쓸 수 있는 상품 {matched.length}개 보기 →
+                    적용 상품 {matched.length}개 보기 →
                   </Link>
                 )}
               </div>
@@ -169,7 +176,7 @@ export default function V2CouponsPage() {
                 target="_blank"
                 rel="noopener noreferrer sponsored"
                 onClick={() => trackEvent("coupon_partner_click", { coupon_code: coupon.code, partner: coupon.partner })}
-                className="flex-shrink-0 ml-auto text-[13px] font-bold text-brand flex items-center gap-1"
+                className="flex-shrink-0 ml-auto text-[13px] font-bold text-brand flex items-center gap-1 order-4 md:order-none"
               >
                 쓰러 가기 →
               </a>
