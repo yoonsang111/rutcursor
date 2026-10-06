@@ -1053,6 +1053,57 @@ const fixLegacyLocationsData = (parsed = {}, products = []) => {
   return { countries: Array.from(countryMap.values()), regions };
 };
 
+// ── 쿠폰 ─────────────────────────────────────────────────────────────────────
+// 판매처가 발행한 할인코드. 적용 대상은 상품 id를 박아두지 않고 "조건"으로 저장해서,
+// 나중에 상품이 늘어나도 자동으로 붙게 한다(예: 일본 지역 전체 대상 쿠폰).
+// 등록 마감일이 지난 쿠폰은 조회 단계에서 아예 빼므로 손대지 않아도 사라진다.
+const COUPONS_FILE = path.join(DATA_DIR, 'coupons.json');
+
+const readCoupons = () => {
+  try {
+    if (fs.existsSync(COUPONS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(COUPONS_FILE, 'utf8'));
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (error) {
+    console.error('[쿠폰] 읽기 오류:', error.message);
+  }
+  return [];
+};
+
+const isCouponLive = (coupon, now = new Date()) => {
+  const until = Date.parse(coupon?.registerBy || coupon?.validUntil || '');
+  if (Number.isFinite(until) && until < now.getTime()) return false;
+  const from = Date.parse(coupon?.startsAt || '');
+  if (Number.isFinite(from) && from > now.getTime()) return false;
+  return true;
+};
+
+// 쿠폰 조회 (만료분 자동 제외)
+app.get('/api/coupons', (req, res) => {
+  const now = new Date();
+  const live = readCoupons()
+    .filter((c) => isCouponLive(c, now))
+    .sort((a, b) => Date.parse(a.registerBy || 0) - Date.parse(b.registerBy || 0));
+  res.json(live);
+});
+
+// 쿠폰 전체 교체 (어드민/가져오기 스크립트)
+app.post('/api/coupons', requireAdminKey, (req, res) => {
+  const items = Array.isArray(req.body) ? req.body : req.body?.coupons;
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: '쿠폰 배열이 필요합니다' });
+  }
+  try {
+    fs.writeFileSync(COUPONS_FILE, JSON.stringify(items, null, 2), 'utf8');
+    console.log(`[쿠폰] ${items.length}건 저장`);
+    res.json({ saved: items.length });
+  } catch (error) {
+    console.error('[쿠폰] 저장 오류:', error.message);
+    res.status(500).json({ error: '쿠폰 저장에 실패했습니다' });
+  }
+});
+
 // 지역 목록 조회
 app.get('/api/locations', (req, res) => {
   const locationsFile = path.join(DATA_DIR, 'locations.json');
@@ -1111,6 +1162,8 @@ app.use((req, res) => {
       'POST /api/locations',
       'GET /api/counter',
       'GET /api/admin/partner-search',
+      'GET /api/coupons',
+      'POST /api/coupons',
       'GET /api/admin/partner-detail',
       'GET /api/admin/partner-options',
       'POST /api/admin/partner-link',
