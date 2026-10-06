@@ -5,7 +5,7 @@ import { useV2Products } from "../hooks/useV2Products";
 import { useFavorites } from "../hooks/useFavorites";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { useV2Coupons } from "../hooks/useV2Coupons";
-import { couponsForProduct, formatDeadline } from "../utils/coupons";
+import { couponsForProduct, formatDeadline, formatDiscount } from "../utils/coupons";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import { trackEvent } from "../../utils/analytics";
 
@@ -303,8 +303,8 @@ export default function V2ProductDetailPage() {
 
             <div className="flex flex-col gap-2">
               {partnerLinks.map((partner, idx) => (
-                <div key={`${partner.name}-${idx}`} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100 transition-colors group">
-                  <div className="flex flex-col">
+                <div key={`${partner.name}-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100 transition-colors group">
+                  <div className="flex flex-col min-w-0">
                     <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       {partner.name}
                       {idx === 0 && partner.price !== undefined && (
@@ -323,11 +323,12 @@ export default function V2ProductDetailPage() {
                         <Link
                           key={c.id}
                           to="/coupons"
-                          className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-brand"
+                          className="mt-1.5 flex items-center gap-1 text-[11px] font-bold text-brand min-w-0"
+                          title={`${formatDiscount(c.discount)} 할인코드 ${c.code} · ${formatDeadline(c)}`}
                         >
-                          <Ticket className="w-3 h-3" />
-                          {c.discount} 코드 {c.code}
-                          <span className="font-medium text-slate-400">{formatDeadline(c)}</span>
+                          <Ticket className="w-3 h-3 flex-shrink-0" />
+                          <span className="flex-shrink-0">{formatDiscount(c.discount)} 쿠폰</span>
+                          <span className="font-mono font-bold truncate">{c.code}</span>
                         </Link>
                       ))}
                   </div>
@@ -345,7 +346,7 @@ export default function V2ProductDetailPage() {
                         placement: "product_detail",
                       })
                     }
-                    className={`flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold transition-all ${
+                    className={`flex-shrink-0 whitespace-nowrap flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold transition-all ${
                       idx === 0 ? "bg-slate-900 text-white hover:bg-slate-800 shadow-md" : "bg-white border border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
                   >
