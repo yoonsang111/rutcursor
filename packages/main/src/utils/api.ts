@@ -80,6 +80,18 @@ export const api = {
     }
   },
 
+  // 쿠폰 (서버가 만료분을 이미 걸러서 내려준다)
+  getCoupons: async () => {
+    try {
+      const response = await fetchWithFallback('/coupons');
+      if (!response) return [];
+      return response.json();
+    } catch (error) {
+      console.warn('[api] 쿠폰을 불러올 수 없습니다:', error);
+      return [];
+    }
+  },
+
   getCategories: async () => {
     try {
       const response = await fetchWithFallback('/categories');

@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, useLocation } from "react-route
 import LayoutV2 from "./v2/layout/LayoutV2";
 import V2HomePage from "./v2/pages/V2HomePage";
 import V2ProductsPage from "./v2/pages/V2ProductsPage";
+import V2CouponsPage from "./v2/pages/V2CouponsPage";
 import V2ProductDetailPage from "./v2/pages/V2ProductDetailPage";
 import V2PopularPage from "./v2/pages/V2PopularPage";
 import V2EventPage from "./v2/pages/V2EventPage";
@@ -72,6 +73,14 @@ function App() {
           element={
             <LayoutV2>
               <V2ProductsPage />
+            </LayoutV2>
+          }
+        />
+        <Route
+          path="/coupons"
+          element={
+            <LayoutV2>
+              <V2CouponsPage />
             </LayoutV2>
           }
         />

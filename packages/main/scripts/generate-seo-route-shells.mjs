@@ -457,6 +457,15 @@ async function main() {
       ),
     },
     {
+      // 쿠폰은 매일 바뀌어서 상품 목록처럼 셸에 박아두지 않는다.
+      // 검색엔진이 페이지 성격을 알 수 있을 만큼만 정적으로 넣고 내용은 화면에서 채운다.
+      path: "/coupons",
+      title: "클룩·KKday 할인코드 모음 | TourStream",
+      description:
+        "여행 티켓·교통패스 판매처의 할인코드를 모아 비교합니다. 기간이 지난 코드는 자동으로 사라지고, 쿠폰을 쓸 수 있는 상품도 함께 확인할 수 있어요.",
+      ogType: "website",
+    },
+    {
       path: "/privacy",
       title: "개인정보처리방침 | TourStream",
       description: "TourStream의 개인정보 수집·이용 및 제휴사 링크 이동에 관한 안내입니다.",

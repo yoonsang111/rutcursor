@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Search, TrendingUp, Plane, Heart } from "lucide-react";
+import { Menu, X, Search, TrendingUp, Plane, Heart, Ticket } from "lucide-react";
 
 interface LayoutV2Props {
   children: React.ReactNode;
@@ -9,6 +9,7 @@ interface LayoutV2Props {
 const NAV_LINKS = [
   { to: "/products", label: "전체 상품", icon: Search },
   { to: "/popular", label: "인기 상품", icon: TrendingUp },
+  { to: "/coupons", label: "할인코드", icon: Ticket },
   { to: "/flights", label: "항공권", icon: Plane },
   { to: "/favorites", label: "찜한 상품", icon: Heart },
 ];

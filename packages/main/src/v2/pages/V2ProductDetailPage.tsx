@@ -1,9 +1,11 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { Share, Heart, MapPin, ArrowUpRight, Zap, Star } from "lucide-react";
+import { Share, Heart, MapPin, ArrowUpRight, Zap, Star, Ticket } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useFavorites } from "../hooks/useFavorites";
 import { useV2Seo } from "../hooks/useV2Seo";
+import { useV2Coupons } from "../hooks/useV2Coupons";
+import { couponsForProduct, formatDeadline } from "../utils/coupons";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import { trackEvent } from "../../utils/analytics";
 
@@ -37,7 +39,16 @@ export default function V2ProductDetailPage() {
       // clipboard 접근 실패 시 조용히 무시
     }
   };
+  const { coupons } = useV2Coupons();
   const country = countries.find((c) => c.id === product?.countryId);
+  // 이 상품에 쓸 수 있는 쿠폰. 보통 1~2개라 판매처 줄 바로 아래에 붙인다.
+  const productCoupons = React.useMemo(() => {
+    if (!product) return [];
+    return couponsForProduct(coupons, product, {
+      countryNameById: new Map(countries.map((c) => [c.id, c.name])),
+      categoryNameById: new Map(categories.map((c) => [c.id, c.name])),
+    });
+  }, [coupons, product, countries, categories]);
   const category = categories.find((c) => c.id === product?.categoryId);
   const partnerLinks = product?.partnerLinks.length ? product.partnerLinks : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
   const hasCoupangLink = partnerLinks.some((p) => p.name.trim() === "쿠팡");
@@ -305,6 +316,20 @@ export default function V2ProductDetailPage() {
                         {partner.priceDisplay || `${partner.price!.toLocaleString()}원~`}
                       </span>
                     )}
+                    {productCoupons
+                      .filter((c) => c.partner === partner.name)
+                      .slice(0, 1)
+                      .map((c) => (
+                        <Link
+                          key={c.id}
+                          to="/coupons"
+                          className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold text-brand"
+                        >
+                          <Ticket className="w-3 h-3" />
+                          {c.discount} 코드 {c.code}
+                          <span className="font-medium text-slate-400">{formatDeadline(c)}</span>
+                        </Link>
+                      ))}
                   </div>
                   <a
                     href={partner.url}
