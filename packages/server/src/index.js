@@ -89,6 +89,47 @@ setInterval(() => {
   });
 }, RATE_WINDOW_MS).unref?.();
 
+// ── 어드민 세션 ───────────────────────────────────────────────────────────────
+// 브라우저가 관리자 키를 들고 있으면 XSS 한 번에 통째로 털린다.
+// 로그인 때만 키를 받고, 이후에는 JS가 읽을 수 없는 HttpOnly 쿠키로 인증한다.
+// 토큰은 만료시각에 키로 서명한 값이라 서버에 세션 저장소가 필요 없고 재시작해도 유지된다.
+// 키를 바꾸면 기존 토큰이 전부 무효가 된다.
+const SESSION_COOKIE = 'ts_admin_session';
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+const signSession = (expiresAt) =>
+  crypto.createHmac('sha256', ADMIN_API_KEY).update(String(expiresAt)).digest('hex');
+
+const issueSessionToken = () => {
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  return `${expiresAt}.${signSession(expiresAt)}`;
+};
+
+const isValidSessionToken = (token) => {
+  if (!ADMIN_API_KEY || typeof token !== 'string') return false;
+  const [expiresRaw, signature] = token.split('.');
+  const expiresAt = Number(expiresRaw);
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  const expected = signSession(expiresAt);
+  if (typeof signature !== 'string' || signature.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+};
+
+// cookie-parser 의존성을 늘리지 않고 필요한 쿠키 하나만 읽는다
+const readCookie = (req, name) =>
+  String(req.headers.cookie || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${name}=`))
+    .map((part) => decodeURIComponent(part.slice(name.length + 1)))[0] || '';
+
+const sessionCookieOptions = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'lax', // admin/api 모두 tourstream.kr 하위라 same-site로 취급된다
+  path: '/',
+};
+
 const requireAdminKey = (req, res, next) => {
   if (!ADMIN_API_KEY) {
     console.error(`[인증] ADMIN_API_KEY 미설정으로 거부: ${req.method} ${req.path}`);
@@ -96,6 +137,9 @@ const requireAdminKey = (req, res, next) => {
   }
 
   const ip = clientIp(req);
+
+  // 브라우저는 HttpOnly 쿠키로, 배치 스크립트는 헤더로 인증한다.
+  if (isValidSessionToken(readCookie(req, SESSION_COOKIE))) return next();
 
   // 인증 실패부터 센다. 무차별 대입을 막는 게 목적이라 임계값을 낮게 둔다.
   if (!isValidAdminKey(req.get(ADMIN_KEY_HEADER))) {
@@ -851,7 +895,24 @@ app.delete('/api/products/:id', requireAdminKey, (req, res) => {
 });
 
 // 어드민 - 파트너 API 상품 검색 (등록 폼에서 API 연동 링크를 고를 때 사용)
-// 어드민 로그인 화면에서 입력한 키가 맞는지만 확인 (세션/토큰 발급 없음)
+// 어드민 로그인 - 키가 맞으면 HttpOnly 쿠키로 세션을 내려준다.
+// 이후 어드민 화면은 키를 보관하지 않고 쿠키로만 인증하므로 JS가 키를 읽을 수 없다.
+app.post('/api/admin/login', requireAdminKey, (req, res) => {
+  res.cookie(SESSION_COOKIE, issueSessionToken(), { ...sessionCookieOptions, maxAge: SESSION_TTL_MS });
+  res.json({ ok: true, expiresIn: SESSION_TTL_MS });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE, sessionCookieOptions);
+  res.json({ ok: true });
+});
+
+// 현재 세션이 살아있는지 확인 (새로고침 시 로그인 상태 복원용)
+app.get('/api/admin/session', (req, res) => {
+  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)) });
+});
+
+// 예전 어드민 빌드가 호출하던 경로. 키 확인만 하고 쿠키는 주지 않는다.
 app.post('/api/admin/verify-key', requireAdminKey, (req, res) => {
   res.json({ ok: true });
 });
@@ -1219,6 +1280,9 @@ app.use((req, res) => {
       'POST /api/locations',
       'GET /api/counter',
       'GET /api/admin/partner-search',
+      'POST /api/admin/login',
+      'POST /api/admin/logout',
+      'GET /api/admin/session',
       'GET /api/coupons',
       'POST /api/coupons',
       'GET /api/admin/partner-detail',

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { storage } from '../utils/storage';
-import { adminAuthHeaders, clearAdminKey, getAdminKey, saveAdminKey } from '../utils/adminKey';
+import { adminRequestInit, clearLegacyAdminKey } from '../utils/adminKey';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -18,15 +18,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
-    // 저장된 키가 있어야만 로그인 상태로 인정 (키 없이 화면만 열려 있으면 쓰기가 전부 실패하므로)
-    const auth = storage.getAuth();
-    if (auth && auth.isAuthenticated && getAdminKey()) {
-      setIsAuthenticated(true);
-    } else {
-      storage.clearAuth();
-      clearAdminKey();
-    }
-    setIsAuthLoading(false);
+    // 로그인 여부는 브라우저가 아니라 서버가 판단한다.
+    // (쿠키는 HttpOnly라 JS가 읽을 수 없으므로 서버에 물어봐야 한다)
+    clearLegacyAdminKey();
+    let alive = true;
+    fetch(`${API_BASE_URL}/admin/session`, adminRequestInit())
+      .then((res) => (res.ok ? res.json() : { authenticated: false }))
+      .then((data) => {
+        if (!alive) return;
+        const ok = Boolean(data?.authenticated);
+        setIsAuthenticated(ok);
+        if (!ok) storage.clearAuth();
+      })
+      .catch(() => {
+        if (alive) {
+          setIsAuthenticated(false);
+          storage.clearAuth();
+        }
+      })
+      .finally(() => {
+        if (alive) setIsAuthLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // 입력한 키가 맞는지 서버에 확인한 뒤에만 로그인 처리한다.
@@ -34,19 +49,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const trimmed = adminKey.trim();
     if (!trimmed) return false;
 
-    saveAdminKey(trimmed);
+    // 키는 이 요청에서만 쓰이고 브라우저에 저장되지 않는다.
+    // 서버가 HttpOnly 쿠키를 내려주면 이후에는 그 쿠키로만 인증한다.
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/verify-key`, {
+      const response = await fetch(`${API_BASE_URL}/admin/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Key': trimmed },
+        ...adminRequestInit(),
       });
-      if (!response.ok) {
-        clearAdminKey();
-        return false;
-      }
+      if (!response.ok) return false;
     } catch {
       // 서버에 닿지 못하면 로그인 성공으로 처리하지 않는다
-      clearAdminKey();
       return false;
     }
 
@@ -58,7 +71,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = () => {
     setIsAuthenticated(false);
     storage.clearAuth();
-    clearAdminKey();
+    clearLegacyAdminKey();
+    // 서버가 쿠키를 지우게 한다 (JS로는 HttpOnly 쿠키를 못 지운다)
+    fetch(`${API_BASE_URL}/admin/logout`, { method: 'POST', ...adminRequestInit() }).catch(() => undefined);
   };
 
   return (
