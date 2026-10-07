@@ -26,6 +26,18 @@ app.use(cors({
   credentials: true
 }));
 
+// 기본 보안 헤더. API는 CloudFront를 거치지 않아 여기서 직접 붙인다.
+// CSP는 넣지 않는다 - JSON API라 실익이 없고, 잘못 넣으면 어드민 화면이 깨진다.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  // 응답에 Express 버전을 광고할 이유가 없다
+  res.removeHeader('X-Powered-By');
+  next();
+});
+
 // 어드민 base64 이미지 등으로 본문이 클 수 있음 (기본 100kb 제한 초과 시 PUT 실패)
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '25mb' }));
 
@@ -48,15 +60,60 @@ const isValidAdminKey = (provided) => {
   return crypto.timingSafeEqual(a, b);
 };
 
+// 쓰기 요청 속도 제한. 관리자 키가 43자라 현실적으로 추측은 어렵지만,
+// 시도 자체를 막아야 로그가 더러워지지 않고 같은 통로로 서버를 때리는 것도 막힌다.
+// 외부 라이브러리 없이 메모리 카운터로 처리한다(서버가 1대라 충분).
+const RATE_WINDOW_MS = 60 * 1000;
+const RATE_MAX_WRITES = 600; // 인증된 쓰기 (일괄 등록 스크립트가 한 번에 100건 가까이 쓴다)
+const RATE_MAX_FAILED_AUTH = 10; // 분당 인증 실패
+const rateBuckets = new Map();
+
+const clientIp = (req) =>
+  String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+
+const hitLimit = (key, max, now = Date.now()) => {
+  const bucket = rateBuckets.get(key);
+  if (!bucket || now - bucket.start >= RATE_WINDOW_MS) {
+    rateBuckets.set(key, { start: now, count: 1 });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > max;
+};
+
+// 오래된 기록은 주기적으로 정리 (메모리 누수 방지)
+setInterval(() => {
+  const now = Date.now();
+  rateBuckets.forEach((bucket, key) => {
+    if (now - bucket.start >= RATE_WINDOW_MS * 2) rateBuckets.delete(key);
+  });
+}, RATE_WINDOW_MS).unref?.();
+
 const requireAdminKey = (req, res, next) => {
   if (!ADMIN_API_KEY) {
     console.error(`[인증] ADMIN_API_KEY 미설정으로 거부: ${req.method} ${req.path}`);
     return res.status(503).json({ error: '서버에 관리자 키가 설정되지 않아 쓰기 요청을 처리할 수 없습니다' });
   }
+
+  const ip = clientIp(req);
+
+  // 인증 실패부터 센다. 무차별 대입을 막는 게 목적이라 임계값을 낮게 둔다.
   if (!isValidAdminKey(req.get(ADMIN_KEY_HEADER))) {
-    console.warn(`[인증] 거부: ${req.method} ${req.path}`);
+    const tooMany = hitLimit(`auth:${ip}`, RATE_MAX_FAILED_AUTH);
+    console.warn(`[인증] 거부: ${req.method} ${req.path} (${ip})`);
+    if (tooMany) {
+      return res.status(429).json({ error: '인증 시도가 너무 많습니다. 잠시 후 다시 시도해주세요' });
+    }
     return res.status(401).json({ error: '관리자 인증이 필요합니다' });
   }
+
+  // 인증은 통과했지만 폭주하는 경우에 대한 안전장치.
+  // 일괄 등록 스크립트가 정상적으로 수백 건을 쓰므로 한도를 넉넉히 잡는다.
+  if (hitLimit(`write:${ip}`, RATE_MAX_WRITES)) {
+    console.warn(`[속도제한] 쓰기 과다: ${ip} ${req.method} ${req.path}`);
+    return res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요' });
+  }
+
   return next();
 };
 
