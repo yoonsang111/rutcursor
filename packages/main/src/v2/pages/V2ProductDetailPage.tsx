@@ -71,9 +71,9 @@ export default function V2ProductDetailPage() {
   const safeName = product?.name || "상품";
   const safeDescription = product?.description || "상품 상세 정보 페이지입니다.";
   const priceLabel = hasPrice ? `${safePrice.toLocaleString("ko-KR")}원` : null;
-  const seoTitle = priceLabel ? `${safeName} 최저가 ${priceLabel} | TourStream` : `${safeName} 가격비교 | TourStream`;
+  const seoTitle = priceLabel ? `${safeName} ${priceLabel}부터 | TourStream` : `${safeName} 가격비교 | TourStream`;
   const seoDescription = priceLabel
-    ? `${safeDescription.slice(0, 90)} 최저 ${priceLabel}부터${
+    ? `${safeDescription.slice(0, 90)} ${priceLabel}부터${
         partnerLinks.length >= 2 ? `, 파트너사 ${partnerLinks.length}곳` : ""
       } 가격을 비교해보세요.`.slice(0, 155)
     : safeDescription.slice(0, 140);
@@ -285,11 +285,11 @@ export default function V2ProductDetailPage() {
             <div className="flex justify-between items-end mb-4 gap-3">
               <div className="flex flex-col">
                 <div className="text-brand text-xs font-bold mb-1 flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5" /> 최근 갱신 최저가
+                  <Zap className="w-3.5 h-3.5" /> 가격 비교
                 </div>
                 <div className="flex items-baseline gap-1">
                   <div className="text-xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">{hasPrice ? product.price.toLocaleString() : "판매처에서 확인"}</div>
-                  {hasPrice && <div className="text-sm font-bold text-slate-500">원~</div>}
+                  {hasPrice && <div className="text-sm font-bold text-slate-500">원부터</div>}
                 </div>
               </div>
               <div className="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md mb-1">{partnerLinks.length}개 파트너사 비교</div>
@@ -308,12 +308,12 @@ export default function V2ProductDetailPage() {
                     <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       {partner.name}
                       {idx === 0 && partner.price !== undefined && (
-                        <span className="text-[10px] bg-brand-tint text-brand px-1.5 py-0.5 rounded-sm font-bold">최저가</span>
+                        <span className="text-[10px] bg-brand-tint text-brand px-1.5 py-0.5 rounded-sm font-bold">가장 낮은 가격</span>
                       )}
                     </span>
                     {(partner.priceDisplay || partner.price !== undefined) && (
                       <span className="text-xs text-slate-500 mt-0.5">
-                        {partner.priceDisplay || `${partner.price!.toLocaleString()}원~`}
+                        {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
                       </span>
                     )}
                     {productCoupons
@@ -369,9 +369,9 @@ export default function V2ProductDetailPage() {
 
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 flex items-center justify-between gap-3">
         <div className="flex flex-col">
-          <div className="text-[11px] text-slate-400">최근 갱신 최저가</div>
+          <div className="text-[11px] text-slate-400">가격 비교</div>
           <div className="text-lg font-extrabold text-slate-900 tracking-tight">
-            {hasPrice ? `${product.price.toLocaleString()}원~` : "판매처에서 확인"}
+            {hasPrice ? `${product.price.toLocaleString()}원부터` : "판매처에서 확인"}
           </div>
         </div>
         <button

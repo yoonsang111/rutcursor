@@ -352,7 +352,7 @@ function inferPartners(raw: RawProduct, fallbackUrl: string) {
 
   if (partners.length === 0) return [{ name: "공식 링크", url: fallbackUrl }];
 
-  // 가격 정보가 있는 파트너끼리는 실제 최저가 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
+  // 가격 정보가 있는 파트너끼리는 실제 가격 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
   const priced = partners.filter((p) => p.price !== undefined).sort((a, b) => a.price! - b.price!);
   const unpriced = partners.filter((p) => p.price === undefined);
   return [...priced, ...unpriced];

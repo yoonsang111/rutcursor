@@ -21,7 +21,7 @@ export default function V2PopularPage() {
     // 정적 셸과 동일하게 유지 (다르면 셸 문구가 무효가 됨)
     title: "인기 해외여행 입장권·패스 TOP | TourStream",
     description:
-      "지금 가장 많이 조회된 해외여행 입장권, 교통패스, 테마파크 인기 상품을 확인하고 클룩·마이리얼트립·KKday 최저가를 비교하세요.",
+      "지금 가장 많이 조회된 해외여행 입장권, 교통패스, 테마파크 인기 상품을 확인하고 클룩·마이리얼트립·KKday 가격을 비교하세요.",
     canonicalPath: "/popular",
     ogType: "website",
     ogImage: popularProducts[0]?.image,

@@ -41,12 +41,12 @@ export default function V2DestinationPage() {
 
   const priceLabel = products.length > 0 && products[0].price > 0 ? `${products[0].price.toLocaleString("ko-KR")}원` : null;
   const title = priceLabel
-    ? `${regionName || "지역"} ${category?.name || "카테고리"} 최저 ${priceLabel}부터 | TourStream`
+    ? `${regionName || "지역"} ${category?.name || "카테고리"} ${priceLabel}부터 | TourStream`
     : `${regionName || "지역"} ${category?.name || "카테고리"} 가격비교 | TourStream`;
   const description = React.useMemo(() => {
     const base = `${regionName || "지역"} ${category?.name || "카테고리"} 상품 ${products.length}개${
-      priceLabel ? `, 최저 ${priceLabel}부터` : ""
-    } 최저가순으로 비교하세요.`;
+      priceLabel ? `, ${priceLabel}부터` : ""
+    } 가격 낮은 순으로 비교하세요.`;
     const distinctiveTags = pickDistinctiveTags(products);
     if (distinctiveTags.length === 0) return base;
     return `${base} ${distinctiveTags.join(", ")} 등 인기 옵션도 함께 확인할 수 있어요.`;
@@ -88,7 +88,7 @@ export default function V2DestinationPage() {
 
       <section className="pb-4">
         <div className="font-bold text-sm text-slate-900">
-          총 <span className="text-brand">{products.length}</span>개의 상품 · 최저가순
+          총 <span className="text-brand">{products.length}</span>개의 상품 · 가격 낮은 순
         </div>
       </section>
 

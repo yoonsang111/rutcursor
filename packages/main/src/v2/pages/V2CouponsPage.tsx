@@ -61,7 +61,7 @@ export default function V2CouponsPage() {
       </div>
 
       <div className="mb-6 text-sm text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 leading-relaxed">
-        쿠폰을 적용하면 최저가 판매처가 바뀔 수 있어요. 코드를 복사한 뒤 상품 페이지에서 비교해보세요. 기간이 지난 코드는 자동으로
+        쿠폰을 적용하면 가장 저렴한 판매처가 바뀔 수 있어요. 코드를 복사한 뒤 상품 페이지에서 비교해보세요. 기간이 지난 코드는 자동으로
         사라집니다.
       </div>
 
@@ -157,7 +157,7 @@ export default function V2CouponsPage() {
                     >
                       <span className="font-bold text-slate-400 truncate">{p.name}</span>
                       <span className="font-extrabold text-slate-900">
-                        {p.price > 0 ? `${p.price.toLocaleString("ko-KR")}원~` : "가격 보기"}
+                        {p.price > 0 ? `${p.price.toLocaleString("ko-KR")}원부터` : "가격 보기"}
                       </span>
                     </Link>
                   ))}
