@@ -345,7 +345,7 @@ function inferPartners(raw: RawProduct, fallbackUrl: string) {
         name: (link.partner || "").trim() || "파트너",
         url,
         price: price !== null && price > 0 ? price : undefined,
-        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim() : undefined,
+        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터") : undefined,
       };
     })
     .filter((p) => p.url !== "");
