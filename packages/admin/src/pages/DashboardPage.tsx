@@ -1,10 +1,19 @@
 import React from 'react';
 import { useProducts } from '../context/ProductContext';
-import { storage } from '../utils/storage';
 
 export default function DashboardPage() {
   const { products } = useProducts();
-  const visitors = storage.getVisitors();
+  const activeCount = products.filter((p) => p.isAvailable).length;
+  const inactiveCount = products.length - activeCount;
+  const noLinkCount = products.filter(
+    (p) => !p.partnerLinks || !p.partnerLinks.some((l) => l.url && l.url.trim())
+  ).length;
+
+  const statCards = [
+    { label: '활성 상품', value: activeCount, color: 'green' },
+    { label: '비활성 상품', value: inactiveCount, color: 'gray' },
+    { label: '링크 없는 상품', value: noLinkCount, color: 'red' },
+  ];
 
   return (
     <div>
@@ -26,23 +35,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 방문자 수 */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">방문자 수</p>
-              <p className="text-3xl font-bold text-gray-900">{visitors.count.toLocaleString()}명</p>
-              <p className="text-xs text-gray-500 mt-1">
-                마지막 업데이트: {new Date(visitors.lastUpdated).toLocaleDateString('ko-KR')}
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </div>
+        {/* 상품 현황 */}
+        {statCards.map((card) => (
+          <div key={card.label} className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+            <p className="text-sm text-gray-600 mb-1">{card.label}</p>
+            <p
+              className={`text-3xl font-bold ${
+                card.color === 'green' ? 'text-green-600' : card.color === 'red' ? 'text-red-600' : 'text-gray-900'
+              }`}
+            >
+              {card.value}개
+            </p>
           </div>
-        </div>
+        ))}
       </div>
     </div>
   );
