@@ -45,6 +45,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [productsSource, setProductsSource] = useState<ProductsSource>('loading');
 
   const refreshProducts = useCallback(async () => {
+    setProductsSource('loading');
     try {
       const apiProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(apiProducts);
@@ -53,6 +54,14 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] refreshProducts 실패:', error);
+      // 갱신 실패: 저장해 둔 옛 목록이 있으면 cache, 없으면 unavailable로 표시
+      const savedProducts = storage.getProducts() as Product[];
+      if (savedProducts.length > 0) {
+        setProducts(mapAndCleanProducts(savedProducts));
+        setProductsSource('cache');
+      } else {
+        setProductsSource('unavailable');
+      }
     }
   }, []);
 
@@ -186,6 +195,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       const updatedProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(updatedProducts);
       setProducts(cleanedProducts);
+      setProductsSource('server');
       storage.saveProducts(cleanedProducts);
       console.log('[ProductContext] 상품 목록 동기화 완료:', cleanedProducts.length, '개');
     } catch (error) {
@@ -208,6 +218,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       const updatedProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(updatedProducts);
       setProducts(cleanedProducts);
+      setProductsSource('server');
       storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] 상품 수정 실패:', error);
@@ -233,6 +244,7 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       const updatedProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(updatedProducts);
       setProducts(cleanedProducts);
+      setProductsSource('server');
       storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] 상품 삭제 실패:', error);
