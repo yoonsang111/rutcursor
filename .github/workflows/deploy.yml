@@ -1,12 +1,17 @@
 name: Deploy
-# 실행 이름에 배포하는 커밋을 넣어 TOURSTREAM OFFICE가 자기가 요청한 실행을 정확히 찾게 한다
-run-name: Deploy ${{ inputs.sha || github.sha }}
+# 실행 이름에 배포하는 커밋과 요청 번호를 넣어 TOURSTREAM OFFICE가 자기가 요청한 실행을 정확히 찾게 한다
+# (같은 커밋을 여러 번 배포해도 요청 번호로 구분. 예약 실행은 요청 번호가 비어 있음)
+run-name: Deploy ${{ inputs.sha || github.sha }} ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
       sha:
         description: '배포할 커밋 (비우면 main 최신). OFFICE는 대표가 승인한 커밋을 넣는다'
+        required: false
+        type: string
+      request_id:
+        description: 'TOURSTREAM OFFICE가 배포마다 붙이는 고유 요청 번호 (실행 이름에만 쓰임, 비워도 됨)'
         required: false
         type: string
   # 매일 00:30 KST(15:30 UTC) - 가격/평점 배치가 끝난 직후 메인 사이트만 다시 빌드해서

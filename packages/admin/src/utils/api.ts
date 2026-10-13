@@ -199,7 +199,8 @@ export const api = {
   getProducts: async () => {
     try {
       console.log('[API] 상품 목록 요청:', `${API_BASE_URL}/products`);
-      const response = await fetch(`${API_BASE_URL}/products`);
+      // 로그인 쿠키를 함께 보내야 비활성 상품까지 받음 (공개 요청에는 서버가 비활성 상품을 빼고 줌)
+      const response = await fetch(`${API_BASE_URL}/products`, adminRequestInit());
       console.log('[API] 응답 상태:', response.status, response.statusText);
       
       if (!response.ok) {
@@ -219,7 +220,7 @@ export const api = {
   },
 
   getProduct: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(id)}`);
+    const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(id)}`, adminRequestInit());
     if (!response.ok) throw new Error('상품을 불러올 수 없습니다');
     const product = await response.json();
     return { ...product, id: toSafeString((product as any)?.id) };

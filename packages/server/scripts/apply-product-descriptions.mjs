@@ -30,7 +30,8 @@ if (!fs.existsSync(DRAFTS_FILE)) {
 
 const main = async () => {
   const { drafts } = JSON.parse(fs.readFileSync(DRAFTS_FILE, 'utf8'));
-  const res = await fetch(`${API_BASE_URL}/products`);
+  // 관리자 키로 조회: 비활성 상품의 설명 초안도 적용 대상에 포함
+  const res = await fetch(`${API_BASE_URL}/products`, { headers: { 'X-Admin-Key': ADMIN_API_KEY } });
   if (!res.ok) throw new Error(`상품 조회 실패 (${res.status})`);
   const products = await res.json();
   const byId = new Map(products.map((p) => [String(p.id), p]));

@@ -130,6 +130,11 @@ const sessionCookieOptions = {
   path: '/',
 };
 
+// 조회 요청이 관리자(어드민 로그인 쿠키 또는 관리자 키)인지. 비활성 상품은 관리자에게만 보여 준다.
+const isAdminRequest = (req) =>
+  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER));
+const visibleTo = (req, products) => (isAdminRequest(req) ? products : products.filter((p) => p.isAvailable !== false));
+
 const requireAdminKey = (req, res, next) => {
   if (!ADMIN_API_KEY) {
     console.error(`[인증] ADMIN_API_KEY 미설정으로 거부: ${req.method} ${req.path}`);
@@ -715,7 +720,8 @@ const deriveLocationsFromProducts = (products = []) => {
 
 // 상품 목록 조회
 app.get('/api/products', (req, res) => {
-  const products = readProducts();
+  // 비활성 상품은 관리자 요청에만 포함 (공개 목록으로 비활성 상품이 새지 않게)
+  const products = visibleTo(req, readProducts());
   const viewEvents = trimExpiredViewEvents(readViewEvents());
   writeViewEvents(viewEvents);
   console.log(`[API] GET /api/products 요청 - ${products.length}개 상품 반환`);
@@ -740,13 +746,13 @@ app.get('/api/products/:id', (req, res) => {
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   const index = findProductIndex(products, req.params.id);
-  if (index === -1) {
+  if (index === -1 || (products[index].isAvailable === false && !isAdminRequest(req))) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
   const userAgent = req.get('user-agent') || '';
-  if (!isBotUserAgent(userAgent)) {
-    // 상세 조회 시 조회수 증가
+  if (!isBotUserAgent(userAgent) && !isAdminRequest(req)) {
+    // 상세 조회 시 조회수 증가 (어드민이 보는 건 세지 않음)
     const currentViews = Number(products[index].views) || 0;
     products[index] = {
       ...products[index],
@@ -781,7 +787,7 @@ app.post('/api/products/:id/view', (req, res) => {
   if (isBotUserAgent(userAgent)) {
     const products = readProducts();
     const product = products.find((p) => sameProductId(p.id, req.params.id));
-    if (!product) {
+    if (!product || (product.isAvailable === false && !isAdminRequest(req))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
     return res.json({
@@ -797,7 +803,7 @@ app.post('/api/products/:id/view', (req, res) => {
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   const index = findProductIndex(products, req.params.id);
 
-  if (index === -1) {
+  if (index === -1 || (products[index].isAvailable === false && !isAdminRequest(req))) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
@@ -823,7 +829,7 @@ app.post('/api/products/:id/view', (req, res) => {
 
 app.get('/api/metrics/views', (req, res) => {
   const nowMs = Date.now();
-  const products = readProducts();
+  const products = visibleTo(req, readProducts());
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   return res.json(buildViewMetrics(products, viewEvents, nowMs));
@@ -832,6 +838,12 @@ app.get('/api/metrics/views', (req, res) => {
 // 상품 등록
 app.post('/api/products', requireAdminKey, async (req, res) => {
   const products = readProducts();
+  // 같은 요청 번호로 다시 오면 새로 만들지 않고 처음 만든 상품을 돌려줌 (응답이 끊겨 다시 보내도 두 번 생기지 않게)
+  const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim().slice(0, 80) : '';
+  if (clientRequestId) {
+    const existing = products.find((p) => p.clientRequestId === clientRequestId);
+    if (existing) return res.status(200).json(existing);
+  }
   let counter = readCounter();
 
   // 다음 상품 번호 생성
@@ -840,10 +852,12 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
 
   const normalizedPayload = await normalizeProductPayload(req.body);
   
+  const { clientRequestId: _ignored, ...payloadRest } = normalizedPayload;
   const newProduct = {
-    ...normalizedPayload,
+    ...payloadRest,
     id: productId,
     views: 0,
+    ...(clientRequestId ? { clientRequestId } : {}),
   };
   
   products.push(newProduct);
@@ -867,6 +881,15 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
     ...products[index],
     ...req.body
   });
+
+  // 비활성 → 활성으로 바꿀 때 손님에게 보여도 되는지 점검 (사진·가격·판매 링크)
+  if (products[index].isAvailable === false && normalizedPayload.isAvailable) {
+    const missing = [];
+    if (!(normalizedPayload.images || []).length) missing.push('사진');
+    if (normalizedPayload.price === undefined && normalizedPayload.minPrice === undefined) missing.push('가격');
+    if (!(normalizedPayload.partnerLinks || []).length) missing.push('판매 링크');
+    if (missing.length) return res.status(400).json({ error: `활성화 전에 채워 주세요: ${missing.join(', ')}` });
+  }
   
   products[index] = {
     ...products[index],
