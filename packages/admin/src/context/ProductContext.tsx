@@ -174,21 +174,6 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
     loadProducts();
   }, []);
 
-  // 등록/수정/삭제 뒤 목록 재조회. 실패하면 화면 목록이 서버와 다를 수 있으니 '옛 목록'으로 표시
-  const syncProductsAfterChange = async () => {
-    try {
-      const updatedProducts = await api.getProducts();
-      const cleanedProducts = mapAndCleanProducts(updatedProducts);
-      setProducts(cleanedProducts);
-      setProductsSource('server');
-      storage.saveProducts(cleanedProducts);
-      return cleanedProducts;
-    } catch (error) {
-      setProductsSource(products.length > 0 ? 'cache' : 'unavailable');
-      throw error;
-    }
-  };
-
   const addProduct = async (productData: Omit<Product, 'id' | 'views'>) => {
     try {
       console.log('[ProductContext] 상품 등록 시작:', productData.name);
@@ -207,7 +192,11 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.log('[ProductContext] 상품 등록 성공:', newProduct.id, newProduct.name);
       
       // API에서 최신 목록 다시 불러오기 (서버 상태와 동기화)
-      const cleanedProducts = await syncProductsAfterChange();
+      const updatedProducts = await api.getProducts();
+      const cleanedProducts = mapAndCleanProducts(updatedProducts);
+      setProducts(cleanedProducts);
+      setProductsSource('server');
+      storage.saveProducts(cleanedProducts);
       console.log('[ProductContext] 상품 목록 동기화 완료:', cleanedProducts.length, '개');
     } catch (error) {
       console.error('[ProductContext] 상품 등록 실패:', error);
@@ -226,7 +215,11 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.log('[ProductContext] 상품 수정 성공:', id);
       
       // API에서 최신 목록 다시 불러오기
-      const cleanedProducts = await syncProductsAfterChange();
+      const updatedProducts = await api.getProducts();
+      const cleanedProducts = mapAndCleanProducts(updatedProducts);
+      setProducts(cleanedProducts);
+      setProductsSource('server');
+      storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] 상품 수정 실패:', error);
       throw error;
@@ -248,7 +241,11 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       
       // API에서 최신 목록 다시 불러오기
-      const cleanedProducts = await syncProductsAfterChange();
+      const updatedProducts = await api.getProducts();
+      const cleanedProducts = mapAndCleanProducts(updatedProducts);
+      setProducts(cleanedProducts);
+      setProductsSource('server');
+      storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] 상품 삭제 실패:', error);
       throw error;
