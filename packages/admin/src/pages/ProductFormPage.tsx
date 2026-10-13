@@ -132,9 +132,10 @@ export default function ProductFormPage() {
     if (!isDirty) return;
     const message = '저장하지 않은 변경 내용이 있어요. 나가시겠어요?';
     const onClick = (e: MouseEvent) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (e.defaultPrevented || e.button !== 0) return;
       const target = e.target as Element | null;
       // 헤더의 로그아웃은 링크가 아니라 버튼이라 아래 링크 검사를 통과해 버린다. 같은 확인을 거치게 한다.
+      // Shift·Ctrl 등을 누른 클릭도 버튼은 똑같이 로그아웃되므로, 보조키 검사보다 먼저 처리한다.
       const headerButton = target?.closest?.('header button');
       if (headerButton && headerButton.textContent?.trim() === '로그아웃') {
         if (!window.confirm(message)) {
@@ -143,6 +144,8 @@ export default function ProductFormPage() {
         }
         return;
       }
+      // 링크는 보조키 클릭이 새 탭 열기 등으로 쓰여 현재 화면을 떠나지 않으므로 건너뛴다.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (!anchor || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
       if (anchor.origin !== window.location.origin) return;
