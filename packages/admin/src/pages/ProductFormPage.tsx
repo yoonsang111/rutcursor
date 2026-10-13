@@ -155,6 +155,8 @@ export default function ProductFormPage() {
     // 가짜 기록은 번호를 realIdx + 1 로 달아서, 어느 칸으로 이동했는지 항상 계산할 수 있다.
     const realIdx = realIdxRef.current;
     const fakeIdx = realIdx === null ? null : realIdx + 1;
+    // 이 효과는 등록 화면에 있을 때만 시작되므로 지금 주소가 등록 화면 주소다.
+    const formHref = window.location.href;
     const fakeState = () => (fakeIdx === null ? null : { ...(window.history.state ?? {}), idx: fakeIdx });
     const onPopState = (e: PopStateEvent) => {
       if (leaving) return;
@@ -179,7 +181,9 @@ export default function ProductFormPage() {
           ignoreNext = true;
           window.history.go(fakeIdx - newIdx);
         } else {
-          window.history.pushState(fakeState(), '', window.location.href);
+          // 기록 번호가 없는 이전 기록에 도착한 경우 얼마나 멀리 왔는지 알 수 없으니,
+          // 도착한 주소가 아니라 등록 화면 주소로 새 기록을 쌓아 화면과 주소를 맞춘다(앞으로 갈 기록은 사라진다).
+          window.history.pushState(fakeState(), '', formHref);
         }
       }
     };
