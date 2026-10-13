@@ -149,10 +149,13 @@ export default function ProductFormPage() {
   // 보호용 기록의 위치(idx)와, 취소 후 되돌아오는 이동 중에 생기는 popstate를 무시하기 위한 표시.
   const guardIdxRef = useRef<number | null>(null);
   const restoringRef = useRef(false);
-  const pushGuardEntry = () => {
+  // 보호용 기록을 처음 쌓을 때의 입력 화면 주소. idx 없는 이전 기록에 도착한 뒤 취소해도 이 주소로 돌아온다.
+  const guardUrlRef = useRef<string | null>(null);
+  const pushGuardEntry = (url?: string) => {
+    if (!url) guardUrlRef.current = window.location.href;
     const state = window.history.state as { idx?: number } | null;
     const idx = typeof state?.idx === 'number' ? state.idx + 1 : null;
-    window.history.pushState({ ...(state ?? {}), ...(idx !== null ? { idx } : {}), productFormGuard: true }, '', window.location.href);
+    window.history.pushState({ ...(state ?? {}), ...(idx !== null ? { idx } : {}), productFormGuard: true }, '', url ?? window.location.href);
     guardIdxRef.current = idx;
   };
 
@@ -203,7 +206,7 @@ export default function ProductFormPage() {
           restoringRef.current = true;
           window.history.go(delta);
         } else if (!(state && (state as { productFormGuard?: boolean }).productFormGuard)) {
-          pushGuardEntry();
+          pushGuardEntry(guardUrlRef.current ?? undefined);
         }
         return;
       }
