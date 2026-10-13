@@ -136,22 +136,45 @@ export default function ProductFormPage() {
       }
     };
     let leaving = false;
-    const onPopState = () => {
+    let ignoreNext = false;
+    // BrowserRouter는 history.state.idx에 항목 순서를 저장한다. 여러 칸 이동했는지 알아내는 데 쓴다.
+    const idxOf = (state: unknown) => {
+      const idx = (state as { idx?: unknown } | null)?.idx;
+      return typeof idx === 'number' ? idx : null;
+    };
+    const startIdx = idxOf(window.history.state);
+    const onPopState = (e: PopStateEvent) => {
       if (leaving) return;
+      if (ignoreNext) {
+        // 이동을 취소하려고 우리가 되돌린 이동 — 라우터에 전달하지 않는다.
+        ignoreNext = false;
+        e.stopImmediatePropagation();
+        return;
+      }
+      const newIdx = idxOf(window.history.state);
+      const movedFar = startIdx !== null && newIdx !== null && newIdx !== startIdx;
       if (window.confirm(message)) {
         leaving = true;
-        window.removeEventListener('popstate', onPopState);
-        window.history.back();
+        window.removeEventListener('popstate', onPopState, true);
+        // 한 칸 뒤로(가짜 항목 → 등록 화면)는 한 번 더 뒤로 가야 실제로 나간다. 여러 칸 이동은 이미 도착했다.
+        if (!movedFar) window.history.back();
       } else {
-        window.history.pushState(null, '', window.location.href);
+        // 라우터가 먼저 이동하지 못하게 막고, 가짜 항목 위치로 돌아온다.
+        e.stopImmediatePropagation();
+        if (movedFar) {
+          ignoreNext = true;
+          window.history.go(startIdx + 1 - newIdx);
+        } else {
+          window.history.pushState(null, '', window.location.href);
+        }
       }
     };
     window.history.pushState(null, '', window.location.href);
     document.addEventListener('click', onClick, true);
-    window.addEventListener('popstate', onPopState);
+    window.addEventListener('popstate', onPopState, true);
     return () => {
       document.removeEventListener('click', onClick, true);
-      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('popstate', onPopState, true);
     };
   }, [isDirty]);
 
@@ -213,6 +236,16 @@ export default function ProductFormPage() {
     else if (partnerLinks.some((link) => !isHttpUrl(link.url))) {
       nextErrors.partnerLinks = '예약 URL은 http:// 또는 https://로 시작하는 올바른 주소여야 해요.';
     }
+
+    const outOfRange = (value: string, min: number, max: number, integer: boolean) => {
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      const n = Number(trimmed);
+      return !Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n));
+    };
+    if (outOfRange(formData.price, 0, Infinity, true)) nextErrors.price = '가격은 0 이상의 정수로 입력해주세요.';
+    if (outOfRange(formData.rating, 0, 5, false)) nextErrors.rating = '평점은 0~5 사이 숫자로 입력해주세요.';
+    if (outOfRange(formData.reviewCount, 0, Infinity, true)) nextErrors.reviewCount = '리뷰 수는 0 이상의 정수로 입력해주세요.';
 
     setErrors(nextErrors);
     const firstKey = Object.keys(nextErrors)[0];
@@ -451,7 +484,7 @@ export default function ProductFormPage() {
 
         {/* 가격/평점 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
+          <div id="field-price">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               대표 가격 (원)
             </label>
@@ -460,12 +493,14 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, price: e.target.value }); clearError('price'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.price ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.price}
               placeholder="예: 55000"
             />
+            {errors.price && <p className="mt-1 text-xs text-red-600">{errors.price}</p>}
           </div>
-          <div>
+          <div id="field-rating">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               평점 (선택)
             </label>
@@ -475,12 +510,14 @@ export default function ProductFormPage() {
               max="5"
               step="0.1"
               value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, rating: e.target.value }); clearError('rating'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.rating ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.rating}
               placeholder="예: 4.8"
             />
+            {errors.rating && <p className="mt-1 text-xs text-red-600">{errors.rating}</p>}
           </div>
-          <div>
+          <div id="field-reviewCount">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               리뷰 수 (선택)
             </label>
@@ -489,10 +526,12 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.reviewCount}
-              onChange={(e) => setFormData({ ...formData, reviewCount: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, reviewCount: e.target.value }); clearError('reviewCount'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.reviewCount ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.reviewCount}
               placeholder="예: 186"
             />
+            {errors.reviewCount && <p className="mt-1 text-xs text-red-600">{errors.reviewCount}</p>}
             <p className="mt-1 text-[11px] text-gray-400">평점을 입력하려면 리뷰 수도 함께 입력해야 화면에 표시돼요.</p>
           </div>
         </div>
