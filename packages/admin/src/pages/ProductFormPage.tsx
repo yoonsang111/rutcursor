@@ -133,7 +133,17 @@ export default function ProductFormPage() {
     const message = '저장하지 않은 변경 내용이 있어요. 나가시겠어요?';
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      const target = e.target as Element | null;
+      // 헤더의 로그아웃은 링크가 아니라 버튼이라 아래 링크 검사를 통과해 버린다. 같은 확인을 거치게 한다.
+      const headerButton = target?.closest?.('header button');
+      if (headerButton && headerButton.textContent?.trim() === '로그아웃') {
+        if (!window.confirm(message)) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (!anchor || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
       if (anchor.origin !== window.location.origin) return;
       if (anchor.pathname === window.location.pathname && anchor.search === window.location.search) return;
