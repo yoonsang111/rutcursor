@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { migrateProductsFromLocalStorage } from '../utils/migrateFromLocalStorage';
+import { Product } from '@tourstream/shared';
 import { storage } from '../utils/storage';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
-  const { products, deleteProduct, searchProducts, refreshProducts } = useProducts();
+  const { products, deleteProduct, updateProduct, searchProducts, refreshProducts } = useProducts();
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isMigrating, setIsMigrating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -17,8 +18,20 @@ export default function ProductListPage() {
 
   const filteredProducts = searchKeyword ? searchProducts(searchKeyword) : products;
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('정말 삭제하시겠습니까?')) {
+  const handleDeactivate = async (product: Product) => {
+    if (!window.confirm(`'${product.name}' 상품을 비활성으로 바꿀까요?\n(삭제되지 않고 사이트에서만 숨겨져요.)`)) return;
+    try {
+      const { id, views, ...rest } = product;
+      await updateProduct(id, { ...rest, isAvailable: false });
+    } catch (error) {
+      console.error('상품 비활성 처리 실패:', error);
+      alert('비활성으로 바꾸지 못했습니다. 다시 시도해주세요.');
+    }
+  };
+
+  const handleDelete = async (product: Product) => {
+    if (window.confirm(`'${product.name}' 상품을 정말 삭제하시겠습니까?\n삭제하면 되돌릴 수 없어요.`)) {
+      const id = product.id;
       try {
         await deleteProduct(id);
       } catch (error) {
@@ -106,7 +119,7 @@ export default function ProductListPage() {
             <button
               onClick={handleMigrate}
               disabled={isMigrating}
-              className="px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg hover:from-orange-700 hover:to-red-700 transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-2 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isMigrating ? '마이그레이션 중...' : `로컬 상품 마이그레이션 (${localProducts.length}개)`}
             </button>
@@ -211,8 +224,16 @@ export default function ProductListPage() {
                       >
                         수정
                       </button>
+                      {product.isAvailable && (
+                        <button
+                          onClick={() => handleDeactivate(product)}
+                          className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-600 hover:bg-gray-50"
+                        >
+                          비활성으로 바꾸기
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleDelete(product.id)}
+                        onClick={() => handleDelete(product)}
                         className="rounded-md border border-red-200 px-2.5 py-1 text-red-600 hover:bg-red-50"
                       >
                         삭제
