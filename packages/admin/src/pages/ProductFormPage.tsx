@@ -146,6 +146,15 @@ export default function ProductFormPage() {
   isDirtyRef.current = isDirty;
   // 뒤로가기 확인용으로 쌓아 둔 기록은 항상 최대 한 칸만 유지한다.
   const guardPushedRef = useRef(false);
+  // 보호용 기록의 위치(idx)와, 취소 후 되돌아오는 이동 중에 생기는 popstate를 무시하기 위한 표시.
+  const guardIdxRef = useRef<number | null>(null);
+  const restoringRef = useRef(false);
+  const pushGuardEntry = () => {
+    const state = window.history.state as { idx?: number } | null;
+    const idx = typeof state?.idx === 'number' ? state.idx + 1 : null;
+    window.history.pushState({ ...(state ?? {}), ...(idx !== null ? { idx } : {}), productFormGuard: true }, '', window.location.href);
+    guardIdxRef.current = idx;
+  };
 
   useEffect(() => {
     if (!isDirty) return;
@@ -170,7 +179,7 @@ export default function ProductFormPage() {
       }
     };
     if (!guardPushedRef.current) {
-      window.history.pushState({ productFormGuard: true }, '', window.location.href);
+      pushGuardEntry();
       guardPushedRef.current = true;
     }
     document.addEventListener('click', onClickCapture, true);
@@ -178,17 +187,32 @@ export default function ProductFormPage() {
   }, [isDirty]);
 
   useEffect(() => {
-    const onPopState = () => {
+    const onPopState = (e: PopStateEvent) => {
+      if (restoringRef.current) {
+        restoringRef.current = false;
+        e.stopImmediatePropagation();
+        return;
+      }
       if (!guardPushedRef.current) return;
       if (isDirtyRef.current && !window.confirm(LEAVE_MESSAGE)) {
-        window.history.pushState({ productFormGuard: true }, '', window.location.href);
+        // 라우터가 먼저 이동하지 못하게 막고, 여러 칸 이동했더라도 보호용 기록 위치로 되돌아온다.
+        e.stopImmediatePropagation();
+        const state = window.history.state as { idx?: number } | null;
+        const delta = guardIdxRef.current !== null && typeof state?.idx === 'number' ? guardIdxRef.current - state.idx : 0;
+        if (delta !== 0) {
+          restoringRef.current = true;
+          window.history.go(delta);
+        } else if (!(state && (state as { productFormGuard?: boolean }).productFormGuard)) {
+          pushGuardEntry();
+        }
         return;
       }
       guardPushedRef.current = false;
       window.history.back();
     };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    // 캡처 단계에서 받아야 라우터보다 먼저 취소를 처리할 수 있다.
+    window.addEventListener('popstate', onPopState, true);
+    return () => window.removeEventListener('popstate', onPopState, true);
   }, []);
 
   const handleCancel = () => {
