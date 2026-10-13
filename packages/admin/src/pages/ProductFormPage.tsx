@@ -5,6 +5,7 @@ import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
 import { Product, PartnerLink } from '@tourstream/shared';
 import { api } from '../utils/api';
+import { useUnsavedChangesGuard } from '../components/AdminLayout';
 
 const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', '와그', 'GetYourGuide', '트립닷컴', '쿠팡'];
 
@@ -102,6 +103,8 @@ export default function ProductFormPage() {
   // 마지막으로 불러오거나 저장한 상태. 현재 입력과 다르면 "저장 안 된 변경"으로 본다.
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
   const isDirty = JSON.stringify(formData) !== savedSnapshot;
+  // 로그아웃 버튼이 저장 안 한 변경(추가 안 한 태그 입력 포함)을 직접 확인하도록 알려 준다.
+  useUnsavedChangesGuard(isDirty || tagInput.trim() !== '');
 
   // BrowserRouter는 history.state.idx에 항목 순서를 저장한다. 여러 칸 이동했는지 알아내는 데 쓴다.
   const idxOf = (state: unknown) => {
@@ -134,16 +137,6 @@ export default function ProductFormPage() {
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0) return;
       const target = e.target as Element | null;
-      // 헤더의 로그아웃은 링크가 아니라 버튼이라 아래 링크 검사를 통과해 버린다. 같은 확인을 거치게 한다.
-      // Shift·Ctrl 등을 누른 클릭도 버튼은 똑같이 로그아웃되므로, 보조키 검사보다 먼저 처리한다.
-      const headerButton = target?.closest?.('header button');
-      if (headerButton && headerButton.textContent?.trim() === '로그아웃') {
-        if (!window.confirm(message)) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-        return;
-      }
       // 링크는 보조키 클릭이 새 탭 열기 등으로 쓰여 현재 화면을 떠나지 않으므로 건너뛴다.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
