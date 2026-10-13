@@ -92,7 +92,7 @@ function upsertTag(html, regex, tag) {
 
 function resolvePrice(product) {
   // 상품 대부분이 최상위 price/minPrice/salePrice가 비어있고 실제 가격은 partnerLinks[].price에만 있음
-  // (실제 상품 상세 페이지/최저가 정렬도 partnerLinks 최저가 기준이므로 동일하게 맞춤).
+  // (실제 상품 상세 페이지/가격 정렬도 partnerLinks 가격 기준이므로 동일하게 맞춤).
   const partnerPrices = (Array.isArray(product.partnerLinks) ? product.partnerLinks : [])
     .map((link) => Number(link.price))
     .filter((p) => Number.isFinite(p) && p > 0);
@@ -112,7 +112,7 @@ function buildProductJsonLd(product) {
   const productImage = typeof rawImage === "string" && !rawImage.startsWith("data:") ? rawImage : null;
   const description = product.description
     ? product.description.slice(0, 200)
-    : `${product.name} 여행 상품을 여러 예약 사이트에서 최저가로 비교하세요.`;
+    : `${product.name} 여행 상품을 여러 예약 사이트에서 가격을 비교하세요.`;
 
   const priceValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
@@ -297,7 +297,7 @@ function buildStaticBody(meta) {
       const range =
         priced.length >= 2
           ? `${Math.min(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원~${Math.max(...priced.map((l) => Number(l.price))).toLocaleString("ko-KR")}원`
-          : `${price.toLocaleString("ko-KR")}원~`;
+          : `${price.toLocaleString("ko-KR")}원부터`;
       lines.push(`<p>확인된 가격대는 ${escapeHtml(range)}이며, 표시 가격은 각 사이트의 최저 옵션가 기준입니다.</p>`);
     }
 
@@ -310,7 +310,7 @@ function buildStaticBody(meta) {
     if (partners.length > 0) {
       lines.push(
         `<ul>${partners
-          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원~` : " 판매처에서 가격 확인"}</li>`)
+          .map((l) => `<li>${escapeHtml(l.partner || "예약 사이트")}${Number(l.price) > 0 ? ` ${Number(l.price).toLocaleString("ko-KR")}원부터` : " 판매처에서 가격 확인"}</li>`)
           .join("")}</ul>`,
       );
     }
@@ -324,7 +324,7 @@ function buildStaticBody(meta) {
           .map((r) => {
             const rp = resolvePrice(r);
             return `<li><a href="/product/${escapeHtml(r.id)}">${escapeHtml(r.name)}</a>${
-              Number.isFinite(rp) ? ` ${rp.toLocaleString("ko-KR")}원~` : ""
+              Number.isFinite(rp) ? ` ${rp.toLocaleString("ko-KR")}원부터` : ""
             }</li>`;
           })
           .join("")}</ul>`,
@@ -338,7 +338,7 @@ function buildStaticBody(meta) {
         .map((p) => {
           const price = resolvePrice(p);
           return `<li><a href="/product/${escapeHtml(p.id)}">${escapeHtml(p.name)}</a>${
-            Number.isFinite(price) ? ` ${price.toLocaleString("ko-KR")}원~` : ""
+            Number.isFinite(price) ? ` ${price.toLocaleString("ko-KR")}원부터` : ""
           }</li>`;
         })
         .join("")}</ul>`,
@@ -432,8 +432,8 @@ async function main() {
   const routes = [
     {
       path: "/",
-      title: "일본·해외 입장권 교통패스 최저가 비교 | 클룩·마이리얼트립·KKday | TourStream",
-      description: "오사카·도쿄 등 일본 여행 입장권부터 교통패스·전망대·테마파크까지, 클룩·마이리얼트립·KKday 가격을 한 번에 비교하고 최저가로 예약하세요.",
+      title: "일본·해외 입장권 교통패스 가격 비교 | 클룩·마이리얼트립·KKday | TourStream",
+      description: "오사카·도쿄 등 일본 여행 입장권부터 교통패스·전망대·테마파크까지, 클룩·마이리얼트립·KKday 가격을 한 번에 비교하고 합리적으로 예약하세요.",
       ogType: "website",
       // 홈 정적 본문이 제목 한 줄뿐이면 크롤러가 따라갈 링크가 없다. 조회 상위 상품을 내보낸다.
       itemListProducts: (Array.isArray(products) ? [...products] : [])
@@ -443,14 +443,14 @@ async function main() {
     {
       path: "/products",
       title: "해외여행 입장권·교통패스 전체 상품 | TourStream",
-      description: "일본·대만·싱가포르 등 해외여행 입장권, 교통패스, 전망대, 테마파크 상품을 한눈에. 클룩·마이리얼트립·KKday 등 제휴사별 최저가를 비교하세요.",
+      description: "일본·대만·싱가포르 등 해외여행 입장권, 교통패스, 전망대, 테마파크 상품을 한눈에. 클룩·마이리얼트립·KKday 등 제휴사별 가격을 비교하세요.",
       ogType: "website",
       itemListProducts: Array.isArray(products) ? products : [],
     },
     {
       path: "/popular",
       title: "인기 해외여행 입장권·패스 TOP | TourStream",
-      description: "지금 가장 많이 조회된 해외여행 입장권, 교통패스, 테마파크 인기 상품을 확인하고 클룩·마이리얼트립·KKday 최저가를 비교하세요.",
+      description: "지금 가장 많이 조회된 해외여행 입장권, 교통패스, 테마파크 인기 상품을 확인하고 클룩·마이리얼트립·KKday 가격을 비교하세요.",
       ogType: "website",
       itemListProducts: (Array.isArray(products) ? [...products] : []).sort(
         (a, b) => (Number(b.recentViews7d) || Number(b.views) || 0) - (Number(a.recentViews7d) || Number(a.views) || 0),
@@ -503,16 +503,16 @@ async function main() {
     const priceLabel = Number.isFinite(price) ? `${price.toLocaleString("ko-KR")}원` : null;
     const partnerCount = (Array.isArray(product.partnerLinks) ? product.partnerLinks : []).filter((l) => l?.url).length;
 
-    // 검색결과에서 다른 플랫폼과 구별되도록, 있으면 실제 최저가를 제목/설명에 노출.
+    // 검색결과에서 다른 플랫폼과 구별되도록, 있으면 실제 최저 가격을 제목/설명에 노출.
     // (구글이 description을 안 쓰고 본문에서 스니펫을 만들어가는 걸 막으려면 description 자체가 검색 의도와 더 잘 맞아야 함)
-    const title = priceLabel ? `${productName} 최저가 ${priceLabel} | TourStream` : `${productName} 가격비교 | TourStream`;
+    const title = priceLabel ? `${productName} ${priceLabel}부터 | TourStream` : `${productName} 가격비교 | TourStream`;
 
     const baseDesc = product.description
       ? flattenBullets(product.description).slice(0, 90)
       : `${contextHint ? contextHint + " " : ""}${productName}`;
     const priceSentence = priceLabel
-      ? ` 최저 ${priceLabel}부터${partnerCount >= 2 ? `, 파트너사 ${partnerCount}곳` : ""} 가격을 비교해보세요.`
-      : " 여러 예약 사이트에서 최저가로 비교하세요.";
+      ? ` ${priceLabel}부터${partnerCount >= 2 ? `, 파트너사 ${partnerCount}곳` : ""} 가격을 비교해보세요.`
+      : " 여러 예약 사이트에서 가격을 비교하세요.";
 
     // 연관 상품: 겹치는 지역이 많을수록(도쿄 > 일본) 먼저, 그다음 같은 분류.
     // locations 배열의 순서가 상품마다 [국가, 지역]/[지역, 국가]로 제각각이라 첫 항목만 보면
@@ -560,11 +560,11 @@ async function main() {
     routes.push({
       path: `/category/${slug}`,
       title: priceLabel
-        ? `${categoryName || "카테고리"} 최저 ${priceLabel}부터 | 가격비교 TourStream`
+        ? `${categoryName || "카테고리"} ${priceLabel}부터 | 가격비교 TourStream`
         : `${categoryName || "카테고리"} 액티비티 가격비교 | TourStream`,
       description: `${categoryName || "카테고리"} 상품 ${categoryProducts.length}개${
-        priceLabel ? `, 최저 ${priceLabel}부터` : ""
-      } 비교하세요. 제휴사별 최저가 링크를 제공합니다.`,
+        priceLabel ? `, ${priceLabel}부터` : ""
+      } 비교하세요. 제휴사별 가격 링크를 제공합니다.`,
       ogType: "website",
       itemListProducts: categoryProducts,
       // 화면(V2CategoryPage)이 필터 없는 카테고리 페이지에만 안내를 그리므로 셸도 동일하게 맞춘다
@@ -590,11 +590,11 @@ async function main() {
     routes.push({
       path: `/country/${slug}`,
       title: countryPriceLabel
-        ? `${countryName || "국가"} 최저 ${countryPriceLabel}부터 | 가격비교 TourStream`
+        ? `${countryName || "국가"} ${countryPriceLabel}부터 | 가격비교 TourStream`
         : `${countryName || "국가"} 여행 액티비티·투어 가격비교 | TourStream`,
       description: `${countryName || "국가"} 상품 ${countryProducts.length}개${
-        countryPriceLabel ? `, 최저 ${countryPriceLabel}부터` : ""
-      } 비교하세요. KKday, Klook, 트립닷컴 등 제휴사 최저가 링크를 한눈에 확인할 수 있습니다.`,
+        countryPriceLabel ? `, ${countryPriceLabel}부터` : ""
+      } 비교하세요. KKday, Klook, 트립닷컴 등 제휴사 가격 링크를 한눈에 확인할 수 있습니다.`,
       ogType: "website",
       itemListProducts: countryProducts,
     });
@@ -618,11 +618,11 @@ async function main() {
       routes.push({
         path: `/region/${regionSlugValue}`,
         title: regionPriceLabel
-          ? `${regionName} 최저 ${regionPriceLabel}부터 | 가격비교 TourStream`
+          ? `${regionName} ${regionPriceLabel}부터 | 가격비교 TourStream`
           : `${regionName} 여행 액티비티 가격비교 | TourStream`,
         description: `${countryName ? countryName + " " : ""}${regionName} 상품 ${regionProducts.length}개${
-          regionPriceLabel ? `, 최저 ${regionPriceLabel}부터` : ""
-        } 비교하세요. 제휴사별 최저가 링크를 제공합니다.`,
+          regionPriceLabel ? `, ${regionPriceLabel}부터` : ""
+        } 비교하세요. 제휴사별 가격 링크를 제공합니다.`,
         ogType: "website",
         itemListProducts: regionProducts,
       });
@@ -652,15 +652,15 @@ async function main() {
       const comboMinPrice = Math.min(...comboProducts.map(resolvePrice));
       const comboPriceLabel = Number.isFinite(comboMinPrice) ? `${comboMinPrice.toLocaleString("ko-KR")}원` : null;
       const baseDesc = `${regionName} ${categoryName} 상품 ${comboProducts.length}개${
-        comboPriceLabel ? `, 최저 ${comboPriceLabel}부터` : ""
-      } 최저가순으로 비교하세요.`;
+        comboPriceLabel ? `, ${comboPriceLabel}부터` : ""
+      } 가격 낮은 순으로 비교하세요.`;
       const description =
         distinctiveTags.length > 0 ? `${baseDesc} ${distinctiveTags.join(", ")} 등 인기 옵션도 함께 확인할 수 있어요.` : baseDesc;
 
       routes.push({
         path: `/destination/${regionSlugValue}/${categorySlugValue}`,
         title: comboPriceLabel
-          ? `${regionName} ${categoryName} 최저 ${comboPriceLabel}부터 | TourStream`
+          ? `${regionName} ${categoryName} ${comboPriceLabel}부터 | TourStream`
           : `${regionName} ${categoryName} 가격비교 | TourStream`,
         description,
         ogType: "website",

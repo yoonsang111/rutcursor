@@ -1,7 +1,14 @@
 name: Deploy
+# 실행 이름에 배포하는 커밋을 넣어 TOURSTREAM OFFICE가 자기가 요청한 실행을 정확히 찾게 한다
+run-name: Deploy ${{ inputs.sha || github.sha }}
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: '배포할 커밋 (비우면 main 최신). OFFICE는 대표가 승인한 커밋을 넣는다'
+        required: false
+        type: string
   # 매일 00:30 KST(15:30 UTC) - 가격/평점 배치가 끝난 직후 메인 사이트만 다시 빌드해서
   # 정적 셸의 가격·JSON-LD가 실제 가격과 하루 이상 벌어지지 않게 한다.
   schedule:
@@ -19,6 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 승인한 커밋이 있으면 그 커밋만 배포 (그사이 main이 바뀌어도 다른 코드가 나가지 않게)
+          ref: ${{ inputs.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -49,6 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 승인한 커밋이 있으면 그 커밋만 배포 (그사이 main이 바뀌어도 다른 코드가 나가지 않게)
+          ref: ${{ inputs.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -76,6 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 승인한 커밋이 있으면 그 커밋만 배포 (그사이 main이 바뀌어도 다른 코드가 나가지 않게)
+          ref: ${{ inputs.sha || github.sha }}
 
       - name: Set up SSH key
         run: |

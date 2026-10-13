@@ -1,9 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { migrateProductsFromLocalStorage } from '../utils/migrateFromLocalStorage';
 import { Product } from '@tourstream/shared';
 import { storage } from '../utils/storage';
+
+const PAGE_SIZE = 20;
+const AUTO_REFRESH_MS = 60000;
+const FOCUS_REFRESH_MIN_GAP_MS = 5000;
+
+type SortKey = 'default' | 'views-desc' | 'views-asc' | 'name-asc' | 'id-desc';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
@@ -11,12 +17,49 @@ export default function ProductListPage() {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isMigrating, setIsMigrating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'recommended'>('all');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('default');
+  const [page, setPage] = useState(1);
   
   // 로컬스토리지에 상품이 있는지 확인
   const localProducts = storage.getProducts();
   const hasLocalProducts = localProducts.length > 0;
 
-  const filteredProducts = searchKeyword ? searchProducts(searchKeyword) : products;
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(products.flatMap((p) => p.categories))).sort(),
+    [products]
+  );
+  const locationOptions = useMemo(
+    () => Array.from(new Set(products.flatMap((p) => p.locations))).sort(),
+    [products]
+  );
+
+  const filteredProducts = useMemo(() => {
+    let list = searchKeyword ? searchProducts(searchKeyword) : products;
+    if (statusFilter === 'active') list = list.filter((p) => p.isAvailable);
+    if (statusFilter === 'inactive') list = list.filter((p) => !p.isAvailable);
+    if (statusFilter === 'recommended') list = list.filter((p) => p.isRecommended);
+    if (categoryFilter) list = list.filter((p) => p.categories.includes(categoryFilter));
+    if (locationFilter) list = list.filter((p) => p.locations.includes(locationFilter));
+    if (sortKey === 'default') return list;
+    const sorted = [...list];
+    if (sortKey === 'views-desc') sorted.sort((a, b) => (b.views || 0) - (a.views || 0));
+    if (sortKey === 'views-asc') sorted.sort((a, b) => (a.views || 0) - (b.views || 0));
+    if (sortKey === 'name-asc') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    if (sortKey === 'id-desc') sorted.sort((a, b) => String(b.id).localeCompare(String(a.id), undefined, { numeric: true }));
+    return sorted;
+  }, [products, searchProducts, searchKeyword, statusFilter, categoryFilter, locationFilter, sortKey]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedProducts = filteredProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // 조건이 바뀌면 첫 페이지로
+  useEffect(() => {
+    setPage(1);
+  }, [searchKeyword, statusFilter, categoryFilter, locationFilter, sortKey]);
 
   const handleDeactivate = async (product: Product) => {
     if (!window.confirm(`'${product.name}' 상품을 비활성으로 바꿀까요?\n(삭제되지 않고 사이트에서만 숨겨져요.)`)) return;
@@ -87,12 +130,21 @@ export default function ProductListPage() {
     };
     initialRefresh();
 
+    // 화면이 보일 때만 60초마다 새로고침 (숨겨진 탭에서는 쉼)
     const interval = setInterval(() => {
-      refreshProducts();
-    }, 15000);
+      if (document.visibilityState === 'visible') {
+        refreshProducts();
+      }
+    }, AUTO_REFRESH_MS);
 
+    // 창 포커스 시 새로고침 (5초 이내 중복 방지)
+    let lastFocusRefresh = Date.now();
     const onFocus = () => {
-      refreshProducts();
+      const now = Date.now();
+      if (now - lastFocusRefresh >= FOCUS_REFRESH_MIN_GAP_MS) {
+        lastFocusRefresh = now;
+        refreshProducts();
+      }
     };
     window.addEventListener('focus', onFocus);
 
@@ -134,7 +186,7 @@ export default function ProductListPage() {
       </div>
 
       {/* 검색 */}
-      <div className="mb-6">
+      <div className="mb-6 flex flex-col gap-3">
         <input
           type="text"
           value={searchKeyword}
@@ -142,6 +194,53 @@ export default function ProductListPage() {
           placeholder="상품명, 설명, 태그로 검색..."
           className="w-full max-w-full md:max-w-xl 2xl:max-w-2xl px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
+        <div className="flex flex-wrap gap-2 text-sm">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            aria-label="상태 거르기"
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+          >
+            <option value="all">상태: 전체</option>
+            <option value="active">활성</option>
+            <option value="inactive">비활성</option>
+            <option value="recommended">추천</option>
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="카테고리 거르기"
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+          >
+            <option value="">카테고리: 전체</option>
+            {categoryOptions.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+            aria-label="지역 거르기"
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+          >
+            <option value="">지역: 전체</option>
+            {locationOptions.map((l) => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label="정렬"
+            className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
+          >
+            <option value="default">정렬: 기본</option>
+            <option value="views-desc">조회수 높은 순</option>
+            <option value="views-asc">조회수 낮은 순</option>
+            <option value="name-asc">이름 순</option>
+            <option value="id-desc">상품번호 최신 순</option>
+          </select>
+        </div>
       </div>
 
       {/* 상품 목록 */}
@@ -174,7 +273,7 @@ export default function ProductListPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredProducts.map((product) => (
+              {pagedProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50">
                   <td className="px-4 py-4 align-top">
                     <div className="text-sm font-bold text-blue-600">{product.id}</div>
@@ -246,14 +345,36 @@ export default function ProductListPage() {
           </table>
         ) : (
           <div className="text-center py-12">
-            <p className="text-gray-500">등록된 상품이 없습니다.</p>
+            <p className="text-gray-500">
+              {products.length > 0 ? '조건에 맞는 상품이 없습니다.' : '등록된 상품이 없습니다.'}
+            </p>
           </div>
         )}
       </div>
 
       {filteredProducts.length > 0 && (
         <div className="mt-4 text-xs text-gray-600">
-          총 {filteredProducts.length}개의 상품
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              총 {filteredProducts.length}개의 상품 ({currentPage}/{totalPages} 페이지, 한 번에 {PAGE_SIZE}개)
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="rounded-md border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                이전
+              </button>
+              <button
+                onClick={() => setPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                className="rounded-md border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                다음
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -345,14 +345,14 @@ function inferPartners(raw: RawProduct, fallbackUrl: string) {
         name: (link.partner || "").trim() || "파트너",
         url,
         price: price !== null && price > 0 ? price : undefined,
-        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim() : undefined,
+        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터") : undefined,
       };
     })
     .filter((p) => p.url !== "");
 
   if (partners.length === 0) return [{ name: "공식 링크", url: fallbackUrl }];
 
-  // 가격 정보가 있는 파트너끼리는 실제 최저가 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
+  // 가격 정보가 있는 파트너끼리는 실제 가격 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
   const priced = partners.filter((p) => p.price !== undefined).sort((a, b) => a.price! - b.price!);
   const unpriced = partners.filter((p) => p.price === undefined);
   return [...priced, ...unpriced];
