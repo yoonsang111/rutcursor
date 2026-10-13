@@ -1,6 +1,18 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+// 저장하지 않은 입력이 있는 화면이 로그아웃 전에 확인을 받을 수 있게 하는 표시
+let hasUnsavedChanges = false;
+
+export const useUnsavedChangesGuard = (dirty: boolean) => {
+  useEffect(() => {
+    hasUnsavedChanges = dirty;
+    return () => {
+      hasUnsavedChanges = false;
+    };
+  }, [dirty]);
+};
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -14,6 +26,9 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const isActive = (path: string) => location.pathname === path;
 
   const handleLogout = () => {
+    if (hasUnsavedChanges && !window.confirm('저장하지 않은 내용이 있어요. 나갈까요?')) {
+      return;
+    }
     logout();
     navigate('/login');
   };

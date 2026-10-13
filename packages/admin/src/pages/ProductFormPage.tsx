@@ -5,6 +5,7 @@ import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
 import { Product, PartnerLink } from '@tourstream/shared';
 import { api } from '../utils/api';
+import { useUnsavedChangesGuard } from '../components/AdminLayout';
 
 const KNOWN_PARTNER_NAMES = ['마이리얼트립', 'KLOOK', 'KKday', '와그', 'GetYourGuide', '트립닷컴', '쿠팡'];
 
@@ -92,6 +93,9 @@ export default function ProductFormPage() {
   });
 
   const [tagInput, setTagInput] = useState('');
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
+  useUnsavedChangesGuard(JSON.stringify(formData) !== savedSnapshot || tagInput.trim() !== '');
+
   const [categorySearch, setCategorySearch] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
   const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
@@ -100,7 +104,9 @@ export default function ProductFormPage() {
 
   useEffect(() => {
     if (product) {
-      setFormData(buildFormStateFromProduct(product));
+      const next = buildFormStateFromProduct(product);
+      setFormData(next);
+      setSavedSnapshot(JSON.stringify(next));
     }
   }, [product, id]);
 
@@ -112,7 +118,9 @@ export default function ProductFormPage() {
       try {
         const p = (await api.getProduct(id)) as Product;
         if (!cancelled && p) {
-          setFormData(buildFormStateFromProduct(p));
+          const next = buildFormStateFromProduct(p);
+          setFormData(next);
+          setSavedSnapshot(JSON.stringify(next));
         }
       } catch {
         // 컨텍스트 동기화 후에도 없으면 사용자가 저장 시도 시 서버 메시지로 안내
