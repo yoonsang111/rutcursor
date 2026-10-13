@@ -92,10 +92,10 @@ export default function ProductFormPage() {
     partnerLinks: [emptyPartnerLink()] as PartnerLink[],
   });
 
-  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
-  useUnsavedChangesGuard(JSON.stringify(formData) !== savedSnapshot);
-
   const [tagInput, setTagInput] = useState('');
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
+  useUnsavedChangesGuard(JSON.stringify(formData) !== savedSnapshot || tagInput.trim() !== '');
+
   const [categorySearch, setCategorySearch] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
   const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
