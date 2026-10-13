@@ -2,7 +2,7 @@ import React from 'react';
 import { useProducts } from '../context/ProductContext';
 
 export default function DashboardPage() {
-  const { products, productsSource } = useProducts();
+  const { products } = useProducts();
 
   const activeCount = products.filter((p) => p.isAvailable).length;
   const inactiveCount = products.length - activeCount;
@@ -17,10 +17,6 @@ export default function DashboardPage() {
     { label: '링크 없는 상품', value: noLinkCount, tone: 'bg-red-100 text-red-600' },
   ];
 
-  const isLoading = productsSource === 'loading';
-  const isUnavailable = productsSource === 'unavailable';
-  const isStale = productsSource === 'cache';
-
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-6">대시보드</h1>
@@ -31,16 +27,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">{card.label}</p>
-                {isLoading ? (
-                  <p className="text-xl font-bold text-gray-400">불러오는 중</p>
-                ) : isUnavailable ? (
-                  <p className="text-xl font-bold text-red-600">서버에서 못 가져왔어요</p>
-                ) : (
-                  <p className="text-3xl font-bold text-gray-900">{card.value.toLocaleString()}개</p>
-                )}
-                {isStale && (
-                  <p className="text-xs text-amber-600 mt-1">서버에서 못 가져와서 저장해 둔 옛 목록이에요</p>
-                )}
+                <p className="text-3xl font-bold text-gray-900">{card.value.toLocaleString()}개</p>
               </div>
               <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${card.tone}`}>
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

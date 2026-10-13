@@ -24,12 +24,8 @@ const cleanProduct = (product: Product): Product => ({
 
 const mapAndCleanProducts = (products: Product[]) => products.map(cleanProduct);
 
-// loading: 불러오는 중 / server: 서버에서 받음 / cache: 서버 실패 → 저장해 둔 옛 목록 / unavailable: 서버 실패 + 저장된 목록 없음
-export type ProductsSource = 'loading' | 'server' | 'cache' | 'unavailable';
-
 interface ProductContextType {
   products: Product[];
-  productsSource: ProductsSource;
   refreshProducts: () => Promise<void>;
   addProduct: (product: Omit<Product, 'id' | 'views'>) => Promise<void>;
   updateProduct: (id: string, product: Partial<Product>) => Promise<void>;
@@ -42,14 +38,12 @@ const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
 export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>([]);
-  const [productsSource, setProductsSource] = useState<ProductsSource>('loading');
 
   const refreshProducts = useCallback(async () => {
     try {
       const apiProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(apiProducts);
       setProducts(cleanedProducts);
-      setProductsSource('server');
       storage.saveProducts(cleanedProducts);
     } catch (error) {
       console.error('[ProductContext] refreshProducts 실패:', error);
@@ -148,16 +142,12 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
           setProducts(cleanedLoadedProducts);
           storage.saveProducts(cleanedLoadedProducts);
         }
-        setProductsSource('server');
       } catch (error) {
         console.error('[ProductContext] API 오류, 로컬스토리지 사용:', error);
         // API 실패 시 로컬스토리지 사용 (폴백)
         const savedProducts = storage.getProducts() as Product[];
         if (savedProducts.length > 0) {
           setProducts(mapAndCleanProducts(savedProducts));
-          setProductsSource('cache');
-        } else {
-          setProductsSource('unavailable');
         }
       }
     };
@@ -257,7 +247,6 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
   return (
     <ProductContext.Provider value={{
       products,
-      productsSource,
       refreshProducts,
       addProduct,
       updateProduct,
