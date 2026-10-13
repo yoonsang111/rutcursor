@@ -176,7 +176,6 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // 등록/수정/삭제 뒤 목록 재조회. 실패하면 화면 목록이 서버와 다를 수 있으니 '옛 목록'으로 표시
   const syncProductsAfterChange = async () => {
-    setProductsSource('loading');
     try {
       const updatedProducts = await api.getProducts();
       const cleanedProducts = mapAndCleanProducts(updatedProducts);
