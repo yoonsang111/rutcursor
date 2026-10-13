@@ -208,7 +208,11 @@ export default function ProductFormPage() {
         return;
       }
       guardPushedRef.current = false;
-      window.history.back();
+      // 보호용 기록 바로 아래(같은 폼 화면)에 도착했을 때만 한 칸 더 뒤로 간다.
+      // 여러 칸 뒤로 이동해 이미 다른 화면에 도착했다면 사용자가 고른 위치에 그대로 둔다.
+      const landed = window.history.state as { idx?: number } | null;
+      const alreadyPast = guardIdxRef.current !== null && typeof landed?.idx === 'number' && landed.idx < guardIdxRef.current - 1;
+      if (!alreadyPast) window.history.back();
     };
     // 캡처 단계에서 받아야 라우터보다 먼저 취소를 처리할 수 있다.
     window.addEventListener('popstate', onPopState, true);
