@@ -157,13 +157,21 @@ export default function ProductFormPage() {
     const fakeIdx = realIdx === null ? null : realIdx + 1;
     // 이 효과는 등록 화면에 있을 때만 시작되므로 지금 주소가 등록 화면 주소다.
     const formHref = window.location.href;
-    const fakeState = () => (fakeIdx === null ? null : { ...(window.history.state ?? {}), idx: fakeIdx });
+    // idx는 문서마다 다시 시작할 수 있어 복귀 거리 계산이 틀릴 수 있다. 가짜 기록에 표식을 달아 도착 후 확인한다.
+    const guardToken = `product-form-guard-${Date.now()}-${Math.random()}`;
+    const fakeState = () =>
+      fakeIdx === null ? { guard: guardToken } : { ...(window.history.state ?? {}), idx: fakeIdx, guard: guardToken };
+    const isOnFakeEntry = () => window.history.state?.guard === guardToken;
+    let ignoreTimer: number | undefined;
     const onPopState = (e: PopStateEvent) => {
       if (leaving) return;
       if (ignoreNext) {
         // 이동을 취소하려고 우리가 되돌린 이동 — 라우터에 전달하지 않는다.
         ignoreNext = false;
+        window.clearTimeout(ignoreTimer);
         e.stopImmediatePropagation();
+        // 계산이 어긋나 엉뚱한 기록에 도착했으면 등록 화면 주소로 새 기록을 쌓아 화면과 주소를 맞춘다.
+        if (!isOnFakeEntry()) window.history.pushState(fakeState(), '', formHref);
         return;
       }
       const newIdx = idxOf(window.history.state);
@@ -179,6 +187,11 @@ export default function ProductFormPage() {
         e.stopImmediatePropagation();
         if (movedFar && fakeIdx !== null && newIdx !== null) {
           ignoreNext = true;
+          // 이동이 일어나지 않아 popstate가 오지 않을 때를 대비해 표시를 풀어 준다.
+          ignoreTimer = window.setTimeout(() => {
+            ignoreNext = false;
+            if (!isOnFakeEntry()) window.history.pushState(fakeState(), '', formHref);
+          }, 1000);
           window.history.go(fakeIdx - newIdx);
         } else {
           // 기록 번호가 없는 이전 기록에 도착한 경우 얼마나 멀리 왔는지 알 수 없으니,
@@ -194,6 +207,7 @@ export default function ProductFormPage() {
     document.addEventListener('click', onClick, true);
     window.addEventListener('popstate', onPopState, true);
     return () => {
+      window.clearTimeout(ignoreTimer);
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('popstate', onPopState, true);
     };
