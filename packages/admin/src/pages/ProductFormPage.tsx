@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
@@ -13,6 +13,8 @@ const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }]
 
 // KLOOK/KKday는 검색 API는 없지만, URL에 고정 파라미터만 붙이면 트래킹 링크가 되어서
 // 서버가 상품 저장 시 파트너명을 보고 자동으로 변환해줌 (어드민에서 따로 버튼 누를 필요 없음).
+
+const LEAVE_MESSAGE = '저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?';
 
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
 
@@ -139,45 +141,59 @@ export default function ProductFormPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
 
-  // BrowserRouter에서는 useBlocker를 쓸 수 없어서, 앱 안의 링크 클릭과 브라우저 뒤로가기를 직접 막고 확인한다.
+  // BrowserRouter에서는 useBlocker를 쓸 수 없어서, 앱 안의 링크·로그아웃 클릭과 브라우저 뒤로가기를 직접 막고 확인한다.
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  // 뒤로가기 확인용으로 쌓아 둔 기록은 항상 최대 한 칸만 유지한다.
+  const guardPushedRef = useRef(false);
+
   useEffect(() => {
     if (!isDirty) return;
-    const message = '저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?';
+    const message = LEAVE_MESSAGE;
     const onClickCapture = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-      if (!anchor || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      const target = e.target as Element | null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (anchor) {
+        if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+        const url = new URL(anchor.href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      } else {
+        // 헤더의 로그아웃 버튼도 폼을 떠나게 하므로 같이 확인한다.
+        const button = target?.closest?.('header button');
+        if (!button || button.textContent?.trim() !== '로그아웃') return;
+      }
       if (!window.confirm(message)) {
         e.preventDefault();
         e.stopPropagation();
       }
     };
-    // 뒤로가기: 같은 주소의 기록을 하나 더 쌓아 두고, 뒤로가기가 눌리면 확인한다.
-    window.history.pushState({ productFormGuard: true }, '', window.location.href);
-    let guardActive = true;
-    const onPopState = () => {
-      if (!guardActive) return;
-      if (window.confirm(message)) {
-        guardActive = false;
-        window.history.back();
-      } else {
-        window.history.pushState({ productFormGuard: true }, '', window.location.href);
-      }
-    };
+    if (!guardPushedRef.current) {
+      window.history.pushState({ productFormGuard: true }, '', window.location.href);
+      guardPushedRef.current = true;
+    }
     document.addEventListener('click', onClickCapture, true);
-    window.addEventListener('popstate', onPopState);
-    return () => {
-      document.removeEventListener('click', onClickCapture, true);
-      window.removeEventListener('popstate', onPopState);
-    };
+    return () => document.removeEventListener('click', onClickCapture, true);
   }, [isDirty]);
 
+  useEffect(() => {
+    const onPopState = () => {
+      if (!guardPushedRef.current) return;
+      if (isDirtyRef.current && !window.confirm(LEAVE_MESSAGE)) {
+        window.history.pushState({ productFormGuard: true }, '', window.location.href);
+        return;
+      }
+      guardPushedRef.current = false;
+      window.history.back();
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   const handleCancel = () => {
-    if (isDirty && !window.confirm('저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?')) return;
-    navigate('/products', { replace: isDirty });
+    if (isDirty && !window.confirm(LEAVE_MESSAGE)) return;
+    navigate('/products', { replace: guardPushedRef.current });
   };
 
   // 목록 로드 전에 상세 URL로 진입한 경우 등: 컨텍스트에 없으면 API에서 직접 로드
@@ -276,7 +292,7 @@ export default function ProductFormPage() {
       }
       setBaseline(currentSnapshot);
       // 이탈 방지용으로 쌓아 둔 기록 한 칸을 덮어써서 뒤로가기 기록이 어지러워지지 않게 한다.
-      navigate('/products', { replace: isDirty });
+      navigate('/products', { replace: guardPushedRef.current });
     } catch (error: any) {
       console.error('상품 저장 실패:', error);
       const message = typeof error?.message === 'string' && error.message.trim()
