@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
@@ -103,6 +103,13 @@ export default function ProductFormPage() {
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
   const isDirty = JSON.stringify(formData) !== savedSnapshot;
 
+  // BrowserRouter는 history.state.idx에 항목 순서를 저장한다. 여러 칸 이동했는지 알아내는 데 쓴다.
+  const idxOf = (state: unknown) => {
+    const idx = (state as { idx?: unknown } | null)?.idx;
+    return typeof idx === 'number' ? idx : null;
+  };
+  const realIdxRef = useRef<number | null>(idxOf(window.history.state));
+
   const clearError = (key: string) =>
     setErrors((prev) => {
       if (!prev[key]) return prev;
@@ -137,12 +144,11 @@ export default function ProductFormPage() {
     };
     let leaving = false;
     let ignoreNext = false;
-    // BrowserRouter는 history.state.idx에 항목 순서를 저장한다. 여러 칸 이동했는지 알아내는 데 쓴다.
-    const idxOf = (state: unknown) => {
-      const idx = (state as { idx?: unknown } | null)?.idx;
-      return typeof idx === 'number' ? idx : null;
-    };
-    const startIdx = idxOf(window.history.state);
+    // 등록 화면의 실제 기록 번호는 처음 열릴 때 한 번만 기억한다(원복·재변경으로 이 효과가 다시 돌아도 유지).
+    // 가짜 기록은 번호를 realIdx + 1 로 달아서, 어느 칸으로 이동했는지 항상 계산할 수 있다.
+    const realIdx = realIdxRef.current;
+    const fakeIdx = realIdx === null ? null : realIdx + 1;
+    const fakeState = () => (fakeIdx === null ? null : { ...(window.history.state ?? {}), idx: fakeIdx });
     const onPopState = (e: PopStateEvent) => {
       if (leaving) return;
       if (ignoreNext) {
@@ -152,7 +158,8 @@ export default function ProductFormPage() {
         return;
       }
       const newIdx = idxOf(window.history.state);
-      const movedFar = startIdx !== null && newIdx !== null && newIdx !== startIdx;
+      const movedFar =
+        fakeIdx !== null && newIdx !== null && newIdx !== fakeIdx && newIdx !== realIdx;
       if (window.confirm(message)) {
         leaving = true;
         window.removeEventListener('popstate', onPopState, true);
@@ -161,15 +168,18 @@ export default function ProductFormPage() {
       } else {
         // 라우터가 먼저 이동하지 못하게 막고, 가짜 항목 위치로 돌아온다.
         e.stopImmediatePropagation();
-        if (movedFar) {
+        if (movedFar && fakeIdx !== null && newIdx !== null) {
           ignoreNext = true;
-          window.history.go(startIdx + 1 - newIdx);
+          window.history.go(fakeIdx - newIdx);
         } else {
-          window.history.pushState(null, '', window.location.href);
+          window.history.pushState(fakeState(), '', window.location.href);
         }
       }
     };
-    window.history.pushState(null, '', window.location.href);
+    // 이미 가짜 기록 위에 있으면 또 쌓지 않는다.
+    if (fakeIdx === null || idxOf(window.history.state) !== fakeIdx) {
+      window.history.pushState(fakeState(), '', window.location.href);
+    }
     document.addEventListener('click', onClick, true);
     window.addEventListener('popstate', onPopState, true);
     return () => {
