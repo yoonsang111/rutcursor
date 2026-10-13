@@ -104,7 +104,8 @@ export default function ProductFormPage() {
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
   const isDirty = JSON.stringify(formData) !== savedSnapshot;
   // 로그아웃 버튼이 저장 안 한 변경(추가 안 한 태그 입력 포함)을 직접 확인하도록 알려 준다.
-  useUnsavedChangesGuard(isDirty || tagInput.trim() !== '');
+  const hasUnsaved = isDirty || tagInput.trim() !== '';
+  useUnsavedChangesGuard(hasUnsaved);
 
   // BrowserRouter는 history.state.idx에 항목 순서를 저장한다. 여러 칸 이동했는지 알아내는 데 쓴다.
   const idxOf = (state: unknown) => {
@@ -121,18 +122,18 @@ export default function ProductFormPage() {
     });
 
   useEffect(() => {
-    if (!isDirty) return;
+    if (!hasUnsaved) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [isDirty]);
+  }, [hasUnsaved]);
 
   // 사이드바 링크·브라우저 뒤로 가기 같은 앱 내부 이동도 확인한다 (BrowserRouter라 useBlocker 불가).
   useEffect(() => {
-    if (!isDirty) return;
+    if (!hasUnsaved) return;
     const message = '저장하지 않은 변경 내용이 있어요. 나가시겠어요?';
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0) return;
@@ -192,10 +193,10 @@ export default function ProductFormPage() {
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('popstate', onPopState, true);
     };
-  }, [isDirty]);
+  }, [hasUnsaved]);
 
   const handleCancel = () => {
-    if (isDirty && !window.confirm('저장하지 않은 변경 내용이 있어요. 나가시겠어요?')) return;
+    if (hasUnsaved && !window.confirm('저장하지 않은 변경 내용이 있어요. 나가시겠어요?')) return;
     navigate('/products');
   };
 
@@ -1062,7 +1063,7 @@ export default function ProductFormPage() {
 
         {/* 버튼 */}
         <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center gap-3 rounded-b-lg border-t border-gray-200 bg-white/95 px-6 py-3 backdrop-blur z-10">
-          {isDirty && <span className="text-xs text-orange-600 whitespace-nowrap">저장 안 된 변경이 있어요</span>}
+          {hasUnsaved && <span className="text-xs text-orange-600 whitespace-nowrap">저장 안 된 변경이 있어요</span>}
           <button
             type="submit"
             disabled={isSaving}
