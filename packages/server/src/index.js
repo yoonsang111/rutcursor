@@ -886,31 +886,38 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
     ...req.body
   });
 
-  // 기다린 뒤 최신 목록을 다시 읽어 그 위에 반영 (그사이 늘어난 조회수·다른 상품 변경을 덮어쓰지 않게)
+  // 기다린 뒤 최신 목록을 다시 읽고, 이 요청이 실제로 보낸 칸만 최신 상품에 반영한다
+  // (동시에 다른 칸을 고친 요청·늘어난 조회수를 예전 전체 상품으로 덮어쓰지 않게. 같은 칸을 동시에 고치면 나중 요청이 남음)
   const latest = readProducts();
   const latestIndex = findProductIndex(latest, req.params.id);
   if (latestIndex === -1) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
+  const current = latest[latestIndex];
+  const next = { ...current };
+  for (const key of Object.keys(req.body || {})) {
+    if (key === 'id' || key === 'views') continue;
+    if (key in normalizedPayload) next[key] = normalizedPayload[key];
+    else delete next[key]; // 정리에서 지운 값(숫자로 못 바꾼 가격 등)은 저장하지 않음
+  }
 
-  // 비활성 → 활성으로 바꿀 때 손님에게 보여도 되는지 점검 (사진·가격·판매 링크가 실제로 쓸 수 있는 값인지)
-  if (latest[latestIndex].isAvailable === false && normalizedPayload.isAvailable) {
-    const isHttpUrl = (u) => /^https?:\/\/[^\s]+$/i.test(String(u || ''));
+  // 비활성 → 활성으로 바꿀 때 손님에게 보여도 되는지 점검 (최종 저장될 상품 기준. 주소는 실제로 읽어서 https·사이트 이름 확인)
+  if (current.isAvailable === false && next.isAvailable !== false) {
+    const okUrl = (u, protocols, allowLocal = false) => {
+      try {
+        const url = new URL(String(u || ''));
+        return protocols.includes(url.protocol) && (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(url.hostname) || (allowLocal && url.hostname === 'localhost'));
+      } catch { return false; }
+    };
     const isPrice = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
     const missing = [];
-    if (!(normalizedPayload.images || []).some(isHttpUrl)) missing.push('사진');
-    if (!isPrice(normalizedPayload.price) && !isPrice(normalizedPayload.minPrice)) missing.push('가격');
-    if (!(normalizedPayload.partnerLinks || []).some((l) => /^https:\/\/[^\s]+$/i.test(String(l?.url || '')))) missing.push('판매 링크(https)');
+    if (!(next.images || []).some((img) => okUrl(img, ['https:', 'http:'], true))) missing.push('사진'); // 로컬 서버가 만든 사진 주소(localhost)도 인정
+    if (!isPrice(next.price) && !isPrice(next.minPrice)) missing.push('가격');
+    if (!(next.partnerLinks || []).some((l) => okUrl(l?.url, ['https:']))) missing.push('판매 링크(https)');
     if (missing.length) return res.status(400).json({ error: `활성화 전에 채워 주세요: ${missing.join(', ')}` });
   }
 
-  latest[latestIndex] = {
-    ...latest[latestIndex],
-    ...normalizedPayload,
-    views: latest[latestIndex].views, // 조회수는 저장된 최신 값 유지
-    id: req.params.id, // ID는 변경 불가
-  };
-
+  latest[latestIndex] = { ...next, id: req.params.id }; // ID는 변경 불가
   writeProducts(latest);
   res.json(latest[latestIndex]);
 });

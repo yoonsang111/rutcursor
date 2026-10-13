@@ -68,7 +68,7 @@ test('같은 요청 번호로 두 번 등록하면 상품은 하나 (두 번째�
 test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하고 빠진 것을 알려 줌 / 다 있으면 활성화', async () => {
   const s = await startServer();
   try {
-    for (const body of [{ isAvailable: true, images: ['https://x/b.jpg'], price: 'not-a-price' }, { isAvailable: true, images: ['https://x/b.jpg'], price: -5 }, { isAvailable: true, images: ['https://x/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'javascript:alert(1)', source: 'manual' }] }, { isAvailable: true, images: ['photo'], price: 1000 }]) {
+    for (const body of [{ isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 'not-a-price' }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: -5 }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'javascript:alert(1)', source: 'manual' }] }, { isAvailable: true, images: ['photo'], price: 1000 }, { isAvailable: true, images: ['https://?'], price: 1000 }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'https://?', source: 'manual' }] }]) {
       const r = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify(body) });
       assert.equal(r.status, 400, `잘못된 값으로 활성화 거절: ${JSON.stringify(body)}`);
     }
@@ -77,7 +77,7 @@ test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하
     const bad = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) });
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, /사진.*가격/);
-    const good = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true, images: ['https://x/b.jpg'], price: 2000 }) });
+    const good = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 2000 }) });
     assert.equal(good.status, 200);
     assert.equal((await good.json()).isAvailable, true);
     const edit = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '이름만 수정' }) });
@@ -101,5 +101,18 @@ test('동시 등록: 서로 다른 요청은 모두 보존, 같은 요청 번호
     const one = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1');
     assert.equal(one.name, '수정');
     assert.equal(one.views, 1, '조회수 1 유지');
+  } finally { s.stop(); }
+});
+
+test('동시 수정: 서로 다른 칸을 동시에 고치면 둘 다 남음', async () => {
+  const s = await startServer();
+  try {
+    const put = body => fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify(body) });
+    const rs = await Promise.all([put({ name: '새 이름' }), put({ price: 2000 })]);
+    assert.deepEqual(rs.map(r => r.status), [200, 200]);
+    const p2 = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '2');
+    assert.equal(p2.name, '새 이름');
+    assert.equal(p2.price, 2000);
+    assert.equal(p2.isAvailable, false, '보내지 않은 칸(비활성)은 그대로');
   } finally { s.stop(); }
 });
