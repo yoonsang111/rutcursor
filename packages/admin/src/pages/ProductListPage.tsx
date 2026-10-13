@@ -19,11 +19,12 @@ export default function ProductListPage() {
 
   // 삭제 대신 비활성화/활성화. 데이터는 그대로 두고 사이트 노출만 바꾼다.
   const handleToggleAvailable = async (id: string, isAvailable: boolean) => {
+    const target = products.find((p) => p.id === id);
     if (isAvailable && !window.confirm('이 상품을 비활성화할까요? 사이트에는 보이지 않지만 데이터는 남아 있어요.')) {
       return;
     }
     try {
-      await updateProduct(id, { isAvailable: !isAvailable });
+      await updateProduct(id, { isAvailable: !isAvailable, images: target?.images });
     } catch (error) {
       console.error('상품 상태 변경 실패:', error);
       alert('상품 상태를 바꾸지 못했습니다. 다시 시도해주세요.');

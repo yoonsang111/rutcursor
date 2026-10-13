@@ -120,6 +120,41 @@ export default function ProductFormPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
 
+  // 사이드바 링크·브라우저 뒤로 가기 같은 앱 내부 이동도 확인한다 (BrowserRouter라 useBlocker 불가).
+  useEffect(() => {
+    if (!isDirty) return;
+    const message = '저장하지 않은 변경 내용이 있어요. 나가시겠어요?';
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+      if (anchor.origin !== window.location.origin) return;
+      if (anchor.pathname === window.location.pathname && anchor.search === window.location.search) return;
+      if (!window.confirm(message)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    let leaving = false;
+    const onPopState = () => {
+      if (leaving) return;
+      if (window.confirm(message)) {
+        leaving = true;
+        window.removeEventListener('popstate', onPopState);
+        window.history.back();
+      } else {
+        window.history.pushState(null, '', window.location.href);
+      }
+    };
+    window.history.pushState(null, '', window.location.href);
+    document.addEventListener('click', onClick, true);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      document.removeEventListener('click', onClick, true);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [isDirty]);
+
   const handleCancel = () => {
     if (isDirty && !window.confirm('저장하지 않은 변경 내용이 있어요. 나가시겠어요?')) return;
     navigate('/products');
@@ -166,7 +201,18 @@ export default function ProductFormPage() {
     const partnerLinks = formData.partnerLinks
       .map((link) => ({ ...link, partner: link.partner.trim(), url: link.url.trim() }))
       .filter((link) => link.url !== '');
+    const isHttpUrl = (value: string) => {
+      try {
+        const u = new URL(value);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    };
     if (partnerLinks.length === 0) nextErrors.partnerLinks = '예약 URL을 최소 1개 이상 입력해주세요.';
+    else if (partnerLinks.some((link) => !isHttpUrl(link.url))) {
+      nextErrors.partnerLinks = '예약 URL은 http:// 또는 https://로 시작하는 올바른 주소여야 해요.';
+    }
 
     setErrors(nextErrors);
     const firstKey = Object.keys(nextErrors)[0];
