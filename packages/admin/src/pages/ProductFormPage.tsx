@@ -97,10 +97,39 @@ export default function ProductFormPage() {
   const [expandedMainCategories, setExpandedMainCategories] = useState<Set<string>>(new Set());
   const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
   const [partnerSearch, setPartnerSearch] = useState<PartnerSearchState | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  // 마지막으로 불러오거나 저장한 상태. 현재 입력과 다르면 "저장 안 된 변경"으로 본다.
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
+  const isDirty = JSON.stringify(formData) !== savedSnapshot;
+
+  const clearError = (key: string) =>
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const { [key]: _removed, ...rest } = prev;
+      return rest;
+    });
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
+
+  const handleCancel = () => {
+    if (isDirty && !window.confirm('저장하지 않은 변경 내용이 있어요. 나가시겠어요?')) return;
+    navigate('/products');
+  };
 
   useEffect(() => {
     if (product) {
-      setFormData(buildFormStateFromProduct(product));
+      const next = buildFormStateFromProduct(product);
+      setFormData(next);
+      setSavedSnapshot(JSON.stringify(next));
     }
   }, [product, id]);
 
@@ -112,7 +141,9 @@ export default function ProductFormPage() {
       try {
         const p = (await api.getProduct(id)) as Product;
         if (!cancelled && p) {
-          setFormData(buildFormStateFromProduct(p));
+          const next = buildFormStateFromProduct(p);
+          setFormData(next);
+          setSavedSnapshot(JSON.stringify(next));
         }
       } catch {
         // 컨텍스트 동기화 후에도 없으면 사용자가 저장 시도 시 서버 메시지로 안내
@@ -126,21 +157,21 @@ export default function ProductFormPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.categories.length === 0) {
-      alert('카테고리를 최소 1개 이상 선택해주세요.');
-      return;
-    }
-
-    if (formData.locations.length === 0) {
-      alert('지역을 최소 1개 이상 선택해주세요.');
-      return;
-    }
+    const nextErrors: Record<string, string> = {};
+    if (!formData.name.trim()) nextErrors.name = '상품명을 입력해주세요.';
+    if (!formData.description.trim()) nextErrors.description = '설명을 입력해주세요.';
+    if (formData.categories.length === 0) nextErrors.categories = '카테고리를 최소 1개 이상 선택해주세요.';
+    if (formData.locations.length === 0) nextErrors.locations = '지역을 최소 1개 이상 선택해주세요.';
 
     const partnerLinks = formData.partnerLinks
       .map((link) => ({ ...link, partner: link.partner.trim(), url: link.url.trim() }))
       .filter((link) => link.url !== '');
-    if (partnerLinks.length === 0) {
-      alert('예약 URL을 최소 1개 이상 입력해주세요.');
+    if (partnerLinks.length === 0) nextErrors.partnerLinks = '예약 URL을 최소 1개 이상 입력해주세요.';
+
+    setErrors(nextErrors);
+    const firstKey = Object.keys(nextErrors)[0];
+    if (firstKey) {
+      document.getElementById(`field-${firstKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
@@ -159,12 +190,14 @@ export default function ProductFormPage() {
       partnerLinks,
     };
 
+    setIsSaving(true);
     try {
       if (isEdit && id) {
         await updateProduct(id, productData);
       } else {
         await addProduct(productData);
       }
+      setSavedSnapshot(JSON.stringify(formData));
       navigate('/products');
     } catch (error: any) {
       console.error('상품 저장 실패:', error);
@@ -172,6 +205,8 @@ export default function ProductFormPage() {
         ? error.message
         : '상품 저장에 실패했습니다. 다시 시도해주세요.';
       alert(message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -195,6 +230,7 @@ export default function ProductFormPage() {
   };
 
   const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price', value: string) => {
+    clearError('partnerLinks');
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
       if (field === 'price') {
@@ -267,6 +303,7 @@ export default function ProductFormPage() {
   };
 
   const toggleCategory = (category: string) => {
+    clearError('categories');
     if (formData.categories.includes(category)) {
       setFormData({ ...formData, categories: formData.categories.filter(c => c !== category) });
     } else {
@@ -275,6 +312,7 @@ export default function ProductFormPage() {
   };
 
   const toggleLocation = (location: string) => {
+    clearError('locations');
     if (formData.locations.includes(location)) {
       setFormData({ ...formData, locations: formData.locations.filter(l => l !== location) });
     } else {
@@ -334,33 +372,35 @@ export default function ProductFormPage() {
         {isEdit ? '상품 수정' : '상품 등록'}
       </h1>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
+      <form noValidate onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
         {/* 상품명 */}
-        <div>
+        <div id="field-name">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             상품명 *
           </label>
           <input
             type="text"
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+            onChange={(e) => { setFormData({ ...formData, name: e.target.value }); clearError('name'); }}
+            className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+            aria-invalid={!!errors.name}
           />
+          {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
         </div>
 
         {/* 설명 */}
-        <div>
+        <div id="field-description">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             설명 *
           </label>
           <textarea
             value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            onChange={(e) => { setFormData({ ...formData, description: e.target.value }); clearError('description'); }}
             rows={4}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+            className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.description ? 'border-red-500' : 'border-gray-300'}`}
+            aria-invalid={!!errors.description}
           />
+          {errors.description && <p className="mt-1 text-xs text-red-600">{errors.description}</p>}
         </div>
 
         {/* 가격/평점 */}
@@ -492,7 +532,7 @@ export default function ProductFormPage() {
         </div>
 
         {/* 카테고리 - 검색 + 아코디언 */}
-        <div>
+        <div id="field-categories">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             카테고리
           </label>
@@ -596,10 +636,11 @@ export default function ProductFormPage() {
               </div>
             </div>
           )}
+          {errors.categories && <p className="mt-2 text-xs text-red-600">{errors.categories}</p>}
         </div>
 
         {/* 지역 - 검색 + 아코디언 */}
-        <div>
+        <div id="field-locations">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             지역
           </label>
@@ -703,6 +744,7 @@ export default function ProductFormPage() {
               </div>
             </div>
           )}
+          {errors.locations && <p className="mt-2 text-xs text-red-600">{errors.locations}</p>}
         </div>
 
         {/* 태그 */}
@@ -747,8 +789,9 @@ export default function ProductFormPage() {
         </div>
 
         {/* 예약 URL (파트너 링크) */}
-        <div className="space-y-3">
+        <div id="field-partnerLinks" className="space-y-3">
           <label className="block text-xs font-medium text-gray-700">예약 URL</label>
+          {errors.partnerLinks && <p className="text-xs text-red-600">{errors.partnerLinks}</p>}
           <datalist id="known-partner-names">
             {KNOWN_PARTNER_NAMES.map((name) => (
               <option key={name} value={name} />
@@ -917,16 +960,18 @@ export default function ProductFormPage() {
         </div>
 
         {/* 버튼 */}
-        <div className="flex gap-3 pt-4">
+        <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center gap-3 rounded-b-lg border-t border-gray-200 bg-white/95 px-6 py-3 backdrop-blur z-10">
+          {isDirty && <span className="text-xs text-orange-600 whitespace-nowrap">저장 안 된 변경이 있어요</span>}
           <button
             type="submit"
-            className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium"
+            disabled={isSaving}
+            className="flex-1 disabled:opacity-60 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium"
           >
-            {isEdit ? '수정하기' : '등록하기'}
+            {isSaving ? '저장 중...' : isEdit ? '수정하기' : '등록하기'}
           </button>
           <button
             type="button"
-            onClick={() => navigate('/products')}
+            onClick={handleCancel}
             className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
           >
             취소

@@ -6,7 +6,7 @@ import { storage } from '../utils/storage';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
-  const { products, deleteProduct, searchProducts, refreshProducts } = useProducts();
+  const { products, updateProduct, searchProducts, refreshProducts } = useProducts();
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isMigrating, setIsMigrating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -17,14 +17,16 @@ export default function ProductListPage() {
 
   const filteredProducts = searchKeyword ? searchProducts(searchKeyword) : products;
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('정말 삭제하시겠습니까?')) {
-      try {
-        await deleteProduct(id);
-      } catch (error) {
-        console.error('상품 삭제 실패:', error);
-        alert('상품 삭제에 실패했습니다. 다시 시도해주세요.');
-      }
+  // 삭제 대신 비활성화/활성화. 데이터는 그대로 두고 사이트 노출만 바꾼다.
+  const handleToggleAvailable = async (id: string, isAvailable: boolean) => {
+    if (isAvailable && !window.confirm('이 상품을 비활성화할까요? 사이트에는 보이지 않지만 데이터는 남아 있어요.')) {
+      return;
+    }
+    try {
+      await updateProduct(id, { isAvailable: !isAvailable });
+    } catch (error) {
+      console.error('상품 상태 변경 실패:', error);
+      alert('상품 상태를 바꾸지 못했습니다. 다시 시도해주세요.');
     }
   };
 
@@ -212,10 +214,12 @@ export default function ProductListPage() {
                         수정
                       </button>
                       <button
-                        onClick={() => handleDelete(product.id)}
-                        className="rounded-md border border-red-200 px-2.5 py-1 text-red-600 hover:bg-red-50"
+                        onClick={() => handleToggleAvailable(product.id, product.isAvailable)}
+                        className={product.isAvailable
+                          ? 'rounded-md border border-gray-300 px-2.5 py-1 text-gray-700 hover:bg-gray-50'
+                          : 'rounded-md border border-green-200 px-2.5 py-1 text-green-700 hover:bg-green-50'}
                       >
-                        삭제
+                        {product.isAvailable ? '비활성화' : '활성화'}
                       </button>
                     </div>
                   </td>
