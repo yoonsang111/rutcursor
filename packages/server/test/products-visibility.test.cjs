@@ -27,7 +27,9 @@ const admin = { 'x-admin-key': KEY, 'Content-Type': 'application/json' };
 test('비활성 상품: 공개 목록·상세·조회수·통계에서 빠지고, 관리자 키·로그인 쿠키로는 보임', async () => {
   const s = await startServer();
   try {
-    const pub = await (await fetch(`${s.base}/products`)).json();
+    const pubRes = await fetch(`${s.base}/products`);
+    assert.equal(pubRes.headers.get('x-tourstream-products-api'), '2', '사무실이 새 기능을 알아보는 표시');
+    const pub = await pubRes.json();
     assert.deepEqual(pub.map(p => p.id), ['1']);
     assert.equal((await fetch(`${s.base}/products/2`)).status, 404);
     assert.equal((await fetch(`${s.base}/products/2/view`, { method: 'POST' })).status, 404);
@@ -66,6 +68,12 @@ test('같은 요청 번호로 두 번 등록하면 상품은 하나 (두 번째�
 test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하고 빠진 것을 알려 줌 / 다 있으면 활성화', async () => {
   const s = await startServer();
   try {
+    for (const body of [{ isAvailable: true, images: ['https://x/b.jpg'], price: 'not-a-price' }, { isAvailable: true, images: ['https://x/b.jpg'], price: -5 }, { isAvailable: true, images: ['https://x/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'javascript:alert(1)', source: 'manual' }] }, { isAvailable: true, images: ['photo'], price: 1000 }]) {
+      const r = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify(body) });
+      assert.equal(r.status, 400, `잘못된 값으로 활성화 거절: ${JSON.stringify(body)}`);
+    }
+    const stillHidden = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '2');
+    assert.equal(stillHidden.isAvailable, false, '거절되면 비활성 그대로');
     const bad = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) });
     assert.equal(bad.status, 400);
     assert.match((await bad.json()).error, /사진.*가격/);
@@ -74,5 +82,24 @@ test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하
     assert.equal((await good.json()).isAvailable, true);
     const edit = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '이름만 수정' }) });
     assert.equal(edit.status, 200, '이미 활성인 상품 수정은 점검 대상 아님');
+  } finally { s.stop(); }
+});
+
+test('동시 등록: 서로 다른 요청은 모두 보존, 같은 요청 번호는 하나만 생성 / 수정과 조회수 증가가 겹쳐도 조회수 유지', async () => {
+  const s = await startServer();
+  try {
+    const post = body => fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ isAvailable: false, partnerLinks: [], ...body }) });
+    const rs = await Promise.all([post({ name: '동시 A', clientRequestId: 'a' }), post({ name: '동시 B', clientRequestId: 'b' }), post({ name: '같은 요청', clientRequestId: 'same' }), post({ name: '같은 요청', clientRequestId: 'same' })]);
+    assert.deepEqual(rs.map(r => r.status).slice(0, 2), [201, 201]);
+    assert.deepEqual(rs.slice(2).map(r => r.status).sort(), [200, 201]);
+    const stored = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8'));
+    assert.equal(stored.filter(p => p.name.startsWith('동시')).length, 2);
+    assert.equal(stored.filter(p => p.name === '같은 요청').length, 1);
+    assert.equal(new Set(stored.map(p => p.id)).size, stored.length, '상품 번호 중복 없음');
+    const [put] = await Promise.all([fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '수정' }) }), fetch(`${s.base}/products/1/view`, { method: 'POST' })]);
+    assert.equal(put.status, 200);
+    const one = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1');
+    assert.equal(one.name, '수정');
+    assert.equal(one.views, 1, '조회수 1 유지');
   } finally { s.stop(); }
 });

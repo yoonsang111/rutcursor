@@ -553,11 +553,11 @@ const normalizeProductPayload = async (payload = {}) => {
   const rating = toNumberOrUndefined(payload.rating, { min: 0, max: 5 });
   const reviewCount = toNumberOrUndefined(payload.reviewCount, { min: 0 });
 
-  if (price !== undefined) normalized.price = price;
-  if (minPrice !== undefined) normalized.minPrice = minPrice;
-  if (salePrice !== undefined) normalized.salePrice = salePrice;
-  if (rating !== undefined) normalized.rating = rating;
-  if (reviewCount !== undefined) normalized.reviewCount = reviewCount;
+  // 숫자로 바꿀 수 없는 값('not-a-price', 빈 칸 등)은 원래 글자 그대로 남기지 않고 지운다 (가격이 있는 것처럼 보이지 않게)
+  for (const [key, value] of Object.entries({ price, minPrice, salePrice, rating, reviewCount })) {
+    if (value !== undefined) normalized[key] = value;
+    else delete normalized[key];
+  }
 
   normalized.partnerLinks = await normalizePartnerLinks(payload.partnerLinks);
 
@@ -720,6 +720,8 @@ const deriveLocationsFromProducts = (products = []) => {
 
 // 상품 목록 조회
 app.get('/api/products', (req, res) => {
+  // 상품 API 기능 버전: 2 = 비활성 숨김 + 등록 요청 번호(clientRequestId) 중복 방지 지원. TOURSTREAM OFFICE가 이 값을 보고 요청 번호를 보냄
+  res.set('X-Tourstream-Products-Api', '2');
   // 비활성 상품은 관리자 요청에만 포함 (공개 목록으로 비활성 상품이 새지 않게)
   const products = visibleTo(req, readProducts());
   const viewEvents = trimExpiredViewEvents(readViewEvents());
@@ -837,9 +839,13 @@ app.get('/api/metrics/views', (req, res) => {
 
 // 상품 등록
 app.post('/api/products', requireAdminKey, async (req, res) => {
+  const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim().slice(0, 80) : '';
+  const normalizedPayload = await normalizeProductPayload(req.body);
+
+  // 기다리는 작업(정리)이 끝난 뒤에 읽고, 기다림 없이 바로 저장한다.
+  // 서버는 프로세스 1개(PM2 fork 1개)라 이 구간에 다른 요청이 끼어들지 못한다 → 동시 등록이 서로 덮어쓰지 않음
   const products = readProducts();
   // 같은 요청 번호로 다시 오면 새로 만들지 않고 처음 만든 상품을 돌려줌 (응답이 끊겨 다시 보내도 두 번 생기지 않게)
-  const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim().slice(0, 80) : '';
   if (clientRequestId) {
     const existing = products.find((p) => p.clientRequestId === clientRequestId);
     if (existing) return res.status(200).json(existing);
@@ -849,8 +855,6 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
   // 다음 상품 번호 생성
   counter++;
   const productId = counter.toString();
-
-  const normalizedPayload = await normalizeProductPayload(req.body);
   
   const { clientRequestId: _ignored, ...payloadRest } = normalizedPayload;
   const newProduct = {
@@ -882,23 +886,33 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
     ...req.body
   });
 
-  // 비활성 → 활성으로 바꿀 때 손님에게 보여도 되는지 점검 (사진·가격·판매 링크)
-  if (products[index].isAvailable === false && normalizedPayload.isAvailable) {
+  // 기다린 뒤 최신 목록을 다시 읽어 그 위에 반영 (그사이 늘어난 조회수·다른 상품 변경을 덮어쓰지 않게)
+  const latest = readProducts();
+  const latestIndex = findProductIndex(latest, req.params.id);
+  if (latestIndex === -1) {
+    return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+  }
+
+  // 비활성 → 활성으로 바꿀 때 손님에게 보여도 되는지 점검 (사진·가격·판매 링크가 실제로 쓸 수 있는 값인지)
+  if (latest[latestIndex].isAvailable === false && normalizedPayload.isAvailable) {
+    const isHttpUrl = (u) => /^https?:\/\/[^\s]+$/i.test(String(u || ''));
+    const isPrice = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
     const missing = [];
-    if (!(normalizedPayload.images || []).length) missing.push('사진');
-    if (normalizedPayload.price === undefined && normalizedPayload.minPrice === undefined) missing.push('가격');
-    if (!(normalizedPayload.partnerLinks || []).length) missing.push('판매 링크');
+    if (!(normalizedPayload.images || []).some(isHttpUrl)) missing.push('사진');
+    if (!isPrice(normalizedPayload.price) && !isPrice(normalizedPayload.minPrice)) missing.push('가격');
+    if (!(normalizedPayload.partnerLinks || []).some((l) => /^https:\/\/[^\s]+$/i.test(String(l?.url || '')))) missing.push('판매 링크(https)');
     if (missing.length) return res.status(400).json({ error: `활성화 전에 채워 주세요: ${missing.join(', ')}` });
   }
-  
-  products[index] = {
-    ...products[index],
+
+  latest[latestIndex] = {
+    ...latest[latestIndex],
     ...normalizedPayload,
+    views: latest[latestIndex].views, // 조회수는 저장된 최신 값 유지
     id: req.params.id, // ID는 변경 불가
   };
-  
-  writeProducts(products);
-  res.json(products[index]);
+
+  writeProducts(latest);
+  res.json(latest[latestIndex]);
 });
 
 // 상품 삭제

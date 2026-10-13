@@ -20,6 +20,11 @@ on:
   schedule:
     - cron: '30 15 * * *'
 
+# 배포는 한 번에 하나씩 (예약·수동이 겹쳐 오래된 버전이 나중에 덮어쓰지 않게). 진행 중인 배포는 끊지 않음
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 env:
   EC2_HOST: 43.201.66.181
   EC2_USER: ubuntu
@@ -42,9 +47,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy.yml --event workflow_dispatch --status success --limit 1 --json displayTitle,headSha --jq '.[0] | (.displayTitle | capture("(?<s>[0-9a-f]{40})").s) // .headSha')
-          if ! echo "$title" | grep -Eq '^[0-9a-f]{40}$'; then echo "마지막 수동 배포 커밋을 찾지 못해 예약 배포를 건너뜀"; exit 1; fi
-          echo "sha=$title" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # 최근 수동 배포부터 보면서 '메인 사이트' 작업이 성공한 첫 실행의 커밋을 고른다
+          # (전체는 실패했어도 메인은 성공한 배포 = 지금 메인 사이트에 올라가 있는 승인된 코드)
+          sha=""
+          for id in $(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy.yml --event workflow_dispatch --status completed --limit 30 --json databaseId --jq '.[].databaseId'); do
+            main=$(gh run view "$id" -R "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.name | startswith("Deploy main site")) | .conclusion] | first // ""')
+            if [ "$main" = "success" ]; then
+              sha=$(gh run view "$id" -R "$GITHUB_REPOSITORY" --json displayTitle,headSha --jq '(.displayTitle | capture("(?<s>[0-9a-f]{40})").s) // .headSha')
+              break
+            fi
+          done
+          if ! echo "$sha" | grep -Eq '^[0-9a-f]{40}$'; then echo "메인 사이트가 성공한 수동 배포를 찾지 못해 예약 배포를 건너뜀"; exit 1; fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
