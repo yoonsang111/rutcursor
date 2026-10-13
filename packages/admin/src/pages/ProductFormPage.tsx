@@ -139,9 +139,45 @@ export default function ProductFormPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
 
+  // BrowserRouter에서는 useBlocker를 쓸 수 없어서, 앱 안의 링크 클릭과 브라우저 뒤로가기를 직접 막고 확인한다.
+  useEffect(() => {
+    if (!isDirty) return;
+    const message = '저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?';
+    const onClickCapture = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor || (anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (!window.confirm(message)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    // 뒤로가기: 같은 주소의 기록을 하나 더 쌓아 두고, 뒤로가기가 눌리면 확인한다.
+    window.history.pushState({ productFormGuard: true }, '', window.location.href);
+    let guardActive = true;
+    const onPopState = () => {
+      if (!guardActive) return;
+      if (window.confirm(message)) {
+        guardActive = false;
+        window.history.back();
+      } else {
+        window.history.pushState({ productFormGuard: true }, '', window.location.href);
+      }
+    };
+    document.addEventListener('click', onClickCapture, true);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      document.removeEventListener('click', onClickCapture, true);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [isDirty]);
+
   const handleCancel = () => {
     if (isDirty && !window.confirm('저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?')) return;
-    navigate('/products');
+    navigate('/products', { replace: isDirty });
   };
 
   // 목록 로드 전에 상세 URL로 진입한 경우 등: 컨텍스트에 없으면 API에서 직접 로드
@@ -177,8 +213,41 @@ export default function ProductFormPage() {
     if (formData.locations.length === 0) nextErrors.locations = '지역을 최소 1개 이상 선택해주세요.';
     if (partnerLinks.length === 0) nextErrors.partnerLinks = '예약 URL을 최소 1개 이상 입력해주세요.';
 
+    const checkNumber = (key: string, raw: string, label: string, opts: { max?: number; integer?: boolean }) => {
+      const t = raw.trim();
+      if (!t) return;
+      const n = Number(t);
+      if (!Number.isFinite(n) || n < 0 || (opts.max !== undefined && n > opts.max)) {
+        nextErrors[key] = opts.max !== undefined ? `${label}은(는) 0~${opts.max} 사이 숫자로 입력해주세요.` : `${label}은(는) 0 이상 숫자로 입력해주세요.`;
+      } else if (opts.integer && !Number.isInteger(n)) {
+        nextErrors[key] = `${label}은(는) 소수점 없는 정수로 입력해주세요.`;
+      } else if (!opts.integer && Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) {
+        nextErrors[key] = `${label}은(는) 소수점 한 자리까지만 입력할 수 있어요.`;
+      }
+    };
+    checkNumber('price', formData.price, '대표 가격', { integer: true });
+    checkNumber('rating', formData.rating, '평점', { max: 5 });
+    checkNumber('reviewCount', formData.reviewCount, '리뷰 수', { integer: true });
+    formData.partnerLinks.forEach((link, i) => {
+      const u = link.url.trim();
+      if (u) {
+        let ok = false;
+        try {
+          const parsed = new URL(u);
+          ok = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          ok = false;
+        }
+        if (!ok) nextErrors[`partnerUrl-${i}`] = 'http:// 또는 https://로 시작하는 올바른 주소를 입력해주세요.';
+      }
+      if (link.price !== undefined && (link.price < 0 || !Number.isInteger(link.price))) {
+        nextErrors[`partnerPrice-${i}`] = '가격은 0 이상 정수로 입력해주세요.';
+      }
+    });
+
     setErrors(nextErrors);
-    const firstErrorKey = ['name', 'description', 'categories', 'locations', 'partnerLinks'].find((k) => nextErrors[k]);
+    const firstErrorKey = ['name', 'description', 'categories', 'locations', 'partnerLinks', 'price', 'rating', 'reviewCount'].find((k) => nextErrors[k])
+      ?? Object.keys(nextErrors).find((k) => k.startsWith('partnerUrl-') || k.startsWith('partnerPrice-'));
     if (firstErrorKey) {
       document.getElementById(`field-${firstErrorKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -206,7 +275,8 @@ export default function ProductFormPage() {
         await addProduct(productData);
       }
       setBaseline(currentSnapshot);
-      navigate('/products');
+      // 이탈 방지용으로 쌓아 둔 기록 한 칸을 덮어써서 뒤로가기 기록이 어지러워지지 않게 한다.
+      navigate('/products', { replace: isDirty });
     } catch (error: any) {
       console.error('상품 저장 실패:', error);
       const message = typeof error?.message === 'string' && error.message.trim()
@@ -421,6 +491,7 @@ export default function ProductFormPage() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="예: 55000"
             />
+            {errors.price && <p id="field-price" className="mt-1 text-xs text-red-600">{errors.price}</p>}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2">
@@ -436,6 +507,7 @@ export default function ProductFormPage() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="예: 4.8"
             />
+            {errors.rating && <p id="field-rating" className="mt-1 text-xs text-red-600">{errors.rating}</p>}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-2">
@@ -450,6 +522,7 @@ export default function ProductFormPage() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="예: 186"
             />
+            {errors.reviewCount && <p id="field-reviewCount" className="mt-1 text-xs text-red-600">{errors.reviewCount}</p>}
             <p className="mt-1 text-[11px] text-gray-400">평점을 입력하려면 리뷰 수도 함께 입력해야 화면에 표시돼요.</p>
           </div>
         </div>
@@ -847,6 +920,7 @@ export default function ProductFormPage() {
                         onChange={(e) => updatePartnerLink(index, 'url', e.target.value)}
                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="예약 URL"
+                        aria-invalid={!!errors[`partnerUrl-${index}`]}
                       />
                       <button
                         type="button"
@@ -865,6 +939,8 @@ export default function ProductFormPage() {
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                       placeholder="가격(원, 선택) - 알고 있으면 입력"
                     />
+                    {errors[`partnerUrl-${index}`] && <p id={`field-partnerUrl-${index}`} className="text-xs text-red-600">{errors[`partnerUrl-${index}`]}</p>}
+                    {errors[`partnerPrice-${index}`] && <p id={`field-partnerPrice-${index}`} className="text-xs text-red-600">{errors[`partnerPrice-${index}`]}</p>}
                     <div className="flex gap-2 flex-wrap">
                       {PARTNER_API_OPTIONS.map((option) => (
                         <button
