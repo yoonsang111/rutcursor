@@ -77,3 +77,23 @@ test('호환: 손님 상세 조회수는 그대로 셈, 봇 조회는 안 셈, �
     assert.deepEqual((await (await fetch(`${s.base}/products`)).json()).map(p => p.id), ['2'], '숨기면 바로 공개 목록에서 빠짐');
   } finally { s.stop(); }
 });
+
+test('복구 기간 호환: 새 버전 데이터의 초안·숨김은 활성으로 바뀌어도 손님에게 안 보임 / 손님 응답에 내부 칸 없음 / 관리자는 전부', async () => {
+  const s = await startServer();
+  const file = path.join(s.dir, 'products.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.push({ id: '3', name: '새 버전 초안', isAvailable: true, publishStatus: 'draft', images: [], partnerLinks: [], views: 0 });
+  data.push({ id: '4', name: '새 버전 숨김', isAvailable: true, publishStatus: 'hidden', images: [], partnerLinks: [], views: 0 });
+  Object.assign(data[0], { publishStatus: 'published', publishMigration: { rule: '활성 → 공개' }, clientRequestId: 'req-1', visibilitySync: { state: 'done' } });
+  fs.writeFileSync(file, JSON.stringify(data));
+  try {
+    const pub = await (await fetch(`${s.base}/products`)).json();
+    assert.deepEqual(pub.map(p => p.id), ['1']);
+    for (const id of ['3', '4']) assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, id);
+    const text = JSON.stringify(pub) + JSON.stringify(await (await fetch(`${s.base}/products/1`)).json());
+    for (const k of ['publishStatus', 'publishMigration', 'clientRequestId', 'visibilitySync']) assert.ok(!text.includes(k), k);
+    const all = await (await fetch(`${s.base}/products`, { headers: admin })).json();
+    assert.equal(all.length, 4);
+    assert.equal(all.find(p => p.id === '1').publishStatus, 'published', '관리자는 내부 칸도 봄');
+  } finally { s.stop(); }
+});

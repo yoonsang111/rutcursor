@@ -133,6 +133,12 @@ const sessionCookieOptions = {
 // 조회 요청이 관리자(어드민 로그인 쿠키 또는 관리자 키)인지. 비활성 상품은 관리자에게만 보여 준다.
 const isAdminRequest = (req) =>
   isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER));
+// 손님에게 보이는 상품: 활성이고, (새 버전이 쓴 데이터라면) 공개 상태가 '공개'인 것만.
+// 새 버전에서 이 버전으로 되돌린 기간에 예전 어드민이 초안·숨김을 '활성'으로 바꿔도 손님에게 나가지 않게
+const isGuestVisible = (p) => p.isAvailable !== false && (!p.publishStatus || p.publishStatus === 'published');
+// 손님 응답에서 빼는 내부 칸 (새 버전이 쓴 데이터의 관리용 기록)
+const INTERNAL_FIELDS = ['clientRequestId', 'publishStatus', 'publishMigration', 'visibilitySync', 'approvals', 'internalNote'];
+const withoutInternal = (p) => Object.fromEntries(Object.entries(p).filter(([key]) => !INTERNAL_FIELDS.includes(key)));
 // 관리자 응답(비활성 포함)은 어디에도 저장되지 않게, 손님 응답과 섞이지 않게
 const visibleTo = (req, res, products) => {
   res.set('Vary', 'Origin, Cookie, X-Admin-Key');
@@ -141,7 +147,7 @@ const visibleTo = (req, res, products) => {
     return products;
   }
   res.set('Cache-Control', 'no-cache');
-  return products.filter((p) => p.isAvailable !== false);
+  return products.filter(isGuestVisible).map(withoutInternal);
 };
 
 const requireAdminKey = (req, res, next) => {
@@ -755,7 +761,8 @@ app.get('/api/products/:id', (req, res) => {
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   const index = findProductIndex(products, req.params.id);
-  if (index === -1 || !visibleTo(req, res, [products[index]]).length) {
+  const shown = index === -1 ? [] : visibleTo(req, res, [products[index]]);
+  if (!shown.length) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
@@ -774,7 +781,7 @@ app.get('/api/products/:id', (req, res) => {
     writeViewEvents(viewEvents);
     warnIfViewSpike(productId, viewEvents, nowMs);
   }
-  const product = products[index];
+  const product = { ...shown[0], views: products[index].views }; // 손님에게는 내부 칸을 뺀 모양
 
   // placeholder 이미지 URL 제거
   const cleanedProduct = {
@@ -796,7 +803,7 @@ app.post('/api/products/:id/view', (req, res) => {
   if (isBotUserAgent(userAgent)) {
     const products = readProducts();
     const product = products.find((p) => sameProductId(p.id, req.params.id));
-    if (!product || (product.isAvailable === false && !isAdminRequest(req))) {
+    if (!product || (!isGuestVisible(product) && !isAdminRequest(req))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
     return res.json({
@@ -812,7 +819,7 @@ app.post('/api/products/:id/view', (req, res) => {
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   const index = findProductIndex(products, req.params.id);
 
-  if (index === -1 || (products[index].isAvailable === false && !isAdminRequest(req))) {
+  if (index === -1 || (!isGuestVisible(products[index]) && !isAdminRequest(req))) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
