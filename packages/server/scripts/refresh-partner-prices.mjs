@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getPartnerIntegration, pickRepresentativePrice, detectSentinelPrices } from '../src/integrations/index.js';
+import { readJsonArray, updateProductsFile } from '../src/productStore.js';
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.cwd(), process.env.DATA_DIR)
@@ -20,10 +21,10 @@ if (!fs.existsSync(PRODUCTS_FILE)) {
   process.exit(1);
 }
 
-const products = JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8'));
-if (!Array.isArray(products)) {
-  throw new Error('products.json 형식이 배열이 아닙니다.');
-}
+// 조회용으로 한 번 읽는다. 판매처 조회에 몇 분이 걸리므로, 저장할 때는 최신 파일을 다시 읽어 바뀐 가격만 반영한다
+// (그사이 어드민에서 고친 상품을 예전 내용으로 덮어쓰지 않게)
+const products = readJsonArray(PRODUCTS_FILE);
+const priceUpdates = new Map(); // `${상품 id}::${externalId}` → { price, priceDisplay, updatedAt }
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
@@ -118,15 +119,22 @@ for (const { product, link } of targets) {
     }
   }
 
-  link.price = result.price;
-  link.priceDisplay = result.priceDisplay;
-  link.updatedAt = new Date().toISOString();
+  priceUpdates.set(`${product.id}::${link.externalId}`, { price: result.price, priceDisplay: result.priceDisplay, updatedAt: new Date().toISOString() });
   refreshed += 1;
   console.log(
     `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${displayed ? '파트너 노출가' : '옵션 역산'})`
   );
 }
 
-fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
+// 잠금 → 최신 파일 → 바뀐 가격만 반영 → 통째로 교체 (API 서버와 같은 잠금을 씀)
+await updateProductsFile(PRODUCTS_FILE, (latest) => {
+  for (const product of latest) {
+    for (const link of Array.isArray(product.partnerLinks) ? product.partnerLinks : []) {
+      const update = priceUpdates.get(`${product.id}::${link.externalId}`);
+      if (update && link.source === 'api') Object.assign(link, update);
+    }
+  }
+  return latest;
+});
 
 console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}`);

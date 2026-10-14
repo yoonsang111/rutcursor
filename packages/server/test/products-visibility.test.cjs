@@ -12,7 +12,7 @@ const KEY = 'test-admin-key-0123456789abcdef';
 async function startServer() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-server-test-'));
   fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify([
-    { id: '1', name: '공개 상품', isAvailable: true, images: ['https://x/a.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'https://p.com/1', source: 'manual' }], views: 0 },
+    { id: '1', name: '공개 상품', isAvailable: true, images: ['https://img.example.com/a.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'https://p.com/1', source: 'manual' }], views: 0 },
     { id: '2', name: '숨긴 상품', isAvailable: false, images: [], partnerLinks: [{ partner: 'P', url: 'https://p.com/2', source: 'manual' }], views: 0 },
   ]));
   fs.writeFileSync(path.join(dir, 'counter.json'), JSON.stringify({ counter: 10 }));
@@ -28,7 +28,8 @@ test('비활성 상품: 공개 목록·상세·조회수·통계에서 빠지고
   const s = await startServer();
   try {
     const pubRes = await fetch(`${s.base}/products`);
-    assert.equal(pubRes.headers.get('x-tourstream-products-api'), '2', '사무실이 새 기능을 알아보는 표시');
+    // 기능 버전 3 = 공개 상태·판매처 상태 추가 (2026-10-14 정책). 사무실은 이 표시만으로 비공개를 믿지 않음
+    assert.equal(pubRes.headers.get('x-tourstream-products-api'), '3', '사무실이 새 기능을 알아보는 표시');
     const pub = await pubRes.json();
     assert.deepEqual(pub.map(p => p.id), ['1']);
     assert.equal((await fetch(`${s.base}/products/2`)).status, 404);
@@ -68,15 +69,19 @@ test('같은 요청 번호로 두 번 등록하면 상품은 하나 (두 번째�
 test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하고 빠진 것을 알려 줌 / 다 있으면 활성화', async () => {
   const s = await startServer();
   try {
-    for (const body of [{ isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 'not-a-price' }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: -5 }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'javascript:alert(1)', source: 'manual' }] }, { isAvailable: true, images: ['photo'], price: 1000 }, { isAvailable: true, images: ['https://?'], price: 1000 }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'https://?', source: 'manual' }] }]) {
+    // 2026-10-14 정책: 공개 필수 = 정보(이름)·실제 사진·https 판매처 링크. 가격은 필수 아님(판매처에서 확인 표시) → 잘못된 가격은 '거절'이 아니라 '저장 안 함'으로 바뀜 (아래 별도 확인)
+    for (const body of [{ isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'javascript:alert(1)', source: 'manual' }] }, { isAvailable: true, images: ['photo'], price: 1000 }, { isAvailable: true, images: ['https://?'], price: 1000 }, { isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 1000, partnerLinks: [{ partner: 'P', url: 'https://?', source: 'manual' }] }]) {
       const r = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify(body) });
       assert.equal(r.status, 400, `잘못된 값으로 활성화 거절: ${JSON.stringify(body)}`);
     }
+    const badPrice = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ price: 'not-a-price' }) });
+    assert.equal(badPrice.status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1').price, undefined, '숫자로 못 바꾸는 가격은 저장하지 않음');
     const stillHidden = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '2');
     assert.equal(stillHidden.isAvailable, false, '거절되면 비활성 그대로');
     const bad = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) });
     assert.equal(bad.status, 400);
-    assert.match((await bad.json()).error, /사진.*가격/);
+    assert.match((await bad.json()).error, /사진/); // 가격은 필수에서 빠짐 (2026-10-14 정책)
     const good = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true, images: ['https://img.example.com/b.jpg'], price: 2000 }) });
     assert.equal(good.status, 200);
     assert.equal((await good.json()).isAvailable, true);

@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getPartnerIntegration } from '../src/integrations/index.js';
+import { readJsonArray, updateProductsFile } from '../src/productStore.js';
 
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.cwd(), process.env.DATA_DIR)
@@ -22,10 +23,9 @@ if (!fs.existsSync(PRODUCTS_FILE)) {
   process.exit(1);
 }
 
-const products = JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8'));
-if (!Array.isArray(products)) {
-  throw new Error('products.json 형식이 배열이 아닙니다.');
-}
+// 조회용으로 한 번 읽고, 저장할 때는 최신 파일에 바뀐 평점만 반영한다 (그사이 바뀐 상품을 덮어쓰지 않게)
+const products = readJsonArray(PRODUCTS_FILE);
+const ratingUpdates = new Map(); // 상품 id → { rating, reviewCount }
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
@@ -51,8 +51,7 @@ for (const product of products) {
       continue;
     }
 
-    product.rating = result.rating;
-    product.reviewCount = result.reviewCount;
+    ratingUpdates.set(String(product.id), { rating: result.rating, reviewCount: result.reviewCount });
     refreshed += 1;
     console.log(`[refresh-partner-ratings] ${product.id} ${product.name} - 평점: ${result.rating} (${result.reviewCount}개)`);
   } catch (error) {
@@ -61,6 +60,12 @@ for (const product of products) {
   }
 }
 
-fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
+await updateProductsFile(PRODUCTS_FILE, (latest) => {
+  for (const product of latest) {
+    const update = ratingUpdates.get(String(product.id));
+    if (update) Object.assign(product, update);
+  }
+  return latest;
+});
 
 console.log(`[refresh-partner-ratings] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 실패: ${failed}`);
