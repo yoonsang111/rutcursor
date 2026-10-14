@@ -8,6 +8,7 @@ type RawPartnerLink = {
   source?: string;
   price?: number | string;
   priceDisplay?: string;
+  availability?: { state?: string; checkedAt?: string; stale?: boolean; dates?: string[]; pax?: string[]; options?: string[] };
 };
 
 type RawProduct = {
@@ -66,7 +67,8 @@ type RawLocationsResponse = {
 };
 
 type CachedV2Data = {
-  items: Product[];
+  items: Product[]; // 일반 목록·추천에 쓰는 상품 (모든 판매처 판매 중지 상품 제외)
+  allItems: Product[]; // 상세 페이지용 (판매 중지 상품도 안내를 위해 포함)
   categories: Category[];
   countries: Country[];
   regionImageByKey: Record<string, string>;
@@ -335,32 +337,46 @@ function inferImage(raw: RawProduct): string {
   return DEFAULT_IMAGE;
 }
 
-function inferPartners(raw: RawProduct, fallbackUrl: string) {
+const PARTNER_STATES = ["available", "partial", "stopped", "unknown"] as const;
+type PartnerState = (typeof PARTNER_STATES)[number];
+
+function inferPartners(raw: RawProduct, fallbackUrl: string): Product["partnerLinks"] {
   const links = Array.isArray(raw.partnerLinks) ? raw.partnerLinks : [];
   const partners = links
     .map((link) => {
       const url = typeof link.url === "string" ? link.url.trim() : "";
       const price = toNumber(link.price);
+      const a = link.availability || {};
+      const state: PartnerState = PARTNER_STATES.includes(a.state as PartnerState) ? (a.state as PartnerState) : "unknown";
+      const soldOut = [...(a.dates || []), ...(a.pax || []), ...(a.options || [])].filter(Boolean).join(" · ");
       return {
         name: (link.partner || "").trim() || "파트너",
         url,
         price: price !== null && price > 0 ? price : undefined,
         priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터") : undefined,
+        state,
+        checkedAt: typeof a.checkedAt === "string" ? a.checkedAt : undefined,
+        stale: Boolean(a.stale),
+        soldOutNote: state === "partial" && soldOut ? soldOut : undefined,
       };
     })
-    .filter((p) => p.url !== "");
+    // 예약 주소가 있는 판매처 + 판매 중지가 확인된 판매처(버튼을 막고 '판매 중지'로 보여 줌)
+    .filter((p) => p.url !== "" || p.state === "stopped");
 
+  // 판매처 정보가 아예 없는 예전 상품만 공식 링크로 대신한다 (모두 판매 중지된 상품은 대신 링크로 보내지 않음)
   if (partners.length === 0) return [{ name: "공식 링크", url: fallbackUrl }];
 
-  // 가격 정보가 있는 파트너끼리는 실제 가격 순으로, 가격을 모르는 파트너는 뒤로 (배지 없이 "바로가기"만)
-  const priced = partners.filter((p) => p.price !== undefined).sort((a, b) => a.price! - b.price!);
-  const unpriced = partners.filter((p) => p.price === undefined);
-  return [...priced, ...unpriced];
+  // 예약할 수 있는 판매처 먼저: 가격 있는 곳은 가격 순, 가격 모르는 곳은 뒤, 판매 중지는 맨 뒤
+  const open = partners.filter((p) => p.state !== "stopped");
+  const priced = open.filter((p) => p.price !== undefined).sort((a, b) => a.price! - b.price!);
+  const unpriced = open.filter((p) => p.price === undefined);
+  return [...priced, ...unpriced, ...partners.filter((p) => p.state === "stopped")];
 }
 
 function inferPartnerMinPrice(links: RawPartnerLink[] | undefined): number | null {
   if (!Array.isArray(links)) return null;
   const prices = links
+    .filter((link) => typeof link.url === "string" && link.url.trim() !== "") // 판매 중지 판매처(주소 없음) 가격은 빼고
     .map((link) => toNumber(link.price))
     .filter((price): price is number => price !== null && price > 0);
   if (prices.length === 0) return null;
@@ -447,7 +463,7 @@ function toV2Product(
   const id = String(raw.id || `p-${Math.random().toString(36).slice(2, 9)}`);
   const locations = (Array.isArray(raw.locations) ? raw.locations : []).map((loc) => String(loc || "").trim()).filter(Boolean);
   const categories = (Array.isArray(raw.categories) ? raw.categories : []).map((cat) => String(cat || "").trim()).filter(Boolean);
-  const fallbackUrl = raw.partnerLinks?.[0]?.url || "https://tourstream.kr";
+  const fallbackUrl = raw.partnerLinks?.find((link) => link?.url)?.url || "https://tourstream.kr";
   const countryId = inferCountryId(locations, countryNameToId, regionNameToCountryId, fallbackCountryId);
   const categoryId = inferCategoryId(categories, mainNameToId, subNameToMainId, fallbackCategoryId);
   const views = Math.max(0, Number(raw.views || 0));
@@ -475,6 +491,7 @@ function toV2Product(
     tags: (Array.isArray(raw.tags) ? raw.tags : []).map((tag) => String(tag || "").trim()).filter(Boolean),
     isPopular: popularityScore >= 20 || Boolean(raw.isRecommended),
     isRecommended: Boolean(raw.isRecommended),
+    bookable: raw.bookable === "none" ? "none" : raw.bookable === "available" ? "available" : "unknown",
   };
 }
 
@@ -485,7 +502,7 @@ async function runV2ProductsFetch(): Promise<CachedV2Data> {
     api.getLocations(),
   ]);
 
-  // isAvailable(관리자의 "활성화" 토글)이 false인 상품은 공개 사이트에서 완전히 숨김
+  // 공개 API는 '공개' 상품만 보낸다 (초안·숨김은 오지 않음). 예전 서버 호환으로 isAvailable도 한 번 더 거른다
   const rawProducts =
     productsResult.status === "fulfilled" && Array.isArray(productsResult.value)
       ? (productsResult.value as RawProduct[]).filter((p) => p.isAvailable !== false)
@@ -548,18 +565,21 @@ async function runV2ProductsFetch(): Promise<CachedV2Data> {
     ),
   );
 
-  const adminProductCountByCountryId = mappedItems.reduce((acc, item) => {
+  const allItems = dedupeProducts(mappedItems);
+  // 모든 판매처의 판매 중지가 확인된 상품은 일반 목록·추천·개수에서 뺀다 (상세 주소는 안내용으로 allItems에 남김)
+  const listable = mappedItems.filter((item) => item.bookable !== "none");
+  const adminProductCountByCountryId = listable.reduce((acc, item) => {
     acc.set(item.countryId, (acc.get(item.countryId) || 0) + 1);
     return acc;
   }, new Map<string, number>());
 
-  const items = dedupeProducts(mappedItems);
+  const items = allItems.filter((item) => item.bookable !== "none");
   const countriesWithCounts = finalCountries.map((country) => ({
     ...country,
     productCount: adminProductCountByCountryId.get(country.id) || 0,
   }));
 
-  return { items, categories: finalCategories, countries: countriesWithCounts, regionImageByKey };
+  return { items, allItems, categories: finalCategories, countries: countriesWithCounts, regionImageByKey };
 }
 
 function fetchFreshV2Products(): Promise<CachedV2Data> {
@@ -576,6 +596,7 @@ function fetchFreshV2Products(): Promise<CachedV2Data> {
 
 export function useV2Products() {
   const [items, setItems] = useState<Product[]>(cachedData?.items || []);
+  const [allItems, setAllItems] = useState<Product[]>(cachedData?.allItems || []);
   const [categories, setCategories] = useState<Category[]>(cachedData?.categories || []);
   const [countries, setCountries] = useState<Country[]>(cachedData?.countries || []);
   const [regionImageByKey, setRegionImageByKey] = useState<Record<string, string>>(cachedData?.regionImageByKey || {});
@@ -589,28 +610,27 @@ export function useV2Products() {
     const nextPopularity = nextViews + nextRecent30d * 3 + nextRecent7d * 5;
     if (!nextViews) return;
 
-    setItems((prev) => {
-      const updated = prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              views: nextViews,
-              recentViews7d: nextRecent7d,
-              recentViews30d: nextRecent30d,
-              popularityScore: nextPopularity,
-              isPopular: item.isRecommended || nextPopularity >= 20,
-            }
-          : item,
-      );
-      if (cachedData) {
-        cachedData = { ...cachedData, items: updated };
-      }
-      return updated;
-    });
+    const bump = (item: Product) =>
+      item.id === id
+        ? {
+            ...item,
+            views: nextViews,
+            recentViews7d: nextRecent7d,
+            recentViews30d: nextRecent30d,
+            popularityScore: nextPopularity,
+            isPopular: item.isRecommended || nextPopularity >= 20,
+          }
+        : item;
+    setItems((prev) => prev.map(bump));
+    setAllItems((prev) => prev.map(bump));
+    if (cachedData) {
+      cachedData = { ...cachedData, items: cachedData.items.map(bump), allItems: cachedData.allItems.map(bump) };
+    }
   }, []);
 
   const applyResult = useCallback((result: CachedV2Data) => {
     setItems(result.items);
+    setAllItems(result.allItems);
     setCategories(result.categories);
     setCountries(result.countries);
     setRegionImageByKey(result.regionImageByKey);
@@ -642,6 +662,7 @@ export function useV2Products() {
       if (cachedData) {
         if (active) {
           setItems(cachedData.items);
+          setAllItems(cachedData.allItems);
           setCategories(cachedData.categories);
           setCountries(cachedData.countries);
           setRegionImageByKey(cachedData.regionImageByKey);
@@ -663,10 +684,11 @@ export function useV2Products() {
   }, [applyResult, refreshIfStale]);
 
   const byId = useMemo(() => {
+    // 상세 페이지는 판매 중지 상품도 찾아야 해서 allItems 기준 (안내용)
     const map = new Map<string, Product>();
-    items.forEach((item) => map.set(item.id, item));
+    allItems.forEach((item) => map.set(item.id, item));
     return map;
-  }, [items]);
+  }, [allItems]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();

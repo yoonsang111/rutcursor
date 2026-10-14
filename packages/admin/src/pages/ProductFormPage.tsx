@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
-import { Product, PartnerLink } from '@tourstream/shared';
+import { Product, PartnerLink, PartnerAvailability, PublishStatus } from '@tourstream/shared';
 import { api } from '../utils/api';
 import { useUnsavedChangesGuard } from '../components/AdminLayout';
 
@@ -16,6 +16,17 @@ const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }]
 // 서버가 상품 저장 시 파트너명을 보고 자동으로 변환해줌 (어드민에서 따로 버튼 누를 필요 없음).
 
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
+
+// 공개 상태 안내 (손님에게 보일지). 판매처 예약 가능 여부와는 따로 정함
+const PUBLISH_OPTIONS: Array<{ value: Exclude<PublishStatus, 'needs_classification'>; label: string; help: string }> = [
+  { value: 'draft', label: '초안', help: '작성·수집·검수 중. 관리자만 볼 수 있어요' },
+  { value: 'published', label: '공개', help: '손님에게 보여요. 이름·실제 사진·https 판매처 링크가 있어야 해요' },
+  { value: 'hidden', label: '숨김', help: '정보 오류 등으로 공개를 멈춰요. 판매처가 다시 팔아도 자동으로 공개되지 않아요' },
+];
+const AVAILABILITY_LABEL: Record<string, string> = { '': '기록 안 함', available: '예약 가능', unavailable: '예약 불가', unknown: '확인 못 함' };
+const UNAVAILABLE_REASONS: Record<string, string> = { temporary_soldout: '일시 품절', sales_stopped: '판매 중지', sales_ended: '판매 종료 (근거 필요)' };
+const UNKNOWN_REASONS: Record<string, string> = { not_checked: '아직 확인 안 함', access_failed: '접근 실패', captcha: 'CAPTCHA', price_missing: '가격 누락', other: '기타' };
+const splitList = (text: string) => text.split(',').map((v) => v.trim()).filter(Boolean);
 
 interface PartnerSearchResult {
   externalId: string;
@@ -61,6 +72,7 @@ function buildFormStateFromProduct(product: Product) {
     tags,
     isRecommended: Boolean(product.isRecommended),
     isAvailable: product.isAvailable !== false,
+    publishStatus: (product.publishStatus || (product.isAvailable === false ? 'needs_classification' : 'published')) as PublishStatus,
     partnerLinks: Array.isArray(product.partnerLinks) && product.partnerLinks.length > 0
       ? product.partnerLinks
       : [emptyPartnerLink()],
@@ -88,7 +100,8 @@ export default function ProductFormPage() {
     locations: [] as string[],
     tags: [] as string[],
     isRecommended: false,
-    isAvailable: true,
+    isAvailable: false,
+    publishStatus: 'draft' as PublishStatus, // 새 상품은 초안으로 시작 (검수 후 공개)
     partnerLinks: [emptyPartnerLink()] as PartnerLink[],
   });
 
@@ -163,7 +176,9 @@ export default function ProductFormPage() {
       locations: formData.locations,
       tags: formData.tags,
       isRecommended: formData.isRecommended,
-      isAvailable: formData.isAvailable,
+      isAvailable: formData.publishStatus === 'published',
+      // '분류 필요'는 관리자가 정하기 전까지 그대로 둔다 (서버가 받는 값은 초안·공개·숨김)
+      ...(formData.publishStatus !== 'needs_classification' ? { publishStatus: formData.publishStatus } : {}),
       partnerLinks,
     };
 
@@ -192,6 +207,22 @@ export default function ProductFormPage() {
 
   const removeTag = (tag: string) => {
     setFormData({ ...formData, tags: formData.tags.filter(t => t !== tag) });
+  };
+
+  // 판매처 예약 상태 바꾸기. 바꾸는 순간을 확인 시각으로 기록 (예전 확인을 최신처럼 보이지 않게)
+  const updateAvailability = (index: number, patch: Partial<PartnerAvailability> | null) => {
+    const partnerLinks = formData.partnerLinks.map((link, i) => {
+      if (i !== index) return link;
+      if (patch === null) {
+        const { availability, ...rest } = link;
+        return rest;
+      }
+      const prev = link.availability || { status: 'unknown' as const };
+      const next: PartnerAvailability = { ...prev, ...patch, checkedAt: new Date().toISOString() };
+      if (!next.source) next.source = '관리자 직접 확인';
+      return { ...link, availability: next };
+    });
+    setFormData({ ...formData, partnerLinks });
   };
 
   const addPartnerLink = () => {
@@ -890,6 +921,57 @@ export default function ProductFormPage() {
                     )}
                   </div>
                 )}
+                {link.url.trim() !== '' && (
+                  <div className="border-t border-gray-100 pt-2 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold text-gray-700">예약 가능 여부</span>
+                      <select
+                        aria-label="판매처 예약 가능 여부"
+                        value={link.availability?.status || ''}
+                        onChange={(e) => {
+                          const status = e.target.value as PartnerAvailability['status'] | '';
+                          if (!status) return updateAvailability(index, null);
+                          updateAvailability(index, status === 'unavailable'
+                            ? { status, reason: link.availability?.reason && UNAVAILABLE_REASONS[link.availability.reason] ? link.availability.reason : 'temporary_soldout', scope: link.availability?.scope || { whole: false, dates: [], options: [] } }
+                            : status === 'unknown' ? { status, reason: 'not_checked', scope: undefined, evidence: undefined } : { status, reason: undefined, evidence: undefined });
+                        }}
+                        className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white"
+                      >
+                        {Object.entries(AVAILABILITY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      {link.availability?.status === 'unavailable' && (
+                        <select aria-label="예약 불가 이유" value={link.availability.reason || 'temporary_soldout'} onChange={(e) => updateAvailability(index, { reason: e.target.value })} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {Object.entries(UNAVAILABLE_REASONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      )}
+                      {link.availability?.status === 'unknown' && (
+                        <select aria-label="확인 못 한 이유" value={link.availability.reason || 'not_checked'} onChange={(e) => updateAvailability(index, { reason: e.target.value })} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {Object.entries(UNKNOWN_REASONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      )}
+                      {link.availability?.checkedAt && (
+                        <span className="text-[11px] text-gray-500">{new Date(link.availability.checkedAt).toLocaleString('ko-KR')} 확인 · {link.availability.source}</span>
+                      )}
+                    </div>
+                    {link.availability?.status === 'unavailable' && (
+                      <div className="space-y-1.5 pl-1">
+                        <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                          <input type="checkbox" checked={Boolean(link.availability.scope?.whole)} onChange={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, whole: e.target.checked } })} />
+                          상품 전체가 예약 불가 (특정 날짜·옵션만 품절이면 체크하지 말고 아래에 적어 주세요)
+                        </label>
+                        {!link.availability.scope?.whole && (
+                          <div className="flex flex-wrap gap-2">
+                            <input aria-label="품절 날짜" placeholder="품절 날짜 (쉼표로: 2026-12-24, 2026-12-25)" defaultValue={(link.availability.scope?.dates || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, dates: splitList(e.target.value) } })} className="flex-1 min-w-[200px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                            <input aria-label="품절 옵션" placeholder="품절 옵션·인원 (쉼표로: 성인, 4/7)" defaultValue={(link.availability.scope?.options || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, options: splitList(e.target.value) } })} className="flex-1 min-w-[160px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                          </div>
+                        )}
+                        {link.availability.reason === 'sales_ended' && (
+                          <input aria-label="판매 종료 근거" placeholder="판매 종료 근거 (판매처 공지·안내 문구) — 없으면 '판매 중지'로" defaultValue={link.availability.evidence || ''} onBlur={(e) => updateAvailability(index, { evidence: e.target.value.trim() })} className="w-full px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -913,15 +995,29 @@ export default function ProductFormPage() {
             />
             <span className="text-xs text-gray-700">추천 상품</span>
           </label>
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={formData.isAvailable}
-              onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
-              className="mr-2"
-            />
-            <span className="text-xs text-gray-700">활성화</span>
-          </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-semibold text-gray-800 mb-1">공개 상태</legend>
+            {formData.publishStatus === 'needs_classification' && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                분류 필요: 예전 '비활성' 상품을 옮길 때 초안인지 숨김인지 근거가 없었어요. 손님에게는 보이지 않아요. 아래에서 골라 주세요.
+              </p>
+            )}
+            {PUBLISH_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="publishStatus"
+                  value={option.value}
+                  checked={formData.publishStatus === option.value}
+                  onChange={() => setFormData({ ...formData, publishStatus: option.value })}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-gray-700">
+                  <b>{option.label}</b> — {option.help}
+                </span>
+              </label>
+            ))}
+          </fieldset>
         </div>
 
         {/* 버튼 */}
