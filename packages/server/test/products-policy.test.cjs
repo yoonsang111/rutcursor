@@ -12,7 +12,7 @@ const KEY = 'test-admin-key-0123456789abcdef';
 const IMG = 'https://img.example.com/real.jpg';
 const now = Date.now();
 const iso = ms => new Date(ms).toISOString();
-const ok = (extra = {}) => ({ status: 'available', source: '판매처 페이지', checkedAt: iso(now - 3600e3), ...extra });
+const ok = (extra = {}) => ({ status: 'available', source: '판매처 페이지', checkedAt: iso(now - 3600e3), scope: { whole: true }, ...extra }); // 7차: 예약 가능도 확인 범위 필수
 const stopped = (extra = {}) => ({ status: 'unavailable', reason: 'sales_stopped', source: '판매처 페이지', checkedAt: iso(now - 3600e3), scope: { whole: true }, ...extra });
 const link = (partner, availability) => ({ partner, url: `https://${partner.toLowerCase()}.example.com/p`, source: 'manual', externalId: `ext-${partner}`, ...(availability ? { availability } : {}) });
 
@@ -32,12 +32,13 @@ function seed() {
   ];
 }
 
-async function startServer(products = seed()) {
+const OFFICE_KEY = 'test-office-key-0123456789abcdef';
+async function startServer(products = seed(), env = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-policy-'));
   fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify(products));
   fs.writeFileSync(path.join(dir, 'counter.json'), '10');
   const port = 43000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY, OFFICE_API_KEY: OFFICE_KEY, ...env }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}/api`;
   for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
   return { base, dir, file: path.join(dir, 'products.json'), stored: () => JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8')), stop: () => proc.kill() };
@@ -111,11 +112,13 @@ test('판매처 상태 입력 검사: 접근 실패·CAPTCHA·가격 누락은 �
   const s = await startServer();
   try {
     const put = availability => fetch(`${s.base}/products/1/partner-availability`, { method: 'PUT', headers: admin, body: JSON.stringify({ updates: [{ externalId: 'ext-C', availability }] }) });
-    for (const bad of [stopped({ reason: 'captcha' }), stopped({ reason: 'access_failed' }), stopped({ reason: 'price_missing' }), stopped({ reason: 'sales_ended' }), stopped({ scope: {} }), stopped({ source: '' }), stopped({ checkedAt: 'not-a-date' }), { status: 'sold?' }]) {
+    for (const bad of [{ status: 'available', source: '판매처', checkedAt: iso(now) }, stopped({ reason: 'captcha' }), stopped({ reason: 'access_failed' }), stopped({ reason: 'price_missing' }), stopped({ reason: 'sales_ended' }), stopped({ scope: {} }), stopped({ source: '' }), stopped({ checkedAt: 'not-a-date' }), { status: 'sold?' }]) {
       const r = await put(bad);
       assert.equal(r.status, 400, JSON.stringify(bad));
     }
-    assert.equal((await put({ status: 'unknown', reason: 'captcha', checkedAt: iso(now) })).status, 200, 'CAPTCHA는 확인 못 함으로');
+    assert.equal((await put({ status: 'unknown', reason: 'captcha', checkedAt: iso(now), scope: { dates: ['2026-12-24'], pax: ['성인 2명'] }, evidence: 'CAPTCHA 화면' })).status, 200, 'CAPTCHA는 확인 못 함으로');
+    const unk = s.stored().find(p => p.id === '1').partnerLinks[2].availability;
+    assert.deepEqual([unk.scope.dates, unk.scope.pax, unk.evidence], [['2026-12-24'], ['성인 2명'], 'CAPTCHA 화면'], '확인 못 함도 범위·근거 보존');
     assert.equal((await put(stopped({ reason: 'sales_ended', evidence: '판매처 공지: 2026-10-01 판매 종료' }))).status, 200, '근거 있는 판매 종료');
     assert.equal(s.stored().find(p => p.id === '1').partnerLinks[2].availability.evidence, '판매처 공지: 2026-10-01 판매 종료');
   } finally { s.stop(); }
@@ -228,4 +231,54 @@ test('잠금 주인이 죽으면(강제 종료) 남은 잠금을 치우고 계�
     assert.equal(r.status, 200);
     assert.equal(s.stored().find(p => p.id === '1').name, '잠금 복구');
   } finally { s.stop(); }
+});
+
+test('사무실 전용 키: 머리글을 빼도 초안 등록만 (공개 등록 403·수정 403·삭제 403), 조회는 초안까지 / 관리자 키는 그대로', async () => {
+  const s = await startServer();
+  try {
+    const officeOnly = { 'x-admin-key': OFFICE_KEY, 'Content-Type': 'application/json' }; // x-tourstream-actor 없음
+    const draft = { name: '사무실 초안', images: [IMG], partnerLinks: [link('A')] };
+    assert.equal((await fetch(`${s.base}/products`, { method: 'POST', headers: officeOnly, body: JSON.stringify({ ...draft, publishStatus: 'published' }) })).status, 403);
+    const created = await fetch(`${s.base}/products`, { method: 'POST', headers: officeOnly, body: JSON.stringify(draft) });
+    assert.equal(created.status, 201);
+    const id = (await created.json()).id;
+    assert.equal((await fetch(`${s.base}/products/${id}`, { method: 'PUT', headers: officeOnly, body: JSON.stringify({ publishStatus: 'published' }) })).status, 403);
+    assert.equal((await fetch(`${s.base}/products/1`, { method: 'DELETE', headers: officeOnly })).status, 403);
+    assert.equal((await fetch(`${s.base}/products/1/partner-availability`, { method: 'PUT', headers: officeOnly, body: JSON.stringify({ updates: [{ index: 0, availability: null }] }) })).status, 403);
+    assert.ok((await (await fetch(`${s.base}/products`, { headers: officeOnly })).json()).some(p => p.id === id), '사무실 키로 초안 조회 (비공개·중복 확인용)');
+    assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, '손님에게는 안 보임');
+    assert.equal((await fetch(`${s.base}/products/${id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 200, '관리자 키는 공개 가능');
+  } finally { s.stop(); }
+});
+
+test('이미 공개인 상품도 공개를 다시 요청하면 필수 검사 (placeholder만 남았으면 400)', async () => {
+  const s = await startServer();
+  try {
+    assert.equal((await fetch(`${s.base}/products/9`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 400);
+    assert.equal((await fetch(`${s.base}/products/9`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) })).status, 400);
+    assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 200, '정상 공개 상품은 그대로');
+  } finally { s.stop(); }
+});
+
+test('숨김·공개 전환 뒤 메인 사이트 다시 빌드 요청 (가짜 GitHub로 확인, 여러 변경은 한 번으로) / 확인용 상세 조회는 조회수 안 셈', async () => {
+  const http = require('http');
+  const got = [];
+  const fake = http.createServer((req, res) => { let b = ''; req.on('data', c => (b += c)); req.on('end', () => { got.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(b || '{}') }); res.writeHead(204); res.end(); }); });
+  await new Promise(r => fake.listen(0, '127.0.0.1', r));
+  const s = await startServer(seed(), { GITHUB_DISPATCH_TOKEN: 'fake-token', GITHUB_API_URL: `http://127.0.0.1:${fake.address().port}`, REBUILD_DEBOUNCE_MS: '300' });
+  try {
+    await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'hidden' }) });
+    await fetch(`${s.base}/products/7`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'hidden' }) });
+    await fetch(`${s.base}/products/5`, { method: 'PUT', headers: admin, body: JSON.stringify({ tags: ['x'] }) }); // 공개 여부 그대로 → 요청 없음
+    for (let i = 0; i < 40 && !got.length; i++) await new Promise(r => setTimeout(r, 50));
+    await new Promise(r => setTimeout(r, 400));
+    assert.equal(got.length, 1, '두 변경을 한 번으로');
+    assert.equal(got[0].url, '/repos/yoonsang111/rutcursor/actions/workflows/deploy.yml/dispatches');
+    assert.deepEqual(got[0].body, { ref: 'main', inputs: { mode: 'rebuild-main' } }, '커밋은 고르지 않음 (워크플로가 마지막 승인 배포에서 고름)');
+    assert.equal(got[0].auth, 'Bearer fake-token');
+    const before = s.stored().find(p => p.id === '6').views;
+    assert.equal((await fetch(`${s.base}/products/6?check=1`, { headers: { 'user-agent': 'Mozilla/5.0' } })).status, 200);
+    assert.equal(s.stored().find(p => p.id === '6').views, before, '확인용 조회는 조회수 그대로');
+    assert.equal((await fetch(`${s.base}/products/1?check=1`)).status, 404, '숨긴 상품 확인 → 404');
+  } finally { s.stop(); fake.close(); }
 });

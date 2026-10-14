@@ -18,7 +18,7 @@ function pick(runs) {
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env node
 const runs = require(${JSON.stringify(path.join(dir, 'runs.json'))});
 const a = process.argv.slice(2);
-if (a[1] === 'list') console.log(runs.map(r => r.id).join('\\n'));
+if (a[1] === 'list') console.log(runs.filter(r => /[0-9a-f]{40}/.test(r.title)).map(r => r.id).join('\\n')); // --jq select(displayTitle에 커밋 번호) 흉내
 else { const r = runs.find(x => String(x.id) === a[2]); console.log(a.includes('jobs') ? (r.main || '') : r.title.match(/[0-9a-f]{40}/)[0]); }
 `, { mode: 0o755 });
   const out = path.join(dir, 'out');
@@ -37,4 +37,8 @@ test('예약 배포: 메인이 실패한 최근 배포는 건너뛰고, 메인 �
   const none = pick([{ id: 3, main: 'failure', title: `Deploy ${B} req3` }]);
   assert.notEqual(none.code, 0);
   assert.equal(none.sha, null);
+});
+
+test('예약·다시 빌드: 커밋 번호 없는 다시 빌드 실행은 승인 배포로 보지 않고 건너뜀', () => {
+  assert.equal(pick([{ id: 4, main: 'success', title: 'Deploy scheduled-rebuild-of-last-approved ' }, { id: 1, main: 'success', title: `Deploy ${A} req1` }]).sha, `sha=${A}`);
 });

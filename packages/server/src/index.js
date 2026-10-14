@@ -54,12 +54,17 @@ if (!ADMIN_API_KEY) {
 }
 
 // 길이가 달라도 timingSafeEqual이 던지지 않도록 해시로 고정 길이 비교
-const isValidAdminKey = (provided) => {
-  if (!ADMIN_API_KEY || typeof provided !== 'string' || provided.length === 0) return false;
+const sameSecret = (provided, expected) => {
+  if (!expected || typeof provided !== 'string' || provided.length === 0) return false;
   const a = crypto.createHash('sha256').update(provided).digest();
-  const b = crypto.createHash('sha256').update(ADMIN_API_KEY).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
   return crypto.timingSafeEqual(a, b);
 };
+const isValidAdminKey = (provided) => sameSecret(provided, ADMIN_API_KEY);
+// TOURSTREAM OFFICE(AI 사무실) 전용 키: 같은 x-admin-key 머리글로 보내지만 서버가 '사무실'로 구분한다.
+// 사무실 키는 상품 조회(초안 포함)와 초안 등록만 할 수 있다 — 공개·숨김·수정·삭제 불가 (요청 머리글을 빼도 마찬가지)
+const OFFICE_API_KEY = process.env.OFFICE_API_KEY || '';
+const isValidOfficeKey = (provided) => Boolean(OFFICE_API_KEY) && OFFICE_API_KEY !== ADMIN_API_KEY && sameSecret(provided, OFFICE_API_KEY);
 
 // 쓰기 요청 속도 제한. 관리자 키가 43자라 현실적으로 추측은 어렵지만,
 // 시도 자체를 막아야 로그가 더러워지지 않고 같은 통로로 서버를 때리는 것도 막힌다.
@@ -133,7 +138,7 @@ const sessionCookieOptions = {
 
 // 조회 요청이 관리자(어드민 로그인 쿠키 또는 관리자 키)인지. 비활성 상품은 관리자에게만 보여 준다.
 const isAdminRequest = (req) =>
-  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER));
+  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER)) || isValidOfficeKey(req.get(ADMIN_KEY_HEADER));
 // 공개 상태가 '공개'인 상품만 손님(비로그인)에게 보인다. 초안·숨김·분류 필요는 관리자만 (publishStatusOf는 아래 상품 정책 참고)
 const visibleTo = (req, products) => (isAdminRequest(req) ? products : products.filter(isPublicProduct));
 
@@ -146,7 +151,16 @@ const requireAdminKey = (req, res, next) => {
   const ip = clientIp(req);
 
   // 브라우저는 HttpOnly 쿠키로, 배치 스크립트는 헤더로 인증한다.
-  if (isValidSessionToken(readCookie(req, SESSION_COOKIE))) return next();
+  if (isValidSessionToken(readCookie(req, SESSION_COOKIE))) { req.tsActor = 'admin'; return next(); }
+
+  // 사무실 키: 초안 등록(POST /api/products)만 허용
+  if (isValidOfficeKey(req.get(ADMIN_KEY_HEADER))) {
+    req.tsActor = 'office';
+    if (!(req.method === 'POST' && req.baseUrl + req.path === '/api/products')) {
+      return res.status(403).json({ error: 'AI 사무실 키로는 초안 등록만 할 수 있어요' });
+    }
+    return next();
+  }
 
   // 인증 실패부터 센다. 무차별 대입을 막는 게 목적이라 임계값을 낮게 둔다.
   if (!isValidAdminKey(req.get(ADMIN_KEY_HEADER))) {
@@ -158,6 +172,7 @@ const requireAdminKey = (req, res, next) => {
     return res.status(401).json({ error: '관리자 인증이 필요합니다' });
   }
 
+  req.tsActor = 'admin';
   // 인증은 통과했지만 폭주하는 경우에 대한 안전장치.
   // 일괄 등록 스크립트가 정상적으로 수백 건을 쓰므로 한도를 넉넉히 잡는다.
   if (hitLimit(`write:${ip}`, RATE_MAX_WRITES)) {
@@ -218,6 +233,42 @@ const IMAGES_DIR = path.join(DATA_DIR, 'images');
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://api.tourstream.kr').replace(/\/$/, '');
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
+
+// 공개 여부가 바뀌면(공개→숨김·초안·삭제, 또는 그 반대) 메인 사이트 정적 페이지·사이트맵을 다시 만들어 달라고 GitHub에 알림.
+// 다시 만드는 코드는 '마지막으로 승인된 배포 커밋'(deploy.yml의 예약 실행과 같은 규칙) — 승인 안 된 코드는 나가지 않음.
+// GITHUB_DISPATCH_TOKEN(이 저장소의 'Actions: 읽기·쓰기'만 있는 세분화 토큰 — 코드 쓰기 권한 없음)이 없으면 알리지 않고 다음 예약 빌드(매일 00:30)에 반영.
+// ponytail: 2분 안의 여러 변경은 한 번으로 묶음 (빌드는 3~5분 걸림)
+const DISPATCH_TOKEN = process.env.GITHUB_DISPATCH_TOKEN || '';
+const DISPATCH_REPO = process.env.GITHUB_DISPATCH_REPO || 'yoonsang111/rutcursor';
+const DISPATCH_API = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, ''); // 시험에서만 바꿈
+const REBUILD_DEBOUNCE_MS = Number(process.env.REBUILD_DEBOUNCE_MS) || 2 * 60 * 1000;
+let rebuildTimer = null;
+const rebuildReasons = [];
+const requestPublicRebuild = (reason) => {
+  if (!DISPATCH_TOKEN) {
+    console.log(`[공개 변경] ${reason} — GitHub 알림 토큰이 없어 다음 예약 빌드에 반영돼요`);
+    return;
+  }
+  rebuildReasons.push(reason);
+  if (rebuildTimer) return;
+  rebuildTimer = setTimeout(async () => {
+    const reasons = rebuildReasons.splice(0).slice(0, 20);
+    rebuildTimer = null;
+    try {
+      // workflow_dispatch(mode=rebuild-main): Actions 실행 권한만 필요. 다시 빌드할 커밋은 워크플로가 '마지막 승인 배포'에서 고름
+      const r = await fetch(`${DISPATCH_API}/repos/${DISPATCH_REPO}/actions/workflows/deploy.yml/dispatches`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${DISPATCH_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: 'main', inputs: { mode: 'rebuild-main' } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      console.log(`[공개 변경] 메인 사이트 다시 빌드 요청 ${r.status === 204 ? '성공' : `실패(${r.status})`}: ${reasons.join(', ')}`);
+    } catch (error) {
+      console.warn('[공개 변경] 메인 사이트 다시 빌드 요청 실패 — 다음 예약 빌드에 반영:', error.message);
+    }
+  }, REBUILD_DEBOUNCE_MS);
+  rebuildTimer.unref?.();
+};
 
 // 상품 파일을 쓰는 요청은 한 줄로 세운다: 이 서버 안의 요청끼리(대기열) + 가격 갱신 스크립트 같은 다른 프로세스와도(잠금 파일).
 // 응답이 끝나야 다음 요청이 상품 파일을 읽는다 → 읽기→고치기→저장이 서로 섞이지 않음
@@ -644,12 +695,16 @@ const normalizeAvailability = (raw, nowMs = Date.now()) => {
   const scopeIn = raw.scope && typeof raw.scope === 'object' ? raw.scope : {};
   const scope = { whole: scopeIn.whole === true, dates: cleanTextList(scopeIn.dates), pax: cleanTextList(scopeIn.pax), options: cleanTextList(scopeIn.options) };
   const hasScope = scope.whole || scope.dates.length || scope.pax.length || scope.options.length;
+  const evidence = String(raw.evidence || '').trim().slice(0, 500);
   const out = { status };
   if (status === 'unknown') {
+    // 확인 못 함도 어디서·언제·어떤 날짜·인원·옵션을 확인하려다 못 했는지 남김 (미입력과 확인 실패를 구분)
     if (reason && !UNKNOWN_REASONS.includes(reason)) throw productInputError('확인 못 한 이유가 올바르지 않아요');
     if (reason) out.reason = reason;
     if (source) out.source = source;
     if (Number.isFinite(checkedAtMs)) out.checkedAt = new Date(checkedAtMs).toISOString();
+    if (hasScope) out.scope = scope;
+    if (evidence) out.evidence = evidence;
     return out;
   }
   if (UNKNOWN_REASONS.includes(reason)) throw productInputError('접근 실패·CAPTCHA·가격 누락은 판매 중지가 아니에요. "확인 못 함"으로 기록해 주세요');
@@ -660,16 +715,17 @@ const normalizeAvailability = (raw, nowMs = Date.now()) => {
   if (status === 'unavailable') {
     const why = reason || 'sales_stopped';
     if (!UNAVAILABLE_REASONS.includes(why)) throw productInputError('예약 불가 이유가 올바르지 않아요');
-    if (why === 'sales_ended') {
-      const evidence = String(raw.evidence || '').trim().slice(0, 500);
-      if (!evidence) throw productInputError('판매 종료는 근거(공지·안내 문구 등)가 있을 때만 기록할 수 있어요. 근거가 없으면 "판매 중지"로 기록해 주세요');
-      out.evidence = evidence;
+    if (why === 'sales_ended' && !evidence) {
+      throw productInputError('판매 종료는 근거(공지·안내 문구 등)가 있을 때만 기록할 수 있어요. 근거가 없으면 "판매 중지"로 기록해 주세요');
     }
     // 특정 날짜·옵션 품절을 상품 전체 판매 중지로 넓히지 않도록, 범위를 꼭 적게 한다
     if (!hasScope) throw productInputError('예약 불가 범위를 적어 주세요 (상품 전체, 또는 날짜·인원·옵션)');
     out.reason = why;
   }
-  if (hasScope) out.scope = scope; // 예약 가능이면 '확인한 범위', 예약 불가면 '불가한 범위'
+  // 예약 가능도 어떤 범위를 확인했는지 꼭 (상품 전체, 또는 확인한 날짜·인원·옵션) — 특정 날짜 확인을 상품 전체 정보처럼 쓰지 않게
+  if (status === 'available' && !hasScope) throw productInputError('예약 가능을 확인한 범위를 적어 주세요 (상품 전체, 또는 확인한 날짜·인원·옵션)');
+  out.scope = scope; // 예약 가능이면 '확인한 범위', 예약 불가면 '불가한 범위'
+  if (evidence) out.evidence = evidence;
   return out;
 };
 
@@ -713,8 +769,14 @@ const requestedPublishStatus = (body, current) => {
   }
   return current || 'draft';
 };
-// 이 요청을 보낸 쪽. TOURSTREAM OFFICE는 'office'로 알려 준다
-const actorOf = (req) => (typeof req?.get === 'function' ? String(req.get('x-tourstream-actor') || '').trim().toLowerCase() : '');
+// 이 요청을 보낸 쪽 (서버가 확인한 자격 기준). 관리자 키·로그인으로 확인된 요청만 'admin'.
+// 사무실 키이거나 자격이 확인되지 않은 HTTP 요청은 가장 낮은 권한('office')으로 본다 — 머리글을 빼거나 바꿔도 공개 권한이 생기지 않음.
+// 관리자도 x-tourstream-actor: office를 보내면 스스로 사무실 권한으로 낮춤. HTTP 요청이 아닌 서버 내부 호출(시험·스크립트)은 'internal'
+const actorOf = (req) => {
+  if (typeof req?.get !== 'function') return 'internal';
+  if (req.tsActor === 'admin' && String(req.get('x-tourstream-actor') || '').trim().toLowerCase() !== 'office') return 'admin';
+  return 'office';
+};
 // TOURSTREAM OFFICE(AI 사무실)는 초안만: 공개·재공개·숨김 해제는 대표가 어드민에서
 const assertActorMayChangeStatus = (actor, from, to) => {
   if (actor !== 'office' || from === to) return;
@@ -754,6 +816,10 @@ const PUBLIC_PRODUCT_FIELDS = ['id', 'name', 'description', 'categories', 'locat
 const toPublicProduct = (product, viewMeta = {}, nowMs = Date.now()) => {
   const out = {};
   for (const key of PUBLIC_PRODUCT_FIELDS) if (product[key] !== undefined) out[key] = product[key];
+  if (product.seo && typeof product.seo === 'object') { // 검색용 칸도 정해진 것만
+    out.seo = {};
+    for (const key of ['title', 'description', 'keywords']) if (typeof product.seo[key] === 'string') out.seo[key] = product.seo[key];
+  }
   out.images = (product.images || []).filter((img) => typeof img === 'string' && img.trim() && !isPlaceholderImage(img));
   out.partnerLinks = (product.partnerLinks || [])
     .filter((link) => link && link.url)
@@ -933,7 +999,11 @@ const deriveLocationsFromProducts = (products = []) => {
 };
 
 // 상품 파일을 쓸 수 있는 요청(등록·수정·삭제·판매처 상태·상세 조회수)은 모두 상품 파일 잠금을 거친다. 목록 조회만 잠금 없이 읽음
-app.use('/api/products', (req, res, next) => (req.method === 'GET' && (req.path === '/' || req.path === '') ? next() : lockProducts(req, res, next)));
+app.use('/api/products', (req, res, next) => {
+  // 저장 처리가 '공개 여부 바뀜'을 표시하면(res.visibilityChanged) 응답이 끝난 뒤 메인 사이트 다시 빌드를 요청
+  res.once('finish', () => { if (res.visibilityChanged && res.statusCode < 400) requestPublicRebuild(res.visibilityChanged); });
+  return req.method === 'GET' && (req.path === '/' || req.path === '') ? next() : lockProducts(req, res, next);
+});
 
 // 상품 목록 조회 — 손님: 공개 상품만, 필요한 칸만 / 관리자(로그인 쿠키·관리자 키): 초안·숨김·분류 필요까지 전체
 // 판매처가 모두 중지된 공개 상품(bookable: 'none')도 상세 안내 페이지를 위해 목록에는 남기고, 메인 화면이 일반 목록에서 뺀다
@@ -976,8 +1046,8 @@ app.get('/api/products/:id', (req, res) => {
     if (index === -1 || (!admin && !isPublicProduct(products[index]))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
-    if (!admin && !isBotUserAgent(req.get('user-agent') || '')) {
-      // 상세 조회 시 조회수 증가 (어드민이 보는 건 세지 않음)
+    if (!admin && !isBotUserAgent(req.get('user-agent') || '') && req.query.check !== '1') {
+      // 상세 조회 시 조회수 증가 (어드민이 보는 건, 화면의 '아직 공개인지' 확인(check=1)은 세지 않음)
       products[index] = { ...products[index], views: (Number(products[index].views) || 0) + 1 };
       writeProducts(products);
       const productId = products[index].id;
@@ -1018,8 +1088,16 @@ app.post('/api/products/:id/view', (req, res) => {
   }
 });
 
+// 관리자에 따라 내용이 달라지는 응답은 공용 캐시에 저장되지 않게
+const varyByAuth = (req, res) => {
+  res.vary('Cookie');
+  res.vary(ADMIN_KEY_HEADER);
+  res.set('Cache-Control', isAdminRequest(req) ? 'private, no-store' : 'no-cache');
+};
+
 app.get('/api/metrics/views', (req, res) => {
   try {
+    varyByAuth(req, res);
     const nowMs = Date.now();
     const products = visibleTo(req, readProducts());
     const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
@@ -1099,15 +1177,17 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
     }
     if (Array.isArray(body.partnerLinks)) next.partnerLinks = keepPartnerAvailability(next.partnerLinks, current.partnerLinks, body.partnerLinks);
 
-    // 공개로 바꾸는 경우, 또는 공개 상품의 이름·사진·판매처를 고치는 경우 공개 필수 항목 검사
+    // 공개로 바꾸는 경우, 공개를 다시 요청한 경우(이미 공개여도), 공개 상품의 이름·사진·판매처를 고치는 경우 공개 필수 항목 검사
     const touched = ['name', 'images', 'partnerLinks'].some((key) => key in body);
-    const { product, problems } = finalizeProduct(next, { status: to, checkPublish: to === 'published' && (from !== 'published' || touched) });
+    const askedPublish = body.publishStatus === 'published' || body.isAvailable === true;
+    const { product, problems } = finalizeProduct(next, { status: to, checkPublish: to === 'published' && (from !== 'published' || touched || askedPublish) });
     if (problems.length) {
       return res.status(400).json({ error: `공개 전에 채워 주세요: ${problems.join(', ')}`, missing: problems });
     }
 
     latest[latestIndex] = { ...product, id: req.params.id }; // ID는 변경 불가
     writeProducts(latest);
+    if ((from === 'published') !== (to === 'published')) res.visibilityChanged = `상품 ${req.params.id} ${from}→${to}`; // 응답 뒤 메인 사이트 다시 빌드 요청
     res.json(latest[latestIndex]);
   } catch (error) {
     sendProductError(res, error);
@@ -1125,6 +1205,7 @@ app.delete('/api/products/:id', requireAdminKey, (req, res) => {
     const deletedProduct = products[index];
     products.splice(index, 1);
     writeProducts(products);
+    if (isPublicProduct(deletedProduct)) res.visibilityChanged = `상품 ${req.params.id} 삭제`;
     res.json({ message: '상품이 삭제되었습니다', product: deletedProduct });
   } catch (error) {
     sendProductError(res, error);
@@ -1325,6 +1406,7 @@ app.get('/sitemap.xml', (req, res) => {
 
 // 카테고리 목록 조회
 app.get('/api/categories', (req, res) => {
+  varyByAuth(req, res);
   const categoriesFile = path.join(DATA_DIR, 'categories.json');
   try {
     if (fs.existsSync(categoriesFile)) {
@@ -1487,6 +1569,7 @@ app.post('/api/coupons', requireAdminKey, (req, res) => {
 
 // 지역 목록 조회
 app.get('/api/locations', (req, res) => {
+  varyByAuth(req, res);
   const locationsFile = path.join(DATA_DIR, 'locations.json');
   try {
     if (fs.existsSync(locationsFile)) {

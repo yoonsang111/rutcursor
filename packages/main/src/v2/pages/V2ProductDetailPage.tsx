@@ -8,6 +8,7 @@ import { useV2Coupons } from "../hooks/useV2Coupons";
 import { couponsForProduct, formatDeadline, formatDiscount } from "../utils/coupons";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import { trackEvent } from "../../utils/analytics";
+import { api } from "../../utils/api";
 
 const VIEW_THROTTLE_MS = 12 * 60 * 60 * 1000; // 12시간
 // 판매처 상태를 언제 확인했는지 (예: 10월 3일 확인). 7일 넘은 확인은 '예전 확인'으로 따로 표시
@@ -23,7 +24,15 @@ export default function V2ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { byId, items, countries, categories, incrementProductView, loading } = useV2Products();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const product = id ? byId.get(id) : null;
+  // 예전에 받아 둔 목록에 있어도, 서버가 '지금은 공개 아님(숨김·초안·삭제)'이라고 하면 보여 주지 않음
+  const [goneId, setGoneId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!id) return;
+    let active = true;
+    api.isStillPublic(id).then((ok) => { if (active && ok === false) setGoneId(id); });
+    return () => { active = false; };
+  }, [id]);
+  const product = id && goneId !== id ? byId.get(id) : null;
   const favorited = id ? isFavorite(id) : false;
   const [shareCopied, setShareCopied] = React.useState(false);
 

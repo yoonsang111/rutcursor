@@ -209,7 +209,8 @@ export default function ProductFormPage() {
     setFormData({ ...formData, tags: formData.tags.filter(t => t !== tag) });
   };
 
-  // 판매처 예약 상태 바꾸기. 바꾸는 순간을 확인 시각으로 기록 (예전 확인을 최신처럼 보이지 않게)
+  // 판매처 예약 상태 바꾸기. 확인 시각은 '상태를 바꿨을 때'와 '지금 다시 확인함'을 눌렀을 때만 지금으로 (범위·근거 문구만 고치면 예전 확인 시각 유지 — 예전 확인을 최신처럼 보이지 않게)
+  // ('지금 다시 확인함'은 patch.checkedAt = 'now'로 알림)
   const updateAvailability = (index: number, patch: Partial<PartnerAvailability> | null) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
@@ -218,8 +219,13 @@ export default function ProductFormPage() {
         return rest;
       }
       const prev = link.availability || { status: 'unknown' as const };
-      const next: PartnerAvailability = { ...prev, ...patch, checkedAt: new Date().toISOString() };
-      if (!next.source) next.source = '관리자 직접 확인';
+      const reconfirm = patch.checkedAt === 'now';
+      const statusChanged = patch.status !== undefined && patch.status !== prev.status;
+      const next: PartnerAvailability = { ...prev, ...patch, checkedAt: prev.checkedAt };
+      if (statusChanged || reconfirm || !prev.checkedAt) {
+        next.checkedAt = new Date().toISOString();
+        next.source = '관리자 직접 확인';
+      }
       return { ...link, availability: next };
     });
     setFormData({ ...formData, partnerLinks });
@@ -933,7 +939,7 @@ export default function ProductFormPage() {
                           if (!status) return updateAvailability(index, null);
                           updateAvailability(index, status === 'unavailable'
                             ? { status, reason: link.availability?.reason && UNAVAILABLE_REASONS[link.availability.reason] ? link.availability.reason : 'temporary_soldout', scope: link.availability?.scope || { whole: false, dates: [], options: [] } }
-                            : status === 'unknown' ? { status, reason: 'not_checked', scope: undefined, evidence: undefined } : { status, reason: undefined, evidence: undefined });
+                            : status === 'unknown' ? { status, reason: 'not_checked' } : { status, reason: undefined }); // 범위·근거는 남겨 둠
                         }}
                         className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white"
                       >
@@ -952,17 +958,26 @@ export default function ProductFormPage() {
                       {link.availability?.checkedAt && (
                         <span className="text-[11px] text-gray-500">{new Date(link.availability.checkedAt).toLocaleString('ko-KR')} 확인 · {link.availability.source}</span>
                       )}
+                      {link.availability && (
+                        <button type="button" onClick={() => updateAvailability(index, { checkedAt: 'now' })} className="px-2 py-1 border border-gray-300 rounded-md text-[11px] bg-white hover:bg-gray-50">
+                          지금 다시 확인함
+                        </button>
+                      )}
                     </div>
-                    {link.availability?.status === 'unavailable' && (
+                    {(link.availability?.status === 'unavailable' || link.availability?.status === 'available' || link.availability?.status === 'unknown') && (
                       <div className="space-y-1.5 pl-1">
                         <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
                           <input type="checkbox" checked={Boolean(link.availability.scope?.whole)} onChange={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, whole: e.target.checked } })} />
-                          상품 전체가 예약 불가 (특정 날짜·옵션만 품절이면 체크하지 말고 아래에 적어 주세요)
+                          {link.availability.status === 'unavailable'
+                            ? '상품 전체가 예약 불가 (특정 날짜·옵션만 품절이면 체크하지 말고 아래에 적어 주세요)'
+                            : link.availability.status === 'available'
+                              ? '상품 전체 기준으로 예약 가능을 확인 (특정 날짜·옵션만 확인했으면 체크하지 말고 아래에 적어 주세요)'
+                              : '상품 전체를 확인하려 했음 (특정 날짜·옵션만 확인하려 했으면 아래에 적어 주세요)'}
                         </label>
                         {!link.availability.scope?.whole && (
                           <div className="flex flex-wrap gap-2">
-                            <input aria-label="품절 날짜" placeholder="품절 날짜 (쉼표로: 2026-12-24, 2026-12-25)" defaultValue={(link.availability.scope?.dates || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, dates: splitList(e.target.value) } })} className="flex-1 min-w-[200px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
-                            <input aria-label="품절 옵션" placeholder="품절 옵션·인원 (쉼표로: 성인, 4/7)" defaultValue={(link.availability.scope?.options || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, options: splitList(e.target.value) } })} className="flex-1 min-w-[160px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                            <input aria-label="날짜 범위" placeholder={link.availability.status === 'unavailable' ? '품절 날짜 (쉼표로: 2026-12-24, 2026-12-25)' : '확인한 날짜 (쉼표로)'} defaultValue={(link.availability.scope?.dates || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, dates: splitList(e.target.value) } })} className="flex-1 min-w-[200px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                            <input aria-label="옵션·인원 범위" placeholder={link.availability.status === 'unavailable' ? '품절 옵션·인원 (쉼표로: 성인, 4/7)' : '확인한 옵션·인원 (쉼표로)'} defaultValue={(link.availability.scope?.options || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, options: splitList(e.target.value) } })} className="flex-1 min-w-[160px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
                           </div>
                         )}
                         {link.availability.reason === 'sales_ended' && (

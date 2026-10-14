@@ -51,11 +51,22 @@ export async function acquireFileLock(lockPath, { timeoutMs = 15000, staleMs = 1
       } catch {
         continue; // 그사이 풀림
       }
-      if ((held && held.pid && !pidAlive(held.pid)) || age > staleMs) {
+      // 주인이 죽은 잠금만 치운다 (살아 있는 주인은 오래 걸려도 빼앗지 않음 — 시간 초과로 기다리다 실패할 뿐).
+      // 내용을 읽지 못하는 깨진 잠금은 오래됐을 때만 치운다. 치우기 직전에 같은 잠금인지(토큰) 다시 확인해 새 주인의 잠금을 지우지 않음
+      const dead = held && held.pid && !pidAlive(held.pid);
+      const brokenAndOld = !held && age > staleMs;
+      // ponytail: 다시 읽기와 지우기 사이의 아주 짧은 틈은 남음 (같은 컴퓨터 몇 개 프로세스 기준으로 충분, 더 필요하면 DB 잠금)
+      if (dead) {
         try {
-          fs.unlinkSync(lockPath);
-        } catch {
-          /* 다른 프로세스가 먼저 치움 */
+          if (JSON.parse(fs.readFileSync(lockPath, 'utf8')).token === held.token) fs.unlinkSync(lockPath);
+        } catch { /* 이미 없거나 바뀜 */ }
+        continue;
+      }
+      if (brokenAndOld) {
+        let nowValid = false;
+        try { JSON.parse(fs.readFileSync(lockPath, 'utf8')); nowValid = true; } catch { /* 여전히 깨짐 */ }
+        if (!nowValid) {
+          try { fs.unlinkSync(lockPath); } catch { /* 다른 프로세스가 먼저 치움 */ }
         }
         continue;
       }
