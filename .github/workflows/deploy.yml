@@ -42,7 +42,8 @@ jobs:
   validate:
     name: Validate inputs
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read # 커밋이 main에 있는지 확인용
     steps:
       - name: Check inputs
         env:
@@ -55,8 +56,21 @@ jobs:
           if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then echo "main에서만 실행해요 (지금: ${GITHUB_REF:-없음})"; exit 1; fi
           case "$MODE" in ""|rebuild-main) ;; *) echo "모르는 mode: $MODE"; exit 1 ;; esac
           if [ "$MODE" = "rebuild-main" ] && { [ -n "$SHA" ] || [ -n "$REQUEST_ID" ]; }; then echo "다시 빌드는 커밋·요청 번호를 받지 않아요 (마지막 승인 배포 커밋만)"; exit 1; fi
-          if [ -n "$SHA" ] && ! echo "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then echo "커밋 번호 형식이 아니에요"; exit 1; fi
-          if [ -n "$REQUEST_ID" ] && ! echo "$REQUEST_ID" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then echo "요청 번호 형식이 아니에요"; exit 1; fi
+          # 값 전체를 검사 (줄 단위 grep은 여러 줄 입력 중 한 줄만 맞아도 통과해서 바꿈)
+          if [ -n "$SHA" ] && ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then echo "커밋 번호 형식이 아니에요"; exit 1; fi
+          if [ -n "$REQUEST_ID" ] && ! [[ "$REQUEST_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then echo "요청 번호 형식이 아니에요"; exit 1; fi
+
+      # 배포할 커밋은 이미 main에 들어간 것만 (다른 브랜치의 커밋을 main 실행으로 내보내지 못하게).
+      # main은 사무실 승인으로만 들어가므로(보호 설정 3단계) = 승인된 커밋만. 다시 빌드·예약은 커밋 입력이 없어서 건너뜀
+      - name: Check commit is on main
+        if: inputs.sha != ''
+        env:
+          SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...main" --jq .status)
+          case "$status" in ahead|identical) echo "main에 있는 커밋 ($status)" ;; *) echo "main에 없는 커밋이에요 ($status) — 배포하지 않아요"; exit 1 ;; esac
 
   deploy-main:
     name: Deploy main site (S3 + CloudFront)

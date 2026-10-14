@@ -202,55 +202,50 @@ test('저장 실패: 쓰기 실패면 500이고 파일 그대로 / 파일이 깨
   } finally { s.stop(); }
 });
 
-// 2026-10-14 9차 저장 구조: 상품 파일은 API 서버 하나만 쓴다 (서버가 살아 있는 동안 작성자 잠금을 쥠). 스크립트는 API로 부탁
-// (예전 시험 '스크립트가 같은 잠금으로 파일을 직접 씀'·'쓸 때마다 죽은 잠금 정리'는 구조가 바뀌어 아래 시험으로 바꿈)
-test('작성자는 하나: 같은 데이터 폴더로 두 번째 서버는 시작하지 않고 첫 서버는 계속 저장 / 끝나면 잠금 정리', async () => {
+// 2026-10-14 9차 저장 구조: 상품 파일은 API 서버 하나만 쓴다. 스크립트는 API로 부탁
+// 9차 2회차: 작성자 잠금 = 데이터 폴더마다 정해진 127.0.0.1 포트를 혼자 열어 둠 (운영체제가 하나만 허락, 죽으면 바로 풀림)
+// (예전 시험 '잠금 파일 남음·죽은 잠금 정리·재부팅 전 잠금'은 잠금 파일이 없어져 아래 시험으로 바꿈)
+const spawnServer = (dir, port, extra = {}) => spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY, ...extra }, stdio: 'ignore' });
+const waitUp = async (base) => { for (let i = 0; i < 150; i++) { try { await fetch(`${base}/counter`); return true; } catch { await new Promise(r => setTimeout(r, 100)); } } return false; };
+
+test('작성자는 하나: 같은 데이터 폴더로 두 번째 서버는 시작하지 않고 첫 서버는 계속 저장 / 끝나면 바로 다음 서버가 시작', async () => {
   const s = await startServer();
   try {
-    const lock = `${s.file}.lock`;
-    assert.ok(fs.existsSync(lock), '서버가 살아 있는 동안 잠금을 쥠');
-    const second = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: '0', DATA_DIR: s.dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+    const second = spawnServer(s.dir, 0);
     const code = await new Promise(r => second.on('exit', r));
     assert.notEqual(code, 0, '두 번째 서버는 시작하지 않음');
-    assert.ok(fs.existsSync(lock), '두 번째 서버가 첫 서버 잠금을 지우지 않음');
     assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '첫 서버 저장' }) })).status, 200);
     assert.equal(s.stored().find(p => p.id === '1').name, '첫 서버 저장');
-    s.stop();
-    for (let i = 0; i < 50 && fs.existsSync(lock); i++) await new Promise(r => setTimeout(r, 100));
-    assert.ok(!fs.existsSync(lock), '정상 종료하면 잠금 정리');
   } finally { s.stop(); }
+  // 다른 데이터 폴더는 서로 막지 않음
+  const other = await startServer();
+  try { assert.equal((await fetch(`${other.base}/products`)).status, 200); } finally { other.stop(); }
 });
 
-test('주인이 죽은 잠금(강제 종료 뒤)은 서버 시작 때 정리하고 저장 / 살아 있는 주인의 잠금은 그대로', async () => {
+test('강제 종료(kill -9) 뒤 같은 데이터로 새 서버가 바로 시작 / 잠금 포트를 다른 프로그램이 쥐고 있으면 시작하지 않음(안전한 쪽)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-lock-'));
   const file = path.join(dir, 'products.json');
-  const dead = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' });
-  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: Number(dead.stdout.trim()), token: 'x', at: Date.now() }));
   fs.writeFileSync(file, JSON.stringify(seed()));
-  const port = 43000 + Math.floor(Math.random() * 2000);
-  const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  const port1 = 43000 + Math.floor(Math.random() * 2000);
+  const first = spawnServer(dir, port1);
+  assert.ok(await waitUp(`http://127.0.0.1:${port1}/api`));
+  first.kill('SIGKILL'); await new Promise(r => first.on('exit', r));
+  const port2 = port1 + 1;
+  const started = Date.now();
+  const next = spawnServer(dir, port2);
   try {
-    const base = `http://127.0.0.1:${port}/api`;
-    for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-    assert.equal((await fetch(`${base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '잠금 복구' }) })).status, 200);
-    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).find(p => p.id === '1').name, '잠금 복구');
-    assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).pid, proc.pid, '이제 이 서버가 주인');
-  } finally { proc.kill(); }
-  // 재부팅 전 잠금: 같은 번호의 프로세스(이 시험 프로세스)가 살아 있어도 다른 부팅에서 만든 잠금이면 정리하고 시작
-  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'before-reboot', at: 1, boot: Date.now() - os.uptime() * 1000 - 3600e3 }));
-  const port2 = 43000 + Math.floor(Math.random() * 2000);
-  const afterReboot = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port2), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
-  try {
-    let up = false;
-    for (let i = 0; i < 100 && !up; i++) { try { await fetch(`http://127.0.0.1:${port2}/api/counter`); up = true; } catch { await new Promise(r => setTimeout(r, 100)); } }
-    assert.ok(up, '재부팅 전 잠금 때문에 서버가 멈추지 않음');
-    assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).pid, afterReboot.pid);
-  } finally { afterReboot.kill(); await new Promise(r => afterReboot.on('exit', r)); }
-  // 살아 있는 주인(이 시험 프로세스)의 잠금이면 서버는 시작하지 않고 잠금도 그대로
-  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'live', at: Date.now() }));
-  const blocked = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: '0', DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
-  assert.notEqual(await new Promise(r => blocked.on('exit', r)), 0);
-  assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).token, 'live');
+    assert.ok(await waitUp(`http://127.0.0.1:${port2}/api`), '강제 종료 뒤 새 서버 시작');
+    assert.ok(Date.now() - started < 10000, '기다리지 않고 바로');
+    assert.equal((await fetch(`http://127.0.0.1:${port2}/api/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '다시 시작' }) })).status, 200);
+  } finally { next.kill(); await new Promise(r => next.on('exit', r)); }
+  // 잠금 포트를 이 시험 프로세스가 쥐면 서버는 기다린 뒤 시작하지 않음 (파일을 쓰지 않음)
+  const { writerLockPort } = await import('../src/writerLock.js');
+  const holder = require('net').createServer();
+  await new Promise(r => holder.listen({ host: '127.0.0.1', port: writerLockPort(path.resolve(file)), exclusive: true }, r));
+  const before = fs.readFileSync(file, 'utf8');
+  const blocked = spawnServer(dir, port2 + 1);
+  try { assert.notEqual(await new Promise(r => blocked.on('exit', r)), 0); } finally { holder.close(); }
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
 
 test('가격 갱신 스크립트는 API로: 가격·통화·확인 시각 저장, 0·빈 값은 가격 삭제(0원·예전 가격 안 남김), 손님에게는 가격 있는 것만', async () => {
@@ -290,6 +285,14 @@ test('숨김 반영: 공개 여부를 바꾸면 반영 중, 배포 알림(전용
     assert.equal(admin1.visibilitySync.state, 'pending', '관리자는 반영 중을 봄');
     const report = (key, fetchedAt) => fetch(`${s.base}/admin/visibility-synced`, { method: 'POST', headers: { 'x-visibility-sync-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify({ fetchedAt, runId: '42' }) });
     assert.equal((await report('wrong', iso(Date.now() + 1000))).status, 401);
+    // 9차 2회차: 일반 수정으로 '완료'를 꾸미거나 지울 수 없음, 미래 시각·실행 번호 없는 알림은 거절
+    for (const forged of [{ visibilitySync: { state: 'done' } }, { visibilitySync: null }, { tags: ['x'], visibilitySync: { state: 'done', since: iso(0) } }]) {
+      assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify(forged) })).status, 200);
+      assert.equal(s.stored().find(p => p.id === '1').visibilitySync.state, 'pending', JSON.stringify(forged));
+    }
+    assert.equal((await report('sync-key-0123456789', '2099-01-01T00:00:00Z')).status, 400, '미래 시각');
+    assert.equal((await fetch(`${s.base}/admin/visibility-synced`, { method: 'POST', headers: { 'x-visibility-sync-key': 'sync-key-0123456789', 'Content-Type': 'application/json' }, body: JSON.stringify({ fetchedAt: iso(Date.now()) }) })).status, 400, '실행 번호 없음');
+    assert.equal(s.stored().find(p => p.id === '1').visibilitySync.state, 'pending');
     assert.equal((await report('sync-key-0123456789', iso(Date.parse(sync.since) - 1000))).status, 200);
     assert.equal(s.stored().find(p => p.id === '1').visibilitySync.state, 'pending', '바꾸기 전에 상품을 읽은 빌드는 완료로 보지 않음');
     assert.deepEqual(await json(await report('sync-key-0123456789', iso(Date.now() + 1000))), { updated: 1 });

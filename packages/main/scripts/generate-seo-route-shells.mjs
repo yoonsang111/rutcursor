@@ -94,19 +94,16 @@ function resolvePrice(product) {
   // 상품 대부분이 최상위 price/minPrice/salePrice가 비어있고 실제 가격은 partnerLinks[].price에만 있음
   // (실제 상품 상세 페이지/가격 정렬도 partnerLinks 가격 기준이므로 동일하게 맞춤).
   // 판매 중지가 확인된 판매처(공개 API가 예약 주소를 빼서 보냄)의 가격은 최저가에서 뺀다
+  // 가격 규칙(고객 화면과 같음): 원화 가격만 비교 (통화가 비어 있는 예전 가격은 원화), 상품 칸의 예전 가격은 쓰지 않음. 없으면 Infinity = 가격 없음
   const partnerPrices = (Array.isArray(product.partnerLinks) ? product.partnerLinks : [])
-    .filter((link) => link?.url)
+    .filter((link) => link?.url && String(link.priceCurrency || "KRW").toUpperCase() === "KRW")
     .map((link) => Number(link.price))
     .filter((p) => Number.isFinite(p) && p > 0);
-  if (partnerPrices.length > 0) return Math.min(...partnerPrices);
-
-  const price = product.price ?? product.minPrice ?? product.salePrice ?? null;
-  return price != null && Number(price) > 0 ? Number(price) : Infinity;
+  return partnerPrices.length > 0 ? Math.min(...partnerPrices) : Infinity;
 }
 
 function buildProductJsonLd(product) {
   const resolvedPrice = resolvePrice(product);
-  const safePrice = Number.isFinite(resolvedPrice) ? resolvedPrice : 0;
   // base64 data URI는 JSON-LD에 넣지 않는다.
   // 구글 리치결과의 image는 크롤링 가능한 URL이어야 하고(data URI는 인정되지 않음),
   // 이미지 하나가 800KB를 넘는 경우가 있어 상품 페이지 HTML이 통째로 부풀었다.
@@ -120,7 +117,7 @@ function buildProductJsonLd(product) {
 
   const offerBase = {
     "@type": "Offer",
-    price: safePrice,
+    price: resolvedPrice,
     priceCurrency: "KRW",
     priceValidUntil,
     // 모든 판매처의 판매 중지가 확인된 상품만 품절로 알린다 (확인 못 한 판매처가 있으면 단정하지 않음)
@@ -160,7 +157,8 @@ function buildProductJsonLd(product) {
     category: Array.isArray(product.categories) ? product.categories[0] || "여행" : "여행",
     brand: { "@type": "Brand", name: "TourStream" },
     keywords: Array.isArray(product.tags) ? product.tags.join(", ") : "",
-    offers: offerBase,
+    // 가격이 없으면 가격 정보(Offer)를 넣지 않음 (0원으로 알리지 않음)
+    ...(Number.isFinite(resolvedPrice) ? { offers: offerBase } : {}),
   };
 
   if (hasRating) {
@@ -421,24 +419,21 @@ function buildRouteHtml(baseHtml, meta) {
   return html;
 }
 
-async function fetchJson(pathname, fallback) {
-  try {
-    const response = await fetch(`${API_BASE_URL}${pathname}`);
-    if (!response.ok) return fallback;
-    return await response.json();
-  } catch {
-    return fallback;
-  }
+// 꼭 필요한 데이터라 못 받으면 빌드를 멈춤 (빈 목록으로 계속하면 검색용 페이지가 통째로 지워진 채 배포됨 — SEO 내용 삭제)
+async function fetchJson(pathname) {
+  const response = await fetch(`${API_BASE_URL}${pathname}`);
+  if (!response.ok) throw new Error(`[seo] ${pathname} 응답 ${response.status} — 빌드를 멈춰요 (빈 목록으로 페이지를 지우지 않게)`);
+  return response.json();
 }
 
 async function main() {
   const baseHtml = await fs.readFile(indexPath, "utf8");
   // 공개 API는 '공개' 상품만 보낸다 (초안·숨김은 오지 않음). 예전 서버 호환으로 isAvailable도 한 번 더 거른다
-  const publishedProducts = (await fetchJson("/products", [])).filter((p) => p.isAvailable !== false);
+  const publishedProducts = (await fetchJson("/products")).filter((p) => p.isAvailable !== false);
   // 모든 판매처의 판매 중지가 확인된 상품(bookable: none)은 목록·추천·사이트맵에서 빼고, 상세 페이지만 안내용으로 남긴다
   const products = publishedProducts.filter((p) => p.bookable !== "none");
-  const categoriesRes = await fetchJson("/categories", { mainCategories: [] });
-  const locationsRes = await fetchJson("/locations", { countries: [] });
+  const categoriesRes = await fetchJson("/categories");
+  const locationsRes = await fetchJson("/locations");
 
   const routes = [
     {

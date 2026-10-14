@@ -157,17 +157,22 @@ export default function V2ProductDetailPage() {
         url: `https://tourstream.kr${canonicalPath}`,
         category: category?.name || "여행상품",
         brand: { "@type": "Brand", name: "TourStream" },
-        offers: {
-          "@type": "Offer",
-          price: safePrice,
-          priceCurrency: "KRW",
-          priceValidUntil,
-          availability: noBookable ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
-          url: `https://tourstream.kr${canonicalPath}`,
-          seller: { "@type": "Organization", name: "TourStream", url: "https://tourstream.kr" },
-          hasMerchantReturnPolicy: returnPolicy,
-          shippingDetails,
-        },
+        // 가격이 없으면 가격 정보(Offer)를 넣지 않음 (0원으로 알리지 않음)
+        ...(hasPrice
+          ? {
+              offers: {
+                "@type": "Offer",
+                price: safePrice,
+                priceCurrency: "KRW",
+                priceValidUntil,
+                availability: noBookable ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
+                url: `https://tourstream.kr${canonicalPath}`,
+                seller: { "@type": "Organization", name: "TourStream", url: "https://tourstream.kr" },
+                hasMerchantReturnPolicy: returnPolicy,
+                shippingDetails,
+              },
+            }
+          : {}),
         ...(hasRating
           ? {
               aggregateRating: {

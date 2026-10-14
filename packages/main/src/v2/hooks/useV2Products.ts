@@ -321,15 +321,6 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function inferPrice(raw: RawProduct): number {
-  const candidates = [raw.minPrice, raw.salePrice, raw.price];
-  for (const candidate of candidates) {
-    const parsed = toNumber(candidate);
-    if (parsed !== null && parsed > 0) return parsed;
-  }
-  return 0;
-}
-
 function inferImage(raw: RawProduct): string {
   if (Array.isArray(raw.images)) {
     const found = raw.images.find((img) => typeof img === "string" && img.trim() !== "");
@@ -365,7 +356,7 @@ function inferPartners(raw: RawProduct, fallbackUrl: string): Product["partnerLi
         url,
         price,
         // 원화가 아닌 가격은 비교하지 않고 통화와 함께 그대로 보여 줌
-        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터")
+        priceDisplay: price !== undefined && typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터")
           : price === undefined && foreign !== null && foreign > 0 && link.priceCurrency ? `${link.priceCurrency.toUpperCase()} ${foreign.toLocaleString()}부터` : undefined,
         priceNote: typeof link.priceConditions === "string" && link.priceConditions.trim() ? link.priceConditions.trim() : undefined,
         state,
@@ -492,7 +483,8 @@ function toV2Product(
     countryId,
     region: inferRegion(locations, countryId, regionsByCountryId),
     categoryId,
-    price: inferPartnerMinPrice(raw.partnerLinks) ?? inferPrice(raw),
+    // 가격 = 판매처의 원화 가격 중 최저 (상품 칸의 예전 가격은 쓰지 않음 — 통화·확인 시각이 없는 값). 없으면 0 = '판매처에서 확인'
+    price: inferPartnerMinPrice(raw.partnerLinks) ?? 0,
     views,
     recentViews7d,
     recentViews30d,
@@ -598,12 +590,18 @@ async function runV2ProductsFetch(): Promise<CachedV2Data> {
 
 function fetchFreshV2Products(): Promise<CachedV2Data> {
   if (!inflightPromise) {
-    inflightPromise = runV2ProductsFetch().then((result) => {
-      cachedData = result;
-      cachedAt = Date.now();
-      inflightPromise = null;
-      return result;
-    });
+    inflightPromise = runV2ProductsFetch().then(
+      (result) => {
+        cachedData = result;
+        cachedAt = Date.now();
+        inflightPromise = null;
+        return result;
+      },
+      (error) => {
+        inflightPromise = null; // 실패해도 다음 시도(탭 복귀·재연결)가 다시 받게
+        throw error;
+      },
+    );
   }
   return inflightPromise;
 }
@@ -656,18 +654,22 @@ export function useV2Products() {
     }
   }, [applyResult]);
 
-  // 다른 탭(어드민)에서 상품을 바꾸고 이 탭으로 돌아왔을 때도, 새로고침 없이 최신 데이터로 갱신되도록
+  // 탭으로 돌아오거나(다른 탭·앱에서), 뒤로 가기로 돌아오거나, 인터넷이 다시 연결되면 매번 공개 목록을 새로 받음
+  // (숨긴 상품 카드가 열어 둔 목록에 남지 않게). focus와 visibilitychange가 같이 오는 경우를 위해 2초 안의 반복은 한 번으로
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refreshIfStale();
+    let last = 0;
+    const onReturn = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 2000) return;
+      last = Date.now();
+      fetchFreshV2Products().then(applyResult).catch(() => {});
     };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onReturn);
+    for (const name of ["focus", "pageshow", "online"]) window.addEventListener(name, onReturn);
     return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onReturn);
+      for (const name of ["focus", "pageshow", "online"]) window.removeEventListener(name, onReturn);
     };
-  }, [refreshIfStale]);
+  }, [applyResult]);
 
   useEffect(() => {
     let active = true;

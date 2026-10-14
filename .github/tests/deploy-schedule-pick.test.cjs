@@ -49,7 +49,8 @@ test('다시 빌드: 요청 번호 칸에 커밋 같은 값이 있어도 승인 
 });
 
 // 입력 확인 단계를 실제로 실행 (bash)
-const validateStep = (() => { const i = wf.indexOf('- name: Check inputs'); const run = wf.slice(wf.indexOf('run: |', i) + 6, wf.indexOf('\n\n', i)); return run.split('\n').map(l => l.replace(/^ {10}/, '')).join('\n'); })();
+const stepScript = (name) => { const i = wf.indexOf(`- name: ${name}`); const start = wf.indexOf('run: |', i) + 6; const end = wf.indexOf('\n\n', start); return wf.slice(start, end === -1 ? undefined : end).split('\n').map(l => l.replace(/^ {10}/, '')).join('\n'); };
+const validateStep = stepScript('Check inputs');
 const validate = env => spawnSync('bash', ['-c', validateStep], { env: { ...process.env, GITHUB_REF: 'refs/heads/main', MODE: '', SHA: '', REQUEST_ID: '', ...env } }).status;
 test('입력 확인: 다시 빌드에 커밋·요청 번호 금지, 모르는 mode 금지, 형식 검사', () => {
   assert.equal(validate({}), 0, '빈 입력(예약 등)');
@@ -61,4 +62,25 @@ test('입력 확인: 다시 빌드에 커밋·요청 번호 금지, 모르는 mo
   assert.notEqual(validate({ SHA: 'main' }), 0);
   assert.notEqual(validate({ SHA: A, REQUEST_ID: 'b'.repeat(40) }), 0, '요청 번호 칸에 커밋 같은 값');
   assert.notEqual(validate({ GITHUB_REF: 'refs/heads/office/x' }), 0, 'main이 아닌 브랜치로 실행');
+});
+
+test('입력 확인: 여러 줄·끝의 줄바꿈·CR이 섞인 커밋·요청 번호는 거절 (값 전체 검사)', () => {
+  const R = '11111111-2222-4333-8444-555555555555';
+  for (const SHA of [`${A}\nnot-a-commit`, `${A}\n`, `${A}\r`, ` ${A}`, `x\n${A}`]) assert.notEqual(validate({ SHA }), 0, JSON.stringify(SHA));
+  for (const REQUEST_ID of [`${R}\nx`, `${R} `]) assert.notEqual(validate({ SHA: A, REQUEST_ID }), 0, JSON.stringify(REQUEST_ID));
+  assert.equal(validate({ SHA: A, REQUEST_ID: R }), 0);
+});
+
+test('배포할 커밋은 main에 있는 것만 (가짜 gh: compare 결과)', () => {
+  const step = stepScript('Check commit is on main');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-compare-'));
+  const run = (status) => {
+    fs.writeFileSync(path.join(dir, 'gh'), `#!/bin/sh\necho "$@" > ${dir}/args\necho ${status}\n`, { mode: 0o755 });
+    return spawnSync('bash', ['-c', step], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, SHA: A, GITHUB_REPOSITORY: 'o/r' } }).status;
+  };
+  assert.equal(run('ahead'), 0, 'main보다 앞선 적 없는 과거 main 커밋');
+  assert.equal(run('identical'), 0, 'main 최신');
+  assert.match(fs.readFileSync(path.join(dir, 'args'), 'utf8'), new RegExp(`compare/${A}\\.\\.\\.main`));
+  assert.notEqual(run('diverged'), 0, '다른 브랜치 커밋');
+  assert.notEqual(run('behind'), 0, 'main 뒤에 새로 만든 커밋(아직 main 아님)');
 });
