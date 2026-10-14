@@ -50,7 +50,7 @@ test('다시 빌드: 요청 번호 칸에 커밋 같은 값이 있어도 승인 
 
 // 입력 확인 단계를 실제로 실행 (bash)
 const validateStep = (() => { const i = wf.indexOf('- name: Check inputs'); const run = wf.slice(wf.indexOf('run: |', i) + 6, wf.indexOf('\n\n', i)); return run.split('\n').map(l => l.replace(/^ {10}/, '')).join('\n'); })();
-const validate = env => spawnSync('bash', ['-c', validateStep], { env: { ...process.env, MODE: '', SHA: '', REQUEST_ID: '', ...env } }).status;
+const validate = env => spawnSync('bash', ['-c', validateStep], { env: { ...process.env, GITHUB_REF: 'refs/heads/main', MODE: '', SHA: '', REQUEST_ID: '', ...env } }).status;
 test('입력 확인: 다시 빌드에 커밋·요청 번호 금지, 모르는 mode 금지, 형식 검사', () => {
   assert.equal(validate({}), 0, '빈 입력(예약 등)');
   assert.equal(validate({ SHA: A, REQUEST_ID: '11111111-2222-4333-8444-555555555555' }), 0, '정상 승인 배포');
@@ -60,4 +60,5 @@ test('입력 확인: 다시 빌드에 커밋·요청 번호 금지, 모르는 mo
   assert.notEqual(validate({ MODE: 'rebuild' }), 0);
   assert.notEqual(validate({ SHA: 'main' }), 0);
   assert.notEqual(validate({ SHA: A, REQUEST_ID: 'b'.repeat(40) }), 0, '요청 번호 칸에 커밋 같은 값');
+  assert.notEqual(validate({ GITHUB_REF: 'refs/heads/office/x' }), 0, 'main이 아닌 브랜치로 실행');
 });

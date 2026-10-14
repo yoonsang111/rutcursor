@@ -51,6 +51,8 @@ jobs:
           REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
+          # main의 배포 프로그램으로만 (다른 브랜치로 실행하면 거절 — 실수 방지. 고친 배포 프로그램으로 우회하는 것은 GitHub 환경 규칙으로 막음)
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then echo "main에서만 실행해요 (지금: ${GITHUB_REF:-없음})"; exit 1; fi
           case "$MODE" in ""|rebuild-main) ;; *) echo "모르는 mode: $MODE"; exit 1 ;; esac
           if [ "$MODE" = "rebuild-main" ] && { [ -n "$SHA" ] || [ -n "$REQUEST_ID" ]; }; then echo "다시 빌드는 커밋·요청 번호를 받지 않아요 (마지막 승인 배포 커밋만)"; exit 1; fi
           if [ -n "$SHA" ] && ! echo "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then echo "커밋 번호 형식이 아니에요"; exit 1; fi
