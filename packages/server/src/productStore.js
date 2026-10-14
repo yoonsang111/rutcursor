@@ -7,6 +7,10 @@ import path from 'path';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// boot = 이 컴퓨터가 켜진 시각 (서버가 넘겨 줌). 재부팅 전에 만든 잠금은 같은 번호의 다른 프로세스가 살아 있어도 죽은 잠금
+// ponytail: 같은 부팅 안에서 프로세스 번호가 한 바퀴 돌아 재사용되면 구별 못 함 — 그때는 '다른 서버 있음'으로 멈춤(안전한 쪽)
+const sameBoot = (a, b) => !a || !b || Math.abs(Number(a) - Number(b)) < 120000;
+
 const pidAlive = (pid) => {
   try {
     process.kill(pid, 0);
@@ -18,12 +22,12 @@ const pidAlive = (pid) => {
 
 // 잠금 파일을 새로 만들 수 있을 때까지 기다린다. 남의 잠금은 (주인이 죽었어도) 절대 지우지 않는다 — 시간 초과로 실패할 뿐.
 // 죽은 주인의 잠금 정리는 서버 시작 때 reclaimDeadLock 한 곳에서만 한다.
-export async function acquireFileLock(lockPath, { timeoutMs = 15000, pollMs = 25 } = {}) {
+export async function acquireFileLock(lockPath, { timeoutMs = 15000, pollMs = 25, boot } = {}) {
   const started = Date.now();
   const token = `${process.pid}-${started}-${Math.random().toString(36).slice(2)}`;
   for (;;) {
     try {
-      fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token, at: Date.now() }), { flag: 'wx' });
+      fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, token, at: Date.now(), ...(boot ? { boot } : {}) }), { flag: 'wx' });
       let released = false;
       return {
         token,
@@ -48,10 +52,10 @@ export async function acquireFileLock(lockPath, { timeoutMs = 15000, pollMs = 25
 }
 
 // 지금 잠금의 주인 정보 (없으면 null, 깨졌으면 { broken: true })
-export function lockHolder(lockPath) {
+export function lockHolder(lockPath, boot) {
   try {
     const held = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-    return { ...held, alive: Boolean(held.pid) && pidAlive(held.pid) };
+    return { ...held, alive: Boolean(held.pid) && sameBoot(held.boot, boot) && pidAlive(held.pid) };
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     return { broken: true, alive: false };
@@ -61,8 +65,8 @@ export function lockHolder(lockPath) {
 // 주인이 죽은 잠금 정리 (서버 시작 때만). 지우기 전에 이름 바꾸기로 잠금 파일을 '내 것'으로 옮긴다 —
 // 이름 바꾸기는 한 번에 일어나서 두 정리자가 같은 파일을 동시에 가져갈 수 없다.
 // 옮긴 파일이 확인한 죽은 잠금이 아니면(그사이 새 주인이 생김) 원래 자리로 되돌린다.
-export function reclaimDeadLock(lockPath) {
-  const before = lockHolder(lockPath);
+export function reclaimDeadLock(lockPath, boot) {
+  const before = lockHolder(lockPath, boot);
   if (!before || before.alive) return false;
   const grave = `${lockPath}.reclaim-${process.pid}-${Date.now()}`;
   try {
@@ -82,16 +86,16 @@ export function reclaimDeadLock(lockPath) {
 
 // 서버의 작성자 잠금: 시작할 때 얻고 끝날 때까지 쥔다. 이전 서버가 끝나는 중이면 잠깐 기다리고,
 // 주인이 죽은 잠금이면 정리한 뒤 다시 시도한다. 살아 있는 다른 서버가 쥐고 있으면 오류 (두 번째 서버 금지).
-export async function acquireWriterLock(lockPath, { waitMs = 15000 } = {}) {
+export async function acquireWriterLock(lockPath, { waitMs = 15000, boot } = {}) {
   for (let attempt = 0; attempt < 5; attempt++) {
     // 주인이 이미 죽은 잠금은 기다리지 않고 바로 정리 (기다림은 살아 있는 이전 서버가 끝나는 중일 때만)
-    const before = lockHolder(lockPath);
-    if (before && !before.alive) reclaimDeadLock(lockPath);
+    const before = lockHolder(lockPath, boot);
+    if (before && !before.alive) reclaimDeadLock(lockPath, boot);
     try {
-      return await acquireFileLock(lockPath, { timeoutMs: attempt === 0 ? waitMs : 1000, pollMs: 100 });
+      return await acquireFileLock(lockPath, { timeoutMs: attempt === 0 ? waitMs : 1000, pollMs: 100, boot });
     } catch (error) {
       if (error.code !== 'LOCK_TIMEOUT') throw error;
-      const holder = lockHolder(lockPath);
+      const holder = lockHolder(lockPath, boot);
       if (holder && holder.alive) {
         throw Object.assign(new Error(`다른 서버(pid ${holder.pid})가 상품 파일을 쓰고 있어요. 서버는 하나만 켜야 해요`), { code: 'WRITER_RUNNING' });
       }

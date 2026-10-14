@@ -236,6 +236,16 @@ test('주인이 죽은 잠금(강제 종료 뒤)은 서버 시작 때 정리하�
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).find(p => p.id === '1').name, '잠금 복구');
     assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).pid, proc.pid, '이제 이 서버가 주인');
   } finally { proc.kill(); }
+  // 재부팅 전 잠금: 같은 번호의 프로세스(이 시험 프로세스)가 살아 있어도 다른 부팅에서 만든 잠금이면 정리하고 시작
+  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'before-reboot', at: 1, boot: Date.now() - os.uptime() * 1000 - 3600e3 }));
+  const port2 = 43000 + Math.floor(Math.random() * 2000);
+  const afterReboot = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port2), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  try {
+    let up = false;
+    for (let i = 0; i < 100 && !up; i++) { try { await fetch(`http://127.0.0.1:${port2}/api/counter`); up = true; } catch { await new Promise(r => setTimeout(r, 100)); } }
+    assert.ok(up, '재부팅 전 잠금 때문에 서버가 멈추지 않음');
+    assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).pid, afterReboot.pid);
+  } finally { afterReboot.kill(); await new Promise(r => afterReboot.on('exit', r)); }
   // 살아 있는 주인(이 시험 프로세스)의 잠금이면 서버는 시작하지 않고 잠금도 그대로
   fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'live', at: Date.now() }));
   const blocked = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: '0', DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
@@ -342,4 +352,18 @@ test('숨김·공개 전환 뒤 메인 사이트 다시 빌드 요청 (가짜 Gi
     assert.equal(s.stored().find(p => p.id === '6').views, before, '확인용 조회는 조회수 그대로');
     assert.equal((await fetch(`${s.base}/products/1?check=1`)).status, 404, '숨긴 상품 확인 → 404');
   } finally { s.stop(); fake.close(); }
+});
+
+test('복구 기간에 예전 버전이 isAvailable만 바꾼 상품: 공개였는데 비활성 = 숨김(다시 공개 안 됨), 비공개였는데 활성 = 분류 필요(비공개)', async () => {
+  const s = await startServer([
+    { id: '1', name: '복구 중 숨김', publishStatus: 'published', isAvailable: false, images: [IMG], views: 0, partnerLinks: [link('A')] },
+    { id: '2', name: '복구 중 활성화한 초안', publishStatus: 'draft', isAvailable: true, images: [IMG], views: 0, partnerLinks: [link('A')] },
+    { id: '3', name: '정상 공개', publishStatus: 'published', isAvailable: true, images: [IMG], views: 0, partnerLinks: [link('A')] },
+  ]);
+  try {
+    assert.deepEqual((await json(await fetch(`${s.base}/products`))).map(p => p.id), ['3']);
+    for (const id of ['1', '2']) assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, id);
+    const all = Object.fromEntries((await json(await fetch(`${s.base}/products`, { headers: admin }))).map(p => [p.id, p.publishStatus]));
+    assert.deepEqual(all, { 1: 'hidden', 2: 'needs_classification', 3: 'published' });
+  } finally { s.stop(); }
 });

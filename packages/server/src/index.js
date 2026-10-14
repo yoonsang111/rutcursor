@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPartnerIntegration } from './integrations/index.js';
@@ -363,7 +364,7 @@ const readProducts = () => readJsonArray(PRODUCTS_FILE);
 // 이전 서버가 끝나는 중이면 잠깐 기다리고, 주인이 죽은 잠금이면 정리한다. 살아 있는 다른 서버가 있으면 시작하지 않는다.
 let writerLock;
 try {
-  writerLock = await acquireWriterLock(lockPathFor(PRODUCTS_FILE));
+  writerLock = await acquireWriterLock(lockPathFor(PRODUCTS_FILE), { boot: Math.round(Date.now() - os.uptime() * 1000) }); // 재부팅 전 잠금 구별
 } catch (error) {
   console.error(`[서버] 시작하지 않아요: ${error.message}`);
   process.exit(1);
@@ -654,7 +655,13 @@ const normalizeProductPayload = async (payload = {}) => {
 const PUBLISH_STATUSES = ['draft', 'published', 'hidden', 'needs_classification'];
 const SETTABLE_PUBLISH_STATUSES = ['draft', 'published', 'hidden'];
 const publishStatusOf = (product) => {
-  if (PUBLISH_STATUSES.includes(product?.publishStatus)) return product.publishStatus;
+  if (PUBLISH_STATUSES.includes(product?.publishStatus)) {
+    // 이 서버는 공개 상태와 isAvailable을 늘 같이 맞춰 저장한다. 둘이 다르면 예전 버전(복구 기간)이 isAvailable만 바꾼 것 →
+    // 공개였는데 비활성으로 바뀜 = 숨김 (다시 공개되지 않게), 비공개였는데 활성으로 바뀜 = 분류 필요 (관리자가 확인 후 공개)
+    if (product.publishStatus === 'published' && product.isAvailable === false) return 'hidden';
+    if (product.publishStatus !== 'published' && product.isAvailable === true) return 'needs_classification';
+    return product.publishStatus;
+  }
   // 이전 전 데이터: 활성은 지금 노출 유지(공개), 비활성은 근거 없이 정하지 않음(분류 필요)
   return product?.isAvailable === false ? 'needs_classification' : 'published';
 };
