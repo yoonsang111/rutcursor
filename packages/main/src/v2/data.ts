@@ -37,6 +37,7 @@ export interface Product {
     url: string;
     price?: number;
     priceDisplay?: string;
+    priceNote?: string; // 가격 적용 조건 (예: 성인 1인)
     state?: "available" | "partial" | "stopped" | "unknown";
     checkedAt?: string;
     stale?: boolean;

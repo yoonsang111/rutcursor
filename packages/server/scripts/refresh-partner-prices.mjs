@@ -1,30 +1,31 @@
 // source: 'api'로 연동된 partnerLinks의 가격을 주기적으로 갱신하는 배치 스크립트.
 // 사용법: cd packages/server && node --env-file=.env.local scripts/refresh-partner-prices.mjs
-// (운영 서버에서는 DATA_DIR=./data/production 등을 지정해서 cron/PM2로 주기 실행)
+// (운영 서버에서는 ADMIN_API_KEY와 API_BASE_URL을 지정해서 cron/PM2로 주기 실행 — 상품 파일은 API 서버만 씀)
 
-import fs from 'fs';
-import path from 'path';
 import { getPartnerIntegration, pickRepresentativePrice, detectSentinelPrices } from '../src/integrations/index.js';
-import { readJsonArray, updateProductsFile } from '../src/productStore.js';
 
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.cwd(), process.env.DATA_DIR)
-  : path.resolve(process.cwd(), 'data');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+// 상품 파일을 직접 쓰지 않고 운영 API 서버를 거친다 (상품 파일은 서버 한 프로세스만 씀 — 서로 덮어쓰지 않게)
+//   API_BASE_URL (기본 http://127.0.0.1:3002/api — 같은 EC2의 API 서버), ADMIN_API_KEY 필요
+const API_BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:3002/api').replace(/\/$/, '');
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+if (!ADMIN_API_KEY) {
+  console.error('ADMIN_API_KEY 환경변수가 필요합니다 (상품 파일은 API 서버를 거쳐서만 바꿔요).');
+  process.exit(1);
+}
+const api = async (method, p, body) => {
+  const res = await fetch(`${API_BASE_URL}${p}`, { method, headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_API_KEY }, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(`${method} ${p} 실패 (${res.status}) ${json?.error || ''}`);
+  return json;
+};
 
 // 파트너 API 호출 간 최소 간격(ms). 마이리얼트립 옵션 조회 제한(분당 50건)보다 여유있게 설정.
 const CALL_INTERVAL_MS = 1500;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-if (!fs.existsSync(PRODUCTS_FILE)) {
-  console.error(`[refresh-partner-prices] 상품 파일을 찾을 수 없습니다: ${PRODUCTS_FILE}`);
-  process.exit(1);
-}
-
-// 조회용으로 한 번 읽는다. 판매처 조회에 몇 분이 걸리므로, 저장할 때는 최신 파일을 다시 읽어 바뀐 가격만 반영한다
-// (그사이 어드민에서 고친 상품을 예전 내용으로 덮어쓰지 않게)
-const products = readJsonArray(PRODUCTS_FILE);
-const priceUpdates = new Map(); // `${상품 id}::${externalId}` → { price, priceDisplay, updatedAt }
+// 관리자 조회로 전체 상품(초안·숨김 포함)을 읽음. 판매처 조회에 몇 분이 걸리므로, 저장은 바뀐 가격만 서버에 보냄
+const products = await api('GET', '/products');
+const priceUpdates = new Map(); // `${상품 id}::${externalId}` → { price, priceDisplay, priceCurrency, priceCheckedAt }
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
@@ -119,22 +120,24 @@ for (const { product, link } of targets) {
     }
   }
 
-  priceUpdates.set(`${product.id}::${link.externalId}`, { price: result.price, priceDisplay: result.priceDisplay, updatedAt: new Date().toISOString() });
+  // 마이리얼트립 가격은 원화. 확인 시각 = 지금 조회한 시각
+  priceUpdates.set(`${product.id}::${link.externalId}`, { productId: product.id, externalId: link.externalId, price: result.price, priceDisplay: result.priceDisplay, priceCurrency: 'KRW', priceCheckedAt: new Date().toISOString() });
   refreshed += 1;
   console.log(
     `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${displayed ? '파트너 노출가' : '옵션 역산'})`
   );
 }
 
-// 잠금 → 최신 파일 → 바뀐 가격만 반영 → 통째로 교체 (API 서버와 같은 잠금을 씀)
-await updateProductsFile(PRODUCTS_FILE, (latest) => {
-  for (const product of latest) {
-    for (const link of Array.isArray(product.partnerLinks) ? product.partnerLinks : []) {
-      const update = priceUpdates.get(`${product.id}::${link.externalId}`);
-      if (update && link.source === 'api') Object.assign(link, update);
-    }
+// 상품마다 바뀐 가격만 서버로 보냄 (서버가 최신 상품에 반영 — 그사이 어드민에서 고친 내용을 덮어쓰지 않음)
+const byProduct = new Map();
+for (const u of priceUpdates.values()) byProduct.set(u.productId, [...(byProduct.get(u.productId) || []), u]);
+for (const [productId, updates] of byProduct) {
+  try {
+    await api('PUT', `/products/${encodeURIComponent(productId)}/partner-prices`, { updates: updates.map(({ productId: _p, ...u }) => u) });
+  } catch (error) {
+    failed += 1;
+    console.error(`[refresh-partner-prices] 저장 실패 (상품 ${productId}):`, error.message);
   }
-  return latest;
-});
+}
 
 console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}`);

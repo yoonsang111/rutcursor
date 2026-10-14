@@ -18,8 +18,8 @@ function pick(runs) {
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env node
 const runs = require(${JSON.stringify(path.join(dir, 'runs.json'))});
 const a = process.argv.slice(2);
-if (a[1] === 'list') console.log(runs.filter(r => /[0-9a-f]{40}/.test(r.title)).map(r => r.id).join('\\n')); // --jq select(displayTitle에 커밋 번호) 흉내
-else { const r = runs.find(x => String(x.id) === a[2]); console.log(a.includes('jobs') ? (r.main || '') : r.title.match(/[0-9a-f]{40}/)[0]); }
+if (a[1] === 'list') console.log(runs.filter(r => /^Deploy [0-9a-f]{40}( |$)/.test(r.title)).map(r => r.id).join('\\n')); // --jq select(승인 배포 형식 실행 이름) 흉내
+else { const r = runs.find(x => String(x.id) === a[2]); console.log(a.includes('jobs') ? (r.main || '') : r.title.match(/^Deploy ([0-9a-f]{40})/)[1]); }
 `, { mode: 0o755 });
   const out = path.join(dir, 'out');
   const r = spawnSync('bash', ['-c', script], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GITHUB_REPOSITORY: 'o/r', GITHUB_OUTPUT: out }, encoding: 'utf8' });
@@ -41,4 +41,23 @@ test('예약 배포: 메인이 실패한 최근 배포는 건너뛰고, 메인 �
 
 test('예약·다시 빌드: 커밋 번호 없는 다시 빌드 실행은 승인 배포로 보지 않고 건너뜀', () => {
   assert.equal(pick([{ id: 4, main: 'success', title: 'Deploy scheduled-rebuild-of-last-approved ' }, { id: 1, main: 'success', title: `Deploy ${A} req1` }]).sha, `sha=${A}`);
+});
+
+test('다시 빌드: 요청 번호 칸에 커밋 같은 값이 있어도 승인 커밋으로 보지 않음', () => {
+  const B = 'b'.repeat(40);
+  assert.equal(pick([{ id: 2, main: 'success', title: `Deploy scheduled-rebuild-of-last-approved ${B}` }, { id: 1, main: 'success', title: `Deploy ${A} req` }]).sha, `sha=${A}`);
+});
+
+// 입력 확인 단계를 실제로 실행 (bash)
+const validateStep = (() => { const i = wf.indexOf('- name: Check inputs'); const run = wf.slice(wf.indexOf('run: |', i) + 6, wf.indexOf('\n\n', i)); return run.split('\n').map(l => l.replace(/^ {10}/, '')).join('\n'); })();
+const validate = env => spawnSync('bash', ['-c', validateStep], { env: { ...process.env, MODE: '', SHA: '', REQUEST_ID: '', ...env } }).status;
+test('입력 확인: 다시 빌드에 커밋·요청 번호 금지, 모르는 mode 금지, 형식 검사', () => {
+  assert.equal(validate({}), 0, '빈 입력(예약 등)');
+  assert.equal(validate({ SHA: A, REQUEST_ID: '11111111-2222-4333-8444-555555555555' }), 0, '정상 승인 배포');
+  assert.equal(validate({ MODE: 'rebuild-main' }), 0, '정상 다시 빌드');
+  assert.notEqual(validate({ MODE: 'rebuild-main', SHA: A }), 0);
+  assert.notEqual(validate({ MODE: 'rebuild-main', REQUEST_ID: '11111111-2222-4333-8444-555555555555' }), 0);
+  assert.notEqual(validate({ MODE: 'rebuild' }), 0);
+  assert.notEqual(validate({ SHA: 'main' }), 0);
+  assert.notEqual(validate({ SHA: A, REQUEST_ID: 'b'.repeat(40) }), 0, '요청 번호 칸에 커밋 같은 값');
 });

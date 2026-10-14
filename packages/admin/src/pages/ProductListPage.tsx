@@ -304,6 +304,11 @@ export default function ProductListPage() {
                         <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">추천</span>
                       )}
                       <span className={`px-2 py-1 text-xs rounded-full ${STATUS_BADGE[publishStatusOf(product)].tone}`}>{STATUS_BADGE[publishStatusOf(product)].label}</span>
+                      {product.visibilitySync?.state === 'pending' && (
+                        <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full" title="서버 주소에는 바로 반영됐어요. 검색용 페이지·CDN은 메인 사이트 다시 빌드가 끝나야 반영돼요">
+                          {product.visibilitySync.to === 'published' ? '공개 반영 중' : '숨김 반영 중'}
+                        </span>
+                      )}
                       {publishStatusOf(product) === 'published' && product.bookable === 'none' && (
                         <span className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded-full" title="모든 판매처의 판매 중지가 확인됨 — 손님 목록에서 빠지고 상세는 안내만">판매처 모두 중지</span>
                       )}

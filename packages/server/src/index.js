@@ -5,7 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPartnerIntegration } from './integrations/index.js';
-import { acquireFileLock, readJsonArray, writeJsonAtomic, writeFileAtomic, lockPathFor } from './productStore.js';
+import { acquireWriterLock, readJsonArray, writeJsonAtomic, writeFileAtomic, lockPathFor } from './productStore.js';
+import { migrate as migratePublishStatus, normalizeEvidence, changeTable } from './publishMigration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -270,7 +271,8 @@ const requestPublicRebuild = (reason) => {
   rebuildTimer.unref?.();
 };
 
-// 상품 파일을 쓰는 요청은 한 줄로 세운다: 이 서버 안의 요청끼리(대기열) + 가격 갱신 스크립트 같은 다른 프로세스와도(잠금 파일).
+// 상품 파일을 쓰는 요청은 한 줄로 세운다 (이 서버 안의 대기열). 다른 프로세스는 상품 파일을 쓰지 않고 이 서버 API를 거친다 —
+// 서버는 켜져 있는 동안 작성자 잠금을 쥐고 있어서 두 번째 서버나 파일을 직접 쓰는 스크립트와 겹치지 않는다.
 // 응답이 끝나야 다음 요청이 상품 파일을 읽는다 → 읽기→고치기→저장이 서로 섞이지 않음
 let productsQueue = Promise.resolve();
 const lockProducts = (req, res, next) => {
@@ -278,24 +280,16 @@ const lockProducts = (req, res, next) => {
   const turn = new Promise((resolve) => { releaseQueue = resolve; });
   const previous = productsQueue;
   productsQueue = previous.then(() => turn);
-  previous.then(async () => {
-    let fileLock = null;
+  previous.then(() => {
     let finished = false;
     const done = () => {
       if (finished) return;
       finished = true;
-      if (fileLock) fileLock.release();
       releaseQueue();
     };
     res.once('finish', done);
     res.once('close', done);
-    try {
-      fileLock = await acquireFileLock(lockPathFor(PRODUCTS_FILE));
-    } catch (error) {
-      if (!finished) sendProductError(res, error);
-      return;
-    }
-    if (finished) { fileLock.release(); return; } // 기다리는 사이 손님이 연결을 끊음
+    if (res.writableEnded || res.destroyed) { done(); return; } // 기다리는 사이 손님이 연결을 끊음
     next();
   });
 };
@@ -365,20 +359,28 @@ const migrateLegacyPartnerLinks = (product) => {
 // 파일에서 데이터 읽기 — 깨졌으면 오류 (빈 목록으로 읽은 뒤 저장해서 상품을 전부 지우는 사고 방지)
 const readProducts = () => readJsonArray(PRODUCTS_FILE);
 
-// 서버 시작 때 한 번: 예전 externalUrl 필드를 partnerLinks로 바꿔 저장 (가격 갱신 스크립트와 겹치지 않게 잠금)
-{
-  const lock = await acquireFileLock(lockPathFor(PRODUCTS_FILE));
-  try {
-    const parsed = readJsonArray(PRODUCTS_FILE);
-    if (parsed.some((p) => !Array.isArray(p.partnerLinks))) {
-      console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
-      writeJsonAtomic(PRODUCTS_FILE, parsed.map(migrateLegacyPartnerLinks));
-    }
-  } catch (error) {
-    console.error('[API] 상품 파일 확인 실패 (서버는 켜지만 상품 요청은 오류로 응답):', error.message);
-  } finally {
-    lock.release();
+// 서버 시작: 작성자 잠금을 얻고 끝날 때까지 쥔다 (서버는 하나만, 상품 파일은 이 서버만 씀).
+// 이전 서버가 끝나는 중이면 잠깐 기다리고, 주인이 죽은 잠금이면 정리한다. 살아 있는 다른 서버가 있으면 시작하지 않는다.
+let writerLock;
+try {
+  writerLock = await acquireWriterLock(lockPathFor(PRODUCTS_FILE));
+} catch (error) {
+  console.error(`[서버] 시작하지 않아요: ${error.message}`);
+  process.exit(1);
+}
+const releaseWriterLock = () => { try { writerLock.release(); } catch { /* 이미 없음 */ } };
+process.once('exit', releaseWriterLock);
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { releaseWriterLock(); process.exit(0); });
+
+// 서버 시작 때 한 번: 예전 externalUrl 필드를 partnerLinks로 바꿔 저장
+try {
+  const parsed = readJsonArray(PRODUCTS_FILE);
+  if (parsed.some((p) => !Array.isArray(p.partnerLinks))) {
+    console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
+    writeJsonAtomic(PRODUCTS_FILE, parsed.map(migrateLegacyPartnerLinks));
   }
+} catch (error) {
+  console.error('[API] 상품 파일 확인 실패 (서버는 켜지만 상품 요청은 오류로 응답):', error.message);
 }
 
 const readCounter = () => {
@@ -569,8 +571,17 @@ const normalizePartnerLinks = async (rawLinks) => {
         url,
         source: link?.source === 'api' ? 'api' : 'manual',
       };
+      // 가격은 0보다 큰 실제 값만 (0원·빈 값은 '가격 없음' = 판매처에서 확인). 있으면 통화·적용 조건·확인 시각을 함께 둠
       const price = toNumberOrUndefined(link?.price, { min: 0 });
-      if (price !== undefined) normalizedLink.price = price;
+      if (price !== undefined && price > 0) {
+        normalizedLink.price = price;
+        const currency = String(link?.priceCurrency || '').trim().toUpperCase();
+        if (/^[A-Z]{3}$/.test(currency)) normalizedLink.priceCurrency = currency;
+        const conditions = String(link?.priceConditions || '').trim().slice(0, 200);
+        if (conditions) normalizedLink.priceConditions = conditions;
+        const checkedMs = Date.parse(link?.priceCheckedAt);
+        if (Number.isFinite(checkedMs)) normalizedLink.priceCheckedAt = new Date(checkedMs).toISOString();
+      }
       if (typeof link?.priceDisplay === 'string' && link.priceDisplay.trim()) normalizedLink.priceDisplay = link.priceDisplay.trim();
       if (typeof link?.externalId === 'string' && link.externalId.trim()) normalizedLink.externalId = link.externalId.trim();
       if (typeof link?.updatedAt === 'string' && link.updatedAt.trim()) normalizedLink.updatedAt = link.updatedAt.trim();
@@ -697,6 +708,8 @@ const normalizeAvailability = (raw, nowMs = Date.now()) => {
   const hasScope = scope.whole || scope.dates.length || scope.pax.length || scope.options.length;
   const evidence = String(raw.evidence || '').trim().slice(0, 500);
   const out = { status };
+  const updatedMs = Date.parse(raw.updatedAt); // 정보 수정 시각 (판매처를 다시 확인한 시각 checkedAt과 따로)
+  if (Number.isFinite(updatedMs)) out.updatedAt = new Date(updatedMs).toISOString();
   if (status === 'unknown') {
     // 확인 못 함도 어디서·언제·어떤 날짜·인원·옵션을 확인하려다 못 했는지 남김 (미입력과 확인 실패를 구분)
     if (reason && !UNKNOWN_REASONS.includes(reason)) throw productInputError('확인 못 한 이유가 올바르지 않아요');
@@ -794,7 +807,7 @@ const keepPartnerAvailability = (nextLinks = [], prevLinks = [], sentLinks = [])
     return prev?.availability && !link.availability ? { ...link, availability: prev.availability } : link;
   });
 
-const NUMERIC_PRODUCT_FIELDS = { price: { min: 0 }, minPrice: { min: 0 }, salePrice: { min: 0 }, rating: { min: 0, max: 5 }, reviewCount: { min: 0 } };
+const NUMERIC_PRODUCT_FIELDS = { price: { min: 0, positive: true }, minPrice: { min: 0, positive: true }, salePrice: { min: 0, positive: true }, rating: { min: 0, max: 5 }, reviewCount: { min: 0 } };
 // 최종 저장될 상품 전체에 같은 정리·검사를 한다 (일부 칸만 고쳐도, 공개 상태만 바꿔도 같은 규칙)
 const finalizeProduct = (product, { status, checkPublish }) => {
   const next = { ...product };
@@ -802,7 +815,7 @@ const finalizeProduct = (product, { status, checkPublish }) => {
   for (const [key, range] of Object.entries(NUMERIC_PRODUCT_FIELDS)) {
     if (next[key] === undefined) continue;
     const value = toNumberOrUndefined(next[key], range);
-    if (value === undefined) delete next[key];
+    if (value === undefined || (range.positive && !(value > 0))) delete next[key]; // 0원은 가격이 아님 (판매처에서 확인)
     else next[key] = value;
   }
   next.publishStatus = status;
@@ -831,7 +844,12 @@ const toPublicProduct = (product, viewMeta = {}, nowMs = Date.now()) => {
       if (Number.isFinite(checkedMs)) Object.assign(availability, { checkedAt: new Date(checkedMs).toISOString(), stale: nowMs - checkedMs > STALE_AVAILABILITY_MS });
       if (state === 'partial') Object.assign(availability, { dates: a.scope?.dates || [], pax: a.scope?.pax || [], options: a.scope?.options || [] });
       const publicLink = { partner: link.partner, availability };
-      if (link.price !== undefined) publicLink.price = link.price;
+      if (link.price > 0) {
+        publicLink.price = link.price;
+        if (link.priceCurrency) publicLink.priceCurrency = link.priceCurrency;
+        if (link.priceConditions) publicLink.priceConditions = link.priceConditions;
+        if (link.priceCheckedAt) publicLink.priceCheckedAt = link.priceCheckedAt;
+      }
       if (link.priceDisplay) publicLink.priceDisplay = link.priceDisplay;
       if (link.updatedAt) publicLink.updatedAt = link.updatedAt;
       if (state !== 'stopped') publicLink.url = link.url;
@@ -1187,7 +1205,12 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
 
     latest[latestIndex] = { ...product, id: req.params.id }; // ID는 변경 불가
     writeProducts(latest);
-    if ((from === 'published') !== (to === 'published')) res.visibilityChanged = `상품 ${req.params.id} ${from}→${to}`; // 응답 뒤 메인 사이트 다시 빌드 요청
+    if ((from === 'published') !== (to === 'published')) {
+      // 공개 여부가 바뀜: API는 바로 반영, 정적 페이지·사이트맵·CDN은 메인 사이트 다시 빌드가 끝나야 반영 → 그때까지 '반영 중'
+      latest[latestIndex].visibilitySync = { state: 'pending', since: new Date().toISOString(), from, to };
+      writeProducts(latest);
+      res.visibilityChanged = `상품 ${req.params.id} ${from}→${to}`; // 응답 뒤 메인 사이트 다시 빌드 요청
+    }
     res.json(latest[latestIndex]);
   } catch (error) {
     sendProductError(res, error);
@@ -1233,6 +1256,105 @@ app.put('/api/products/:id/partner-availability', requireAdminKey, (req, res) =>
     products[index] = { ...products[index], partnerLinks: links };
     writeProducts(products);
     res.json(toAdminProduct(products[index]));
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 판매처 가격만 갱신 (가격 갱신 스크립트용 — 파일을 직접 쓰지 않고 이 서버를 거침). 공개 상태·판매처 예약 상태는 바꾸지 않음
+// body: { updates: [{ url | externalId | index, price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt }] }
+// price가 0·빈 값이면 가격을 지움 (0원으로 대체하지 않음, 과거 가격도 남기지 않음 → 손님 화면은 '판매처에서 확인')
+app.put('/api/products/:id/partner-prices', requireAdminKey, (req, res) => {
+  try {
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (!updates.length) throw productInputError('바꿀 판매처 가격(updates)이 없어요');
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1) return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    const links = (products[index].partnerLinks || []).map((link) => ({ ...link }));
+    for (const update of updates) {
+      const at = links.findIndex((link, i) => (update.url && link.url === update.url) || (update.externalId && link.externalId === update.externalId) || (Number.isInteger(update.index) && i === update.index));
+      if (at === -1) throw productInputError(`판매처를 찾지 못했어요: ${update.url || update.externalId || update.index}`);
+      const { price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt, ...rest } = links[at];
+      const value = toNumberOrUndefined(update.price, { min: 0 });
+      const next = { ...rest };
+      if (value !== undefined && value > 0) {
+        const currency = String(update.priceCurrency || '').trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(currency)) throw productInputError('가격의 통화(예: KRW)를 적어 주세요');
+        const checkedMs = Date.parse(update.priceCheckedAt);
+        if (!Number.isFinite(checkedMs)) throw productInputError('가격을 확인한 시각을 적어 주세요');
+        Object.assign(next, { price: value, priceCurrency: currency, priceCheckedAt: new Date(checkedMs).toISOString() });
+        if (String(update.priceDisplay || '').trim()) next.priceDisplay = String(update.priceDisplay).trim().slice(0, 100);
+        if (String(update.priceConditions || '').trim()) next.priceConditions = String(update.priceConditions).trim().slice(0, 200);
+        next.updatedAt = new Date(checkedMs).toISOString();
+      }
+      links[at] = next;
+    }
+    products[index] = { ...products[index], partnerLinks: links };
+    writeProducts(products);
+    res.json(toAdminProduct(products[index]));
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 메인 사이트 다시 빌드·CDN 무효화가 끝났다는 알림 (배포 프로그램이 보냄, 전용 키 VISIBILITY_SYNC_KEY).
+// fetchedAt = 그 빌드가 상품 목록을 읽은 시각. 그 전에 바뀐 공개 여부는 이제 정적 페이지·사이트맵·CDN에도 반영됨 → '반영 완료'
+const VISIBILITY_SYNC_KEY = process.env.VISIBILITY_SYNC_KEY || '';
+app.post('/api/admin/visibility-synced', lockProducts, (req, res) => {
+  try {
+    if (!VISIBILITY_SYNC_KEY || !sameSecret(req.get('x-visibility-sync-key'), VISIBILITY_SYNC_KEY)) return res.status(401).json({ error: '인증이 필요합니다' });
+    const fetchedMs = Date.parse(req.body?.fetchedAt);
+    if (!Number.isFinite(fetchedMs)) throw productInputError('fetchedAt이 필요해요');
+    const products = readProducts();
+    const doneAt = new Date().toISOString();
+    let count = 0;
+    for (const product of products) {
+      const sync = product.visibilitySync;
+      if (sync?.state === 'pending' && Date.parse(sync.since) <= fetchedMs) {
+        product.visibilitySync = { ...sync, state: 'done', doneAt, build: String(req.body?.runId || '').slice(0, 40) || undefined };
+        count += 1;
+      }
+    }
+    if (count) writeProducts(products);
+    res.json({ updated: count });
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 공개 상태 이전 (미리보기 / 적용). 파일을 직접 쓰는 스크립트 대신 이 서버가 한 줄로 처리 (서버만 상품 파일을 씀)
+// 적용 전 백업 파일을 만들고, 이미 이전된 상품은 건드리지 않음 (반복 실행 안전)
+app.post('/api/admin/publish-status-migration', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const products = readProducts();
+    const { products: next, changes } = migratePublishStatus(products, normalizeEvidence(req.body?.evidence));
+    const result = { changes, table: changeTable(changes), applied: false };
+    if (req.body?.apply === true && changes.length) {
+      const backup = path.join(DATA_DIR, `products.before-publish-status-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+      fs.copyFileSync(PRODUCTS_FILE, backup);
+      writeProducts(next);
+      Object.assign(result, { applied: true, backup: path.basename(backup) });
+    }
+    res.json(result);
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 백업으로 되돌리기 (데이터 폴더 안의 products.before-*.json만). 되돌리기 직전 파일도 따로 보관
+app.post('/api/admin/products-restore', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const name = String(req.body?.backup || '');
+    if (!/^products\.before-[\w.-]+\.json$/.test(name)) throw productInputError('되돌릴 백업 파일 이름이 올바르지 않아요');
+    const backupPath = path.join(DATA_DIR, name);
+    if (!fs.existsSync(backupPath)) throw productInputError('백업 파일이 없어요');
+    const backup = readJsonArray(backupPath); // 깨진 백업이면 여기서 오류
+    const safety = path.join(DATA_DIR, `products.before-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    fs.copyFileSync(PRODUCTS_FILE, safety);
+    writeProducts(backup);
+    requestPublicRebuild('백업으로 되돌림'); // 공개·숨김이 바뀌었을 수 있음 → 정적 페이지·사이트맵도 다시 빌드
+    res.json({ restored: backup.length, safety: path.basename(safety) });
   } catch (error) {
     sendProductError(res, error);
   }
@@ -1617,6 +1739,7 @@ app.use((req, res) => {
       'GET /api/products',
       'GET /api/products/:id',
       'PUT /api/products/:id/partner-availability',
+      'PUT /api/products/:id/partner-prices',
       'POST /api/products/:id/view',
       'POST /api/products',
       'PUT /api/products/:id',

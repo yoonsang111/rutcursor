@@ -2,29 +2,30 @@
 // 가격과 달리 평점은 자주 바뀌지 않으므로 refresh-partner-prices.mjs(3시간 주기)와 분리해
 // 하루 1회(자정 등)만 실행한다.
 // 사용법: cd packages/server && node --env-file=.env.local scripts/refresh-partner-ratings.mjs
-// (운영 서버에서는 DATA_DIR=./data/production 등을 지정해서 cron으로 매일 자정 실행)
+// (운영 서버에서는 ADMIN_API_KEY와 API_BASE_URL을 지정해서 cron으로 매일 자정 실행 — 상품 파일은 API 서버만 씀)
 
-import fs from 'fs';
-import path from 'path';
 import { getPartnerIntegration } from '../src/integrations/index.js';
-import { readJsonArray, updateProductsFile } from '../src/productStore.js';
 
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.cwd(), process.env.DATA_DIR)
-  : path.resolve(process.cwd(), 'data');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+// 상품 파일을 직접 쓰지 않고 운영 API 서버를 거친다 (상품 파일은 서버 한 프로세스만 씀 — 서로 덮어쓰지 않게)
+//   API_BASE_URL (기본 http://127.0.0.1:3002/api — 같은 EC2의 API 서버), ADMIN_API_KEY 필요
+const API_BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:3002/api').replace(/\/$/, '');
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+if (!ADMIN_API_KEY) {
+  console.error('ADMIN_API_KEY 환경변수가 필요합니다 (상품 파일은 API 서버를 거쳐서만 바꿔요).');
+  process.exit(1);
+}
+const api = async (method, p, body) => {
+  const res = await fetch(`${API_BASE_URL}${p}`, { method, headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_API_KEY }, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(`${method} ${p} 실패 (${res.status}) ${json?.error || ''}`);
+  return json;
+};
 
 // 파트너 API 호출 간 최소 간격(ms). 마이리얼트립 옵션 조회 제한(분당 50건)보다 여유있게 설정.
 const CALL_INTERVAL_MS = 1500;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-if (!fs.existsSync(PRODUCTS_FILE)) {
-  console.error(`[refresh-partner-ratings] 상품 파일을 찾을 수 없습니다: ${PRODUCTS_FILE}`);
-  process.exit(1);
-}
-
-// 조회용으로 한 번 읽고, 저장할 때는 최신 파일에 바뀐 평점만 반영한다 (그사이 바뀐 상품을 덮어쓰지 않게)
-const products = readJsonArray(PRODUCTS_FILE);
+const products = await api('GET', '/products'); // 관리자 조회 (초안·숨김 포함)
 const ratingUpdates = new Map(); // 상품 id → { rating, reviewCount }
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
@@ -60,12 +61,14 @@ for (const product of products) {
   }
 }
 
-await updateProductsFile(PRODUCTS_FILE, (latest) => {
-  for (const product of latest) {
-    const update = ratingUpdates.get(String(product.id));
-    if (update) Object.assign(product, update);
+// 바뀐 평점만 서버로 보냄 (평점·후기 수 칸만 — 다른 칸은 서버의 최신 값 그대로)
+for (const [productId, update] of ratingUpdates) {
+  try {
+    await api('PUT', `/products/${encodeURIComponent(productId)}`, update);
+  } catch (error) {
+    failed += 1;
+    console.error(`[refresh-partner-ratings] 저장 실패 (상품 ${productId}):`, error.message);
   }
-  return latest;
-});
+}
 
 console.log(`[refresh-partner-ratings] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 실패: ${failed}`);

@@ -210,6 +210,7 @@ export default function ProductFormPage() {
   };
 
   // 판매처 예약 상태 바꾸기. 확인 시각은 '상태를 바꿨을 때'와 '지금 다시 확인함'을 눌렀을 때만 지금으로 (범위·근거 문구만 고치면 예전 확인 시각 유지 — 예전 확인을 최신처럼 보이지 않게)
+  // 확인 시각이 없던 기록도 문구만 고치면 '확인 시각 없음' 그대로 (수정 시각 updatedAt만 남김)
   // ('지금 다시 확인함'은 patch.checkedAt = 'now'로 알림)
   const updateAvailability = (index: number, patch: Partial<PartnerAvailability> | null) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
@@ -222,8 +223,10 @@ export default function ProductFormPage() {
       const reconfirm = patch.checkedAt === 'now';
       const statusChanged = patch.status !== undefined && patch.status !== prev.status;
       const next: PartnerAvailability = { ...prev, ...patch, checkedAt: prev.checkedAt };
-      if (statusChanged || reconfirm || !prev.checkedAt) {
-        next.checkedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      next.updatedAt = now;
+      if (statusChanged || reconfirm) {
+        next.checkedAt = now;
         next.source = '관리자 직접 확인';
       }
       return { ...link, availability: next };
@@ -239,13 +242,20 @@ export default function ProductFormPage() {
     setFormData({ ...formData, partnerLinks: formData.partnerLinks.filter((_, i) => i !== index) });
   };
 
-  const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price', value: string) => {
+  // 가격 값을 새로 넣으면 그때가 가격 확인 시각 (통화가 없으면 원화). 0·빈 값은 가격 없음 → 통화·조건·확인 시각도 지움
+  const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price' | 'priceCurrency' | 'priceConditions', value: string) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
       if (field === 'price') {
         const parsed = parseOptionalNumber(value);
-        return { ...link, price: parsed };
+        if (parsed === undefined || parsed <= 0) {
+          const { price, priceCurrency, priceConditions, priceCheckedAt, ...rest } = link;
+          return rest;
+        }
+        return { ...link, price: parsed, priceCurrency: link.priceCurrency || 'KRW', priceCheckedAt: new Date().toISOString() };
       }
+      if (field === 'priceCurrency') return { ...link, priceCurrency: value.trim().toUpperCase() };
+      if (field === 'priceConditions') return { ...link, priceConditions: value };
       return { ...link, [field]: value };
     });
     setFormData({ ...formData, partnerLinks });
@@ -863,8 +873,17 @@ export default function ProductFormPage() {
                       value={link.price !== undefined ? String(link.price) : ''}
                       onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                      placeholder="가격(원, 선택) - 알고 있으면 입력"
+                      placeholder="가격(선택) - 모르면 비워 두기"
                     />
+                    {link.price !== undefined && link.price > 0 && (
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <select aria-label="통화" value={link.priceCurrency || 'KRW'} onChange={(e) => updatePartnerLink(index, 'priceCurrency', e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {['KRW', 'JPY', 'USD', 'TWD', 'THB', 'VND', 'EUR', 'CNY'].map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <input aria-label="가격 조건" value={link.priceConditions || ''} onChange={(e) => updatePartnerLink(index, 'priceConditions', e.target.value)} placeholder="가격 조건 (예: 성인 1인, 2인 이상)" className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                        <span className="text-[11px] text-gray-500">{link.priceCheckedAt ? `${new Date(link.priceCheckedAt).toLocaleString('ko-KR')} 가격 확인` : '가격 확인 시각 모름'}</span>
+                      </div>
+                    )}
                     <div className="flex gap-2 flex-wrap">
                       {PARTNER_API_OPTIONS.map((option) => (
                         <button

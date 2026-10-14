@@ -7,6 +7,8 @@ type RawPartnerLink = {
   url?: string;
   source?: string;
   price?: number | string;
+  priceCurrency?: string;
+  priceConditions?: string;
   priceDisplay?: string;
   availability?: { state?: string; checkedAt?: string; stale?: boolean; dates?: string[]; pax?: string[]; options?: string[] };
 };
@@ -340,20 +342,32 @@ function inferImage(raw: RawProduct): string {
 const PARTNER_STATES = ["available", "partial", "stopped", "unknown"] as const;
 type PartnerState = (typeof PARTNER_STATES)[number];
 
+// 가격 비교·최저가에 쓰는 가격: 0보다 크고 원화(통화가 비어 있는 예전 가격은 원화로 등록됨)인 것만
+function comparablePrice(link: RawPartnerLink): number | undefined {
+  const price = toNumber(link.price);
+  if (price === null || price <= 0) return undefined;
+  const currency = (link.priceCurrency || "KRW").toUpperCase();
+  return currency === "KRW" ? price : undefined;
+}
+
 function inferPartners(raw: RawProduct, fallbackUrl: string): Product["partnerLinks"] {
   const links = Array.isArray(raw.partnerLinks) ? raw.partnerLinks : [];
   const partners = links
     .map((link) => {
       const url = typeof link.url === "string" ? link.url.trim() : "";
-      const price = toNumber(link.price);
+      const price = comparablePrice(link);
+      const foreign = toNumber(link.price);
       const a = link.availability || {};
       const state: PartnerState = PARTNER_STATES.includes(a.state as PartnerState) ? (a.state as PartnerState) : "unknown";
       const soldOut = [...(a.dates || []), ...(a.pax || []), ...(a.options || [])].filter(Boolean).join(" · ");
       return {
         name: (link.partner || "").trim() || "파트너",
         url,
-        price: price !== null && price > 0 ? price : undefined,
-        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터") : undefined,
+        price,
+        // 원화가 아닌 가격은 비교하지 않고 통화와 함께 그대로 보여 줌
+        priceDisplay: typeof link.priceDisplay === "string" && link.priceDisplay.trim() ? link.priceDisplay.trim().replace(/원\s*~$/, "원부터")
+          : price === undefined && foreign !== null && foreign > 0 && link.priceCurrency ? `${link.priceCurrency.toUpperCase()} ${foreign.toLocaleString()}부터` : undefined,
+        priceNote: typeof link.priceConditions === "string" && link.priceConditions.trim() ? link.priceConditions.trim() : undefined,
         state,
         checkedAt: typeof a.checkedAt === "string" ? a.checkedAt : undefined,
         stale: Boolean(a.stale),
@@ -377,8 +391,8 @@ function inferPartnerMinPrice(links: RawPartnerLink[] | undefined): number | nul
   if (!Array.isArray(links)) return null;
   const prices = links
     .filter((link) => typeof link.url === "string" && link.url.trim() !== "") // 판매 중지 판매처(주소 없음) 가격은 빼고
-    .map((link) => toNumber(link.price))
-    .filter((price): price is number => price !== null && price > 0);
+    .map(comparablePrice)
+    .filter((price): price is number => price !== undefined);
   if (prices.length === 0) return null;
   return Math.min(...prices);
 }

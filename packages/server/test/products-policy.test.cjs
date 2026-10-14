@@ -202,35 +202,96 @@ test('저장 실패: 쓰기 실패면 500이고 파일 그대로 / 파일이 깨
   } finally { s.stop(); }
 });
 
-test('다른 프로세스(가격 갱신 스크립트)와 동시에 써도 서로의 변경이 사라지지 않음 (같은 잠금 파일)', async () => {
+// 2026-10-14 9차 저장 구조: 상품 파일은 API 서버 하나만 쓴다 (서버가 살아 있는 동안 작성자 잠금을 쥠). 스크립트는 API로 부탁
+// (예전 시험 '스크립트가 같은 잠금으로 파일을 직접 씀'·'쓸 때마다 죽은 잠금 정리'는 구조가 바뀌어 아래 시험으로 바꿈)
+test('작성자는 하나: 같은 데이터 폴더로 두 번째 서버는 시작하지 않고 첫 서버는 계속 저장 / 끝나면 잠금 정리', async () => {
   const s = await startServer();
   try {
-    const store = path.join(__dirname, '../src/productStore.js');
-    // 다른 프로세스: 잠금을 잡고 0.8초 동안 일한 뒤 상품 1의 가격만 바꿈
-    const script = `import { updateProductsFile } from ${JSON.stringify(store)};
-      await updateProductsFile(${JSON.stringify(s.file)}, async (latest) => { await new Promise(r => setTimeout(r, 800)); latest.find(p => p.id === '1').scriptPrice = 777; return latest; });`;
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: 'inherit' });
-    await new Promise(r => setTimeout(r, 200)); // 스크립트가 잠금을 잡은 뒤
-    const putting = fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '어드민 수정' }) });
-    const [r, code] = await Promise.all([putting, new Promise(res => child.on('exit', res))]);
-    assert.equal(code, 0);
-    assert.equal(r.status, 200);
-    const p1 = s.stored().find(p => p.id === '1');
-    assert.equal(p1.scriptPrice, 777, '스크립트 변경 유지');
-    assert.equal(p1.name, '어드민 수정', '어드민 변경 유지');
-    assert.ok(!fs.existsSync(`${s.file}.lock`), '잠금 파일 정리');
+    const lock = `${s.file}.lock`;
+    assert.ok(fs.existsSync(lock), '서버가 살아 있는 동안 잠금을 쥠');
+    const second = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: '0', DATA_DIR: s.dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+    const code = await new Promise(r => second.on('exit', r));
+    assert.notEqual(code, 0, '두 번째 서버는 시작하지 않음');
+    assert.ok(fs.existsSync(lock), '두 번째 서버가 첫 서버 잠금을 지우지 않음');
+    assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '첫 서버 저장' }) })).status, 200);
+    assert.equal(s.stored().find(p => p.id === '1').name, '첫 서버 저장');
+    s.stop();
+    for (let i = 0; i < 50 && fs.existsSync(lock); i++) await new Promise(r => setTimeout(r, 100));
+    assert.ok(!fs.existsSync(lock), '정상 종료하면 잠금 정리');
   } finally { s.stop(); }
 });
 
-test('잠금 주인이 죽으면(강제 종료) 남은 잠금을 치우고 계속 저장', async () => {
+test('주인이 죽은 잠금(강제 종료 뒤)은 서버 시작 때 정리하고 저장 / 살아 있는 주인의 잠금은 그대로', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-lock-'));
+  const file = path.join(dir, 'products.json');
+  const dead = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' });
+  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: Number(dead.stdout.trim()), token: 'x', at: Date.now() }));
+  fs.writeFileSync(file, JSON.stringify(seed()));
+  const port = 43000 + Math.floor(Math.random() * 2000);
+  const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  try {
+    const base = `http://127.0.0.1:${port}/api`;
+    for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
+    assert.equal((await fetch(`${base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '잠금 복구' }) })).status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).find(p => p.id === '1').name, '잠금 복구');
+    assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).pid, proc.pid, '이제 이 서버가 주인');
+  } finally { proc.kill(); }
+  // 살아 있는 주인(이 시험 프로세스)의 잠금이면 서버는 시작하지 않고 잠금도 그대로
+  fs.writeFileSync(`${file}.lock`, JSON.stringify({ pid: process.pid, token: 'live', at: Date.now() }));
+  const blocked = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: '0', DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  assert.notEqual(await new Promise(r => blocked.on('exit', r)), 0);
+  assert.equal(JSON.parse(fs.readFileSync(`${file}.lock`, 'utf8')).token, 'live');
+});
+
+test('가격 갱신 스크립트는 API로: 가격·통화·확인 시각 저장, 0·빈 값은 가격 삭제(0원·예전 가격 안 남김), 손님에게는 가격 있는 것만', async () => {
   const s = await startServer();
   try {
-    const dead = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' });
-    fs.writeFileSync(`${s.file}.lock`, JSON.stringify({ pid: Number(dead.stdout.trim()), token: 'x', at: Date.now() }));
-    const r = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '잠금 복구' }) });
-    assert.equal(r.status, 200);
-    assert.equal(s.stored().find(p => p.id === '1').name, '잠금 복구');
+    const put = updates => fetch(`${s.base}/products/1/partner-prices`, { method: 'PUT', headers: admin, body: JSON.stringify({ updates }) });
+    assert.equal((await put([{ externalId: 'ext-A', price: 30000 }])).status, 400, '통화 없으면 거절');
+    assert.equal((await put([{ externalId: 'ext-A', price: 30000, priceCurrency: 'KRW' }])).status, 400, '확인 시각 없으면 거절 (지금 시각으로 채우지 않음)');
+    assert.equal((await put([{ externalId: 'ext-A', price: 30000, priceCurrency: 'krw', priceConditions: '성인 1인', priceCheckedAt: iso(now) }])).status, 200);
+    let a = s.stored().find(p => p.id === '1').partnerLinks[0];
+    assert.deepEqual([a.price, a.priceCurrency, a.priceConditions, a.priceCheckedAt], [30000, 'KRW', '성인 1인', iso(now)]);
+    assert.equal(a.availability.checkedAt, iso(now - 3600e3), '가격 갱신은 판매처 예약 확인 시각을 바꾸지 않음');
+    let pub = (await json(await fetch(`${s.base}/products/1`, { headers: { 'user-agent': 'Mozilla/5.0' } }))).partnerLinks[0];
+    assert.deepEqual([pub.price, pub.priceCurrency, pub.priceConditions], [30000, 'KRW', '성인 1인']);
+    assert.equal((await put([{ externalId: 'ext-A', price: 0 }])).status, 200);
+    a = s.stored().find(p => p.id === '1').partnerLinks[0];
+    assert.deepEqual([a.price, a.priceCurrency, a.priceCheckedAt], [undefined, undefined, undefined], '0원은 가격 없음');
+    pub = (await json(await fetch(`${s.base}/products/1`, { headers: { 'user-agent': 'Mozilla/5.0' } }))).partnerLinks[0];
+    assert.equal(pub.price, undefined);
+    // 일반 수정에서도 0원은 저장하지 않음
+    const links = s.stored().find(p => p.id === '1').partnerLinks.map((l, i) => (i === 0 ? { ...l, price: 0 } : l));
+    assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ partnerLinks: links, price: 0 }) })).status, 200);
+    const p1 = s.stored().find(p => p.id === '1');
+    assert.equal(p1.partnerLinks[0].price, undefined); assert.equal(p1.price, undefined);
+    assert.equal((await fetch(`${s.base}/products/1/partner-prices`, { method: 'PUT', headers: { 'x-admin-key': OFFICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: [{ index: 0, price: 1 }] }) })).status, 403, '사무실 키로는 가격 갱신 불가');
   } finally { s.stop(); }
+});
+
+test('숨김 반영: 공개 여부를 바꾸면 반영 중, 배포 알림(전용 키·읽은 시각 이후 변경은 그대로)으로 완료 / 손님 API에는 반영 상태 안 나감', async () => {
+  const s = await startServer(seed(), { VISIBILITY_SYNC_KEY: 'sync-key-0123456789' });
+  try {
+    await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'hidden' }) });
+    assert.equal((await fetch(`${s.base}/products/1`)).status, 404, 'API는 바로 숨김');
+    const sync = s.stored().find(p => p.id === '1').visibilitySync;
+    assert.deepEqual([sync.state, sync.from, sync.to], ['pending', 'published', 'hidden']);
+    const admin1 = await json(await fetch(`${s.base}/products/1`, { headers: admin }));
+    assert.equal(admin1.visibilitySync.state, 'pending', '관리자는 반영 중을 봄');
+    const report = (key, fetchedAt) => fetch(`${s.base}/admin/visibility-synced`, { method: 'POST', headers: { 'x-visibility-sync-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify({ fetchedAt, runId: '42' }) });
+    assert.equal((await report('wrong', iso(Date.now() + 1000))).status, 401);
+    assert.equal((await report('sync-key-0123456789', iso(Date.parse(sync.since) - 1000))).status, 200);
+    assert.equal(s.stored().find(p => p.id === '1').visibilitySync.state, 'pending', '바꾸기 전에 상품을 읽은 빌드는 완료로 보지 않음');
+    assert.deepEqual(await json(await report('sync-key-0123456789', iso(Date.now() + 1000))), { updated: 1 });
+    assert.equal(s.stored().find(p => p.id === '1').visibilitySync.state, 'done');
+    await fetch(`${s.base}/products/3`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) });
+    const pubText = JSON.stringify(await json(await fetch(`${s.base}/products`)));
+    assert.ok(!pubText.includes('visibilitySync'), '손님 API에 반영 상태 없음');
+  } finally { s.stop(); }
+  const noKey = await startServer();
+  try {
+    assert.equal((await fetch(`${noKey.base}/admin/visibility-synced`, { method: 'POST', headers: { 'x-visibility-sync-key': '', 'Content-Type': 'application/json' }, body: '{"fetchedAt":"2030-01-01T00:00:00Z"}' })).status, 401, '키를 정하지 않으면 알림을 받지 않음');
+  } finally { noKey.stop(); }
 });
 
 test('사무실 전용 키: 머리글을 빼도 초안 등록만 (공개 등록 403·수정 403·삭제 403), 조회는 초안까지 / 관리자 키는 그대로', async () => {

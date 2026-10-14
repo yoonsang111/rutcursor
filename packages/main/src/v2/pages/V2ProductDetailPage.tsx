@@ -29,8 +29,14 @@ export default function V2ProductDetailPage() {
   React.useEffect(() => {
     if (!id) return;
     let active = true;
-    api.isStillPublic(id).then((ok) => { if (active && ok === false) setGoneId(id); });
-    return () => { active = false; };
+    // 열 때 + 다른 탭·앱에 갔다가 돌아올 때마다 다시 확인 (열어 둔 화면도 숨김을 반영)
+    const check = () => api.isStillPublic(id).then((ok) => { if (active && ok === false) setGoneId(id); });
+    check();
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check); // 뒤로 가기로 돌아온 저장된 페이지
+    return () => { active = false; document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", check); window.removeEventListener("pageshow", check); };
   }, [id]);
   const product = id && goneId !== id ? byId.get(id) : null;
   const favorited = id ? isFavorite(id) : false;
@@ -374,6 +380,7 @@ export default function V2ProductDetailPage() {
                     {(partner.priceDisplay || partner.price !== undefined) && (
                       <span className="text-xs text-slate-500 mt-0.5">
                         {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
+                        {partner.priceNote ? ` · ${partner.priceNote}` : ""}
                       </span>
                     )}
                     {partner.state === "partial" && (
