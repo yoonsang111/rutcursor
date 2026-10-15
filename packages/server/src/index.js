@@ -340,8 +340,8 @@ const readProducts = () => {
       }
       return parsed;
     }
-    // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이면 데이터가 사라진 것 → 오류
-    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE)) productsReadError = '상품 파일이 없어요 (복구 중)';
+    // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이거나 카운터가 있으면(데이터가 있던 폴더) 사라진 것 → 오류
+    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE) || fs.existsSync(COUNTER_FILE)) productsReadError = '상품 파일이 없어요 (데이터가 있던 폴더)';
   } catch (error) {
     console.error('상품 데이터 읽기 오류:', error);
     productsReadError = `상품 파일을 읽을 수 없어요 (${error.message})`;
@@ -351,27 +351,41 @@ const readProducts = () => {
 // 상품 파일을 못 읽었으면 빈 목록 대신 오류로 응답 (손님·관리자 모두)
 const productsReadFailed = (res) => (productsReadError ? (res.status(500).json({ error: productsReadError }), true) : false);
 
+// 데이터 파일 규칙 (13차 설계 재검토): 필수 = products.json(다른 데이터가 있을 때)·counter.json(등록에 필요),
+// 선택 = view-events.json·categories.json·locations.json·coupons.json·images/. 선택 파일이 없는 것은 정상.
+// 손상된 필수 데이터는 기본값으로 덮어쓰지 않고, 그 파일에 기대는 쓰기를 거절한다.
+let counterReadError = null;
+// 카운터: 없으면 null(기존 최대 번호로 대신), 숫자가 아니면 손상(null + 오류). 예전 {"counter": n} 모양도 읽음
 const readCounter = () => {
+  counterReadError = null;
   try {
-    if (fs.existsSync(COUNTER_FILE)) {
-      const data = fs.readFileSync(COUNTER_FILE, 'utf8');
-      return parseInt(data, 10) || 100000;
-    }
+    if (!fs.existsSync(COUNTER_FILE)) return null;
+    const text = fs.readFileSync(COUNTER_FILE, 'utf8').trim();
+    if (/^\d+$/.test(text)) return Number(text);
+    const parsed = JSON.parse(text);
+    if (parsed && Number.isInteger(parsed.counter) && parsed.counter >= 0) return parsed.counter;
+    throw new Error('숫자가 아니에요');
   } catch (error) {
-    console.error('카운터 읽기 오류:', error);
+    counterReadError = `상품 번호 파일(counter.json)이 손상됐어요 (${error.message}) — 고치기 전에는 새 상품을 등록하지 않아요`;
+    return null;
   }
-  return 100000;
 };
+const maxProductNumber = (products) => products.reduce((max, p) => (/^\d+$/.test(String(p?.id)) ? Math.max(max, Number(p.id)) : max), 100000);
 
+// 조회 기록(선택 파일): 없으면 빈 기록. 손상됐으면 화면은 빈 기록으로 보여 주되 파일은 덮어쓰지 않음 (고칠 때까지 기록 안 함)
+let viewEventsReadError = null;
 const readViewEvents = () => {
+  viewEventsReadError = null;
   try {
     if (fs.existsSync(VIEW_EVENTS_FILE)) {
       const data = fs.readFileSync(VIEW_EVENTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
-      return parsed && typeof parsed === 'object' ? parsed : {};
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('형식이 객체가 아니에요');
+      return parsed;
     }
   } catch (error) {
-    console.error('조회수 이벤트 읽기 오류:', error);
+    viewEventsReadError = error.message;
+    console.error('조회수 이벤트 읽기 오류 (파일은 그대로 둠):', error.message);
   }
   return {};
 };
@@ -398,6 +412,7 @@ const writeCounter = (counter) => {
 
 const writeViewEvents = (viewEvents) => {
   if (readOnlyReason()) return; // 조회수·조회 기록 정리도 하지 않음
+  if (viewEventsReadError) return; // 손상된 조회 기록을 빈 기록으로 덮어쓰지 않음
   try {
     fs.writeFileSync(VIEW_EVENTS_FILE, JSON.stringify(viewEvents, null, 2), 'utf8');
   } catch (error) {
@@ -899,10 +914,10 @@ app.get('/api/metrics/views', (req, res) => {
 app.post('/api/products', requireAdminKey, async (req, res) => {
   const products = readProducts();
   if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  let counter = readCounter();
-
-  // 다음 상품 번호 생성
-  counter++;
+  const counterValue = readCounter();
+  if (counterReadError) return res.status(503).json({ error: counterReadError });
+  // 다음 상품 번호 = max(카운터, 기존 최대 번호) + 1 (카운터가 없거나 뒤처져도 같은 번호를 다시 쓰지 않게)
+  const counter = Math.max(counterValue ?? 100000, maxProductNumber(products)) + 1;
   const productId = counter.toString();
 
   const normalizedPayload = await normalizeProductPayload(req.body);
@@ -1119,7 +1134,8 @@ app.post('/api/flights/search-link', async (req, res) => {
 // 카운터 조회
 app.get('/api/counter', (req, res) => {
   const counter = readCounter();
-  res.json({ counter });
+  if (counterReadError) return res.status(500).json({ error: counterReadError });
+  res.json({ counter: counter ?? maxProductNumber(readProducts()) });
 });
 
 // Sitemap은 메인 사이트 빌드(generate-seo-route-shells.mjs)가 생성한다.
