@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const freePort = () => new Promise((resolve) => { const srv = require('net').createServer(); srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); }); }); // 시험 포트는 운영체제가 빈 포트를 줌 (시험 파일끼리 겹치지 않게)
 
 const KEY = 'test-admin-key-0123456789abcdef';
 
@@ -16,11 +17,11 @@ async function startServer() {
     { id: '2', name: '숨긴 상품', isAvailable: false, images: [], partnerLinks: [{ partner: 'P', url: 'https://p.com/2', source: 'manual' }], views: 0 },
   ]));
   fs.writeFileSync(path.join(dir, 'counter.json'), JSON.stringify({ counter: 10 }));
-  const port = 41000 + Math.floor(Math.random() * 2000);
+  const port = await freePort();
   const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}/api`;
   for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-  return { base, dir, stop: () => proc.kill() };
+  return { base, dir, stop: () => new Promise((r) => { if (proc.exitCode !== null || proc.signalCode !== null) return r(); proc.once('exit', r); proc.kill(); }) };
 }
 const admin = { 'x-admin-key': KEY, 'Content-Type': 'application/json' };
 
@@ -47,7 +48,7 @@ test('비활성 상품: 공개 목록·상세·조회수·통계에서 빠지고
     assert.equal(viaCookie.length, 2);
     const stored = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8'));
     assert.equal(stored.find(p => p.id === '2').views, 0, '관리자 상세 조회는 조회수에 안 셈');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('같은 요청 번호로 두 번 등록하면 상품은 하나 (두 번째는 처음 상품을 돌려줌)', async () => {
@@ -63,7 +64,7 @@ test('같은 요청 번호로 두 번 등록하면 상품은 하나 (두 번째�
     assert.equal(stored.filter(p => p.name === '새 상품').length, 1);
     const c = await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ name: '요청 번호 없음', isAvailable: false, partnerLinks: [] }) });
     assert.equal(c.status, 201, '요청 번호 없는 기존 등록 방식도 그대로 동작');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하고 빠진 것을 알려 줌 / 다 있으면 활성화', async () => {
@@ -89,7 +90,7 @@ test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하
     assert.equal((await good.json()).isAvailable, true);
     const edit = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '이름만 수정' }) });
     assert.equal(edit.status, 200, '이미 활성인 상품 수정은 점검 대상 아님');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('동시 등록: 서로 다른 요청은 모두 보존, 같은 요청 번호는 하나만 생성 / 수정과 조회수 증가가 겹쳐도 조회수 유지', async () => {
@@ -108,7 +109,7 @@ test('동시 등록: 서로 다른 요청은 모두 보존, 같은 요청 번호
     const one = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1');
     assert.equal(one.name, '수정');
     assert.equal(one.views, 1, '조회수 1 유지');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('동시 수정: 서로 다른 칸을 동시에 고치면 둘 다 남음', async () => {
@@ -121,5 +122,5 @@ test('동시 수정: 서로 다른 칸을 동시에 고치면 둘 다 남음', a
     assert.equal(p2.name, '새 이름');
     assert.equal(p2.price, 2000);
     assert.equal(p2.isAvailable, false, '보내지 않은 칸(비활성)은 그대로');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });

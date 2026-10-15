@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const freePort = () => new Promise((resolve) => { const srv = require('net').createServer(); srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); }); }); // 시험 포트는 운영체제가 빈 포트를 줌 (시험 파일끼리 겹치지 않게)
 
 const KEY = 'test-admin-key-0123456789abcdef';
 const admin = { 'x-admin-key': KEY, 'Content-Type': 'application/json' };
@@ -18,12 +19,11 @@ const ok = { status: 'available', source: '판매처', checkedAt: T0, scope: { w
 const klook = (extra = {}) => ({ partner: 'KLOOK', url: 'https://www.klook.com/activity/1', source: 'manual', externalId: '1', price: 30000, priceCurrency: 'KRW', priceConditions: '성인 1인', priceCheckedAt: T0, priceDisplay: '30,000원~', availability: ok, ...extra });
 const seed = () => [{ id: '1', name: '상품', publishStatus: 'published', isAvailable: true, images: [IMG], views: 0, rev: 5, partnerLinks: [klook(), { partner: 'KKday', url: 'https://www.kkday.com/p/2', source: 'manual', price: 100, priceCurrency: 'USD', priceConditions: '성인', priceCheckedAt: T0 }] }];
 
-let portBase = 30000 + Math.floor(Math.random() * 8000);
 async function startServer(products = seed(), { dir = null, env = {} } = {}) {
   dir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'ts-rules-'));
   if (products) fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify(products));
   if (!fs.existsSync(path.join(dir, 'counter.json'))) fs.writeFileSync(path.join(dir, 'counter.json'), '10');
-  const port = portBase++;
+  const port = await freePort();
   const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY, ...env }, stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
   proc.stderr.on('data', d => (stderr += d));

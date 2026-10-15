@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const freePort = () => new Promise((resolve) => { const srv = require('net').createServer(); srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); }); }); // 시험 포트는 운영체제가 빈 포트를 줌 (시험 파일끼리 겹치지 않게)
 
 const KEY = 'test-admin-key-0123456789abcdef';
 const IMG = 'https://img.example.com/real.jpg';
@@ -37,11 +38,11 @@ async function startServer(products = seed(), env = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-policy-'));
   fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify(products));
   fs.writeFileSync(path.join(dir, 'counter.json'), '10');
-  const port = 43000 + Math.floor(Math.random() * 2000);
+  const port = await freePort();
   const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY, OFFICE_API_KEY: OFFICE_KEY, ...env }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}/api`;
   for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-  return { base, dir, file: path.join(dir, 'products.json'), stored: () => JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8')), stop: () => proc.kill() };
+  return { base, dir, file: path.join(dir, 'products.json'), stored: () => JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8')), stop: () => new Promise((r) => { if (proc.exitCode !== null || proc.signalCode !== null) return r(); proc.once('exit', r); proc.kill(); }) };
 }
 const admin = { 'x-admin-key': KEY, 'Content-Type': 'application/json' };
 const office = { ...admin, 'x-tourstream-actor': 'office' };
@@ -71,7 +72,7 @@ test('공개 상태: 비로그인은 공개만(목록·상세·조회수·통계
     const login = await fetch(`${s.base}/admin/login`, { method: 'POST', headers: admin });
     const cookie = (login.headers.get('set-cookie') || '').split(';')[0];
     assert.equal((await json(await fetch(`${s.base}/products`, { headers: { cookie } }))).length, 9);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('공개 API는 손님에게 필요한 칸만 (내부 메모·요청 번호·승인 이력·출처·외부 번호 제외), placeholder 사진 제외', async () => {
@@ -82,7 +83,7 @@ test('공개 API는 손님에게 필요한 칸만 (내부 메모·요청 번호�
     for (const secret of ['internalNote', '내부 메모', 'clientRequestId', 'req-1', 'approvals', 'publishStatus', 'externalId', 'ext-A', '"source"', 'publishMigration']) assert.ok(!text.includes(secret), `공개 API에 ${secret}`);
     const p9 = (await json(await fetch(`${s.base}/products`))).find(p => p.id === '9');
     assert.deepEqual(p9.images, [], 'placeholder는 사진으로 내보내지 않음');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('판매처 예약 가능 여부: 일부 중지면 계속 노출·중지 판매처만 버튼 주소 없음 / 모두 중지면 bookable none(상세 안내용으로 남김) / 하나라도 미확인이면 단정 안 함 / 특정 날짜 품절은 전체 중지 아님 / 예전 확인 표시', async () => {
@@ -105,7 +106,7 @@ test('판매처 예약 가능 여부: 일부 중지면 계속 노출·중지 판
     assert.equal(by[8].partnerLinks[0].availability.stale, true, '10일 전 확인은 예전 확인으로 표시');
     assert.ok(by[8].partnerLinks[0].url);
     assert.equal(by[1].partnerLinks[0].availability.stale, false);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('판매처 상태 입력 검사: 접근 실패·CAPTCHA·가격 누락은 판매 중지로 저장 불가 / 판매 종료는 근거 필요 / 불가 범위·출처·확인 시각 필수', async () => {
@@ -121,7 +122,7 @@ test('판매처 상태 입력 검사: 접근 실패·CAPTCHA·가격 누락은 �
     assert.deepEqual([unk.scope.dates, unk.scope.pax, unk.evidence], [['2026-12-24'], ['성인 2명'], 'CAPTCHA 화면'], '확인 못 함도 범위·근거 보존');
     assert.equal((await put(stopped({ reason: 'sales_ended', evidence: '판매처 공지: 2026-10-01 판매 종료' }))).status, 200, '근거 있는 판매 종료');
     assert.equal(s.stored().find(p => p.id === '1').partnerLinks[2].availability.evidence, '판매처 공지: 2026-10-01 판매 종료');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('판매처 상태 갱신은 공개 상태를 바꾸지 않음: 숨긴 상품이 다시 팔려도 비공개, 공개 상품이 모두 중지돼도 공개 상태 유지', async () => {
@@ -139,7 +140,7 @@ test('판매처 상태 갱신은 공개 상태를 바꾸지 않음: 숨긴 상�
     r = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ partnerLinks: s.stored().find(p => p.id === '1').partnerLinks.map(({ availability, ...rest }) => rest) }) });
     assert.equal(r.status, 200);
     assert.ok(s.stored().find(p => p.id === '1').partnerLinks.every(l => l.availability?.status === 'unavailable'));
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('AI 사무실은 초안만: 공개 등록·공개 전환·숨김 해제 403, 초안 등록은 가능 / 관리자는 공개 가능', async () => {
@@ -156,7 +157,7 @@ test('AI 사무실은 초안만: 공개 등록·공개 전환·숨김 해제 403
     assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, '사무실 초안은 비공개');
     assert.equal((await fetch(`${s.base}/products/${id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 200, '관리자는 공개');
     assert.equal((await fetch(`${s.base}/products/${id}`, { headers: { 'user-agent': 'Mozilla/5.0' } })).status, 200);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('공개 필수 검사는 모든 경로에 같게: 공개 등록 / 공개만 요청 / 공개 상품 사진을 placeholder로 수정 → 400, 관계없는 칸 수정은 그대로', async () => {
@@ -178,7 +179,7 @@ test('공개 필수 검사는 모든 경로에 같게: 공개 등록 / 공개만
     // 예전 화면 호환: 공개 상품 비활성 = 숨김, 새 상품 비활성 = 초안
     const hid = await json(await fetch(`${s.base}/products/5`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: false }) }));
     assert.equal(hid.publishStatus, 'hidden');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('저장 실패: 쓰기 실패면 500이고 파일 그대로 / 파일이 깨지면 읽기·쓰기 모두 오류(빈 목록으로 덮어쓰지 않음) / 다시 보내도 같은 요청 번호는 하나', async () => {
@@ -201,7 +202,7 @@ test('저장 실패: 쓰기 실패면 500이고 파일 그대로 / 파일이 깨
     assert.equal((await fetch(`${s.base}/products`)).status, 500);
     assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: 'x' }) })).status, 500);
     assert.equal(fs.readFileSync(s.file, 'utf8'), '{깨진 파일', '깨진 파일을 빈 목록으로 덮어쓰지 않음');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 // 2026-10-14 9차 저장 구조: 상품 파일은 API 서버 하나만 쓴다. 스크립트는 API로 부탁
@@ -218,21 +219,21 @@ test('작성자는 하나: 같은 데이터 폴더로 두 번째 서버는 시�
     assert.notEqual(code, 0, '두 번째 서버는 시작하지 않음');
     assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '첫 서버 저장' }) })).status, 200);
     assert.equal(s.stored().find(p => p.id === '1').name, '첫 서버 저장');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
   // 다른 데이터 폴더는 서로 막지 않음
   const other = await startServer();
-  try { assert.equal((await fetch(`${other.base}/products`)).status, 200); } finally { other.stop(); }
+  try { assert.equal((await fetch(`${other.base}/products`)).status, 200); } finally { await other.stop(); }
 });
 
 test('강제 종료(kill -9) 뒤 같은 데이터로 새 서버가 바로 시작 / 잠금 포트를 다른 프로그램이 쥐고 있으면 시작하지 않음(안전한 쪽)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-lock-'));
   const file = path.join(dir, 'products.json');
   fs.writeFileSync(file, JSON.stringify(seed()));
-  const port1 = 43000 + Math.floor(Math.random() * 2000);
+  const port1 = await freePort();
   const first = spawnServer(dir, port1);
   assert.ok(await waitUp(`http://127.0.0.1:${port1}/api`));
   first.kill('SIGKILL'); await new Promise(r => first.on('exit', r));
-  const port2 = port1 + 1;
+  const port2 = await freePort();
   const started = Date.now();
   const next = spawnServer(dir, port2);
   try {
@@ -246,7 +247,7 @@ test('강제 종료(kill -9) 뒤 같은 데이터로 새 서버가 바로 시작
   const holder = require('net').createServer();
   await new Promise(r => holder.listen({ host: '127.0.0.1', port: lockPort, exclusive: true }, r));
   const before = fs.readFileSync(file, 'utf8');
-  const blocked = spawnServer(dir, port2 + 1);
+  const blocked = spawnServer(dir, await freePort());
   try { assert.notEqual(await new Promise(r => blocked.on('exit', r)), 0); } finally { holder.close(); }
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
@@ -274,7 +275,7 @@ test('가격 갱신 스크립트는 API로: 가격·통화·확인 시각 저장
     const p1 = s.stored().find(p => p.id === '1');
     assert.equal(p1.partnerLinks[0].price, undefined); assert.equal(p1.price, undefined);
     assert.equal((await fetch(`${s.base}/products/1/partner-prices`, { method: 'PUT', headers: { 'x-admin-key': OFFICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: [{ index: 0, price: 1 }] }) })).status, 403, '사무실 키로는 가격 갱신 불가');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('숨김 반영: 공개 여부를 바꾸면 반영 중, 배포 알림(전용 키·읽은 시각 이후 변경은 그대로)으로 완료 / 손님 API에는 반영 상태 안 나감', async () => {
@@ -303,11 +304,11 @@ test('숨김 반영: 공개 여부를 바꾸면 반영 중, 배포 알림(전용
     await fetch(`${s.base}/products/3`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) });
     const pubText = JSON.stringify(await json(await fetch(`${s.base}/products`)));
     assert.ok(!pubText.includes('visibilitySync'), '손님 API에 반영 상태 없음');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
   const noKey = await startServer();
   try {
     assert.equal((await fetch(`${noKey.base}/admin/visibility-synced`, { method: 'POST', headers: { 'x-visibility-sync-key': '', 'Content-Type': 'application/json' }, body: '{"fetchedAt":"2030-01-01T00:00:00Z"}' })).status, 401, '키를 정하지 않으면 알림을 받지 않음');
-  } finally { noKey.stop(); }
+  } finally { await noKey.stop(); }
 });
 
 test('사무실 전용 키: 머리글을 빼도 초안 등록만 (공개 등록 403·수정 403·삭제 403), 조회는 초안까지 / 관리자 키는 그대로', async () => {
@@ -325,7 +326,7 @@ test('사무실 전용 키: 머리글을 빼도 초안 등록만 (공개 등록 
     assert.ok((await (await fetch(`${s.base}/products`, { headers: officeOnly })).json()).some(p => p.id === id), '사무실 키로 초안 조회 (비공개·중복 확인용)');
     assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, '손님에게는 안 보임');
     assert.equal((await fetch(`${s.base}/products/${id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 200, '관리자 키는 공개 가능');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('이미 공개인 상품도 공개를 다시 요청하면 필수 검사 (placeholder만 남았으면 400)', async () => {
@@ -334,7 +335,7 @@ test('이미 공개인 상품도 공개를 다시 요청하면 필수 검사 (pl
     assert.equal((await fetch(`${s.base}/products/9`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 400);
     assert.equal((await fetch(`${s.base}/products/9`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) })).status, 400);
     assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 200, '정상 공개 상품은 그대로');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('숨김·공개 전환 뒤 메인 사이트 다시 빌드 요청 (가짜 GitHub로 확인, 여러 변경은 한 번으로) / 확인용 상세 조회는 조회수 안 셈', async () => {
@@ -357,7 +358,7 @@ test('숨김·공개 전환 뒤 메인 사이트 다시 빌드 요청 (가짜 Gi
     assert.equal((await fetch(`${s.base}/products/6?check=1`, { headers: { 'user-agent': 'Mozilla/5.0' } })).status, 200);
     assert.equal(s.stored().find(p => p.id === '6').views, before, '확인용 조회는 조회수 그대로');
     assert.equal((await fetch(`${s.base}/products/1?check=1`)).status, 404, '숨긴 상품 확인 → 404');
-  } finally { s.stop(); fake.close(); }
+  } finally { await s.stop(); fake.close(); }
 });
 
 test('복구 기간에 예전 버전이 isAvailable만 바꾼 상품: 공개였는데 비활성 = 숨김(다시 공개 안 됨), 비공개였는데 활성 = 분류 필요(비공개)', async () => {
@@ -371,5 +372,5 @@ test('복구 기간에 예전 버전이 isAvailable만 바꾼 상품: 공개였�
     for (const id of ['1', '2']) assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, id);
     const all = Object.fromEntries((await json(await fetch(`${s.base}/products`, { headers: admin }))).map(p => [p.id, p.publishStatus]));
     assert.deepEqual(all, { 1: 'hidden', 2: 'needs_classification', 3: 'published' });
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });

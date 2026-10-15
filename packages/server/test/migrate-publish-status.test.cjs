@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const freePort = () => new Promise((resolve) => { const srv = require('net').createServer(); srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); }); }); // 시험 포트는 운영체제가 빈 포트를 줌 (시험 파일끼리 겹치지 않게)
 
 const KEY = 'test-admin-key-0123456789abcdef';
 const SCRIPT = path.join(__dirname, '../scripts/migrate-publish-status.mjs');
@@ -31,11 +32,11 @@ async function setup() {
   fs.writeFileSync(path.join(dir, 'counter.json'), '10');
   const evidence = path.join(dir, 'evidence.json');
   fs.writeFileSync(evidence, JSON.stringify({ drafts: { 2: { source: '등록 기록', at: '2026-09-10' } }, hidden: { 4: { source: '대표 메모', at: '2026-10-01' } } }));
-  const port = 45000 + Math.floor(Math.random() * 2000);
+  const port = await freePort();
   const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}/api`;
   for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-  return { dir, file, evidence, base, run: (...args) => runAsync(base, args), read: () => JSON.parse(fs.readFileSync(file, 'utf8')), stop: () => proc.kill() };
+  return { dir, file, evidence, base, run: (...args) => runAsync(base, args), read: () => JSON.parse(fs.readFileSync(file, 'utf8')), stop: () => new Promise((r) => { if (proc.exitCode !== null || proc.signalCode !== null) return r(); proc.once('exit', r); proc.kill(); }) };
 }
 
 test('미리보기는 파일을 바꾸지 않고 변경표만 보여 줌 / 근거 없는 비활성은 이름·사진·가격이 있어도 분류 필요 / 관리자 키 필요', async () => {
@@ -53,7 +54,7 @@ test('미리보기는 파일을 바꾸지 않고 변경표만 보여 줌 / 근�
     assert.match(r.stdout, /미리보기만/);
     assert.notEqual((await runAsync(s.base, ['--evidence', s.evidence, '--apply'], 'wrong-key')).status, 0, '키가 틀리면 실패');
     assert.equal(fs.readFileSync(s.file, 'utf8'), before);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('적용: 백업을 만들고 이전, 다시 실행해도 결과가 그대로, 되돌리기로 원래대로 (되돌리기 직전 파일 보관)', async () => {
@@ -78,7 +79,7 @@ test('적용: 백업을 만들고 이전, 다시 실행해도 결과가 그대�
     assert.equal(restore.status, 0, restore.stderr);
     assert.deepEqual(s.read(), original, '되돌리기');
     assert.ok(fs.readdirSync(s.dir).some(f => f.startsWith('products.before-restore-')), '되돌리기 직전 파일도 보관');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('되돌리기는 데이터 폴더의 백업 이름만: 깨진 백업·다른 경로·없는 파일은 거절하고 그대로', async () => {
@@ -91,5 +92,5 @@ test('되돌리기는 데이터 폴더의 백업 이름만: 깨진 백업·다�
       assert.notEqual(r.status, 0, name);
     }
     assert.equal(fs.readFileSync(s.file, 'utf8'), before);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
