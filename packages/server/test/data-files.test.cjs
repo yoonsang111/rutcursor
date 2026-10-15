@@ -86,3 +86,25 @@ test('선택 파일: 조회 기록이 손상돼도 화면은 정상, 손상 파�
     assert.equal(JSON.parse(s.read('products.json')).find(p => p.id === '100001').views, 1, '상품 조회수는 계속 셈');
   } finally { await s.stop(); }
 });
+
+test('R14 카운터가 정확히 셀 수 없는 큰 수(안전 정수 밖)면 손상으로 보고 등록 거절, 파일 그대로', async () => {
+  for (const counter of ['9007199254740992', '99999999999999999999', '{"counter": 9007199254740993}']) {
+    const s = await start({ 'products.json': JSON.stringify(products()), 'counter.json': counter });
+    try {
+      assert.equal((await post(s)).status, 503, counter);
+      assert.equal(s.read('counter.json'), counter);
+      assert.equal(JSON.parse(s.read('products.json')).length, 2);
+    } finally { await s.stop(); }
+  }
+});
+
+test('R14 상품 파일은 없는데 다른 데이터 파일(분류·지역·쿠폰·조회 기록)이 하나라도 있으면 처음 설치가 아님 → 조회 오류·등록 거절, 상품 파일 안 만듦', async () => {
+  for (const name of ['categories.json', 'locations.json', 'coupons.json', 'view-events.json']) {
+    const s = await start({ [name]: name === 'view-events.json' ? '{}' : name === 'coupons.json' ? '[]' : '{"mainCategories":[],"countries":[]}' });
+    try {
+      assert.equal((await fetch(`${s.base}/products`)).status, 500, name);
+      assert.ok((await post(s)).status >= 500, name);
+      assert.ok(!fs.existsSync(path.join(s.dir, 'products.json')), name);
+    } finally { await s.stop(); }
+  }
+});

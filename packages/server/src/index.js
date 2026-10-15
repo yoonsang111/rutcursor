@@ -341,7 +341,7 @@ const readProducts = () => {
       return parsed;
     }
     // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이거나 카운터가 있으면(데이터가 있던 폴더) 사라진 것 → 오류
-    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE) || fs.existsSync(COUNTER_FILE)) productsReadError = '상품 파일이 없어요 (데이터가 있던 폴더)';
+    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE) || hasOtherData()) productsReadError = '상품 파일이 없어요 (데이터가 있던 폴더)';
   } catch (error) {
     console.error('상품 데이터 읽기 오류:', error);
     productsReadError = `상품 파일을 읽을 수 없어요 (${error.message})`;
@@ -361,16 +361,24 @@ const readCounter = () => {
   try {
     if (!fs.existsSync(COUNTER_FILE)) return null;
     const text = fs.readFileSync(COUNTER_FILE, 'utf8').trim();
-    if (/^\d+$/.test(text)) return Number(text);
-    const parsed = JSON.parse(text);
-    if (parsed && Number.isInteger(parsed.counter) && parsed.counter >= 0) return parsed.counter;
-    throw new Error('숫자가 아니에요');
+    // 정확히 셀 수 있는 정수(안전 정수)만 — 그보다 크면 +1을 해도 같은 수가 되어 번호가 겹침
+    const value = /^\d+$/.test(text) ? Number(text) : JSON.parse(text)?.counter;
+    if (Number.isSafeInteger(value) && value >= 0 && value < Number.MAX_SAFE_INTEGER) return value;
+    throw new Error('정확히 셀 수 있는 숫자가 아니에요');
   } catch (error) {
     counterReadError = `상품 번호 파일(counter.json)이 손상됐어요 (${error.message}) — 고치기 전에는 새 상품을 등록하지 않아요`;
     return null;
   }
 };
-const maxProductNumber = (products) => products.reduce((max, p) => (/^\d+$/.test(String(p?.id)) ? Math.max(max, Number(p.id)) : max), 100000);
+// 기존 최대 상품 번호. 정확히 셀 수 없는 큰 번호가 있으면 NaN (등록 거절)
+const maxProductNumber = (products) => products.reduce((max, p) => {
+  if (!/^\d+$/.test(String(p?.id))) return max;
+  const n = Number(p.id);
+  return Number.isSafeInteger(n) && n < Number.MAX_SAFE_INTEGER ? Math.max(max, n) : NaN;
+}, 100000);
+// 처음 설치인지: 데이터 폴더에 데이터 파일이 하나도 없을 때만 (상품 파일만 없고 다른 데이터가 있으면 사라진 것)
+const OTHER_DATA_FILES = ['counter.json', 'categories.json', 'locations.json', 'coupons.json', 'view-events.json'];
+const hasOtherData = () => OTHER_DATA_FILES.some((f) => fs.existsSync(path.join(DATA_DIR, f))) || (fs.existsSync(IMAGES_DIR) && fs.readdirSync(IMAGES_DIR).length > 0);
 
 // 조회 기록(선택 파일): 없으면 빈 기록. 손상됐으면 화면은 빈 기록으로 보여 주되 파일은 덮어쓰지 않음 (고칠 때까지 기록 안 함)
 let viewEventsReadError = null;
@@ -918,6 +926,7 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
   if (counterReadError) return res.status(503).json({ error: counterReadError });
   // 다음 상품 번호 = max(카운터, 기존 최대 번호) + 1 (카운터가 없거나 뒤처져도 같은 번호를 다시 쓰지 않게)
   const counter = Math.max(counterValue ?? 100000, maxProductNumber(products)) + 1;
+  if (!Number.isSafeInteger(counter)) return res.status(503).json({ error: '상품 번호를 정확히 셀 수 없어요 (아주 큰 번호가 있음) — 새 상품을 등록하지 않아요' });
   const productId = counter.toString();
 
   const normalizedPayload = await normalizeProductPayload(req.body);
@@ -1379,6 +1388,11 @@ app.use((req, res) => {
   });
 });
 
+// 처음 설치(데이터 파일이 하나도 없는 폴더): 빈 상품 목록을 만들어 '처음 설치'를 분명히 남김
+// (그 뒤에 생기는 조회 기록 등 때문에 '상품 파일만 사라진 폴더'와 헷갈리지 않게). 조회 전용이면 만들지 않음
+if (!fs.existsSync(PRODUCTS_FILE) && !hasOtherData() && !fs.existsSync(RECOVERY_MARK) && !fs.existsSync(SCHEMA_FILE)) {
+  fs.writeFileSync(PRODUCTS_FILE, '[]', 'utf8');
+}
 // 시작 때 한 번 상품을 읽어 새 버전 데이터인지 먼저 알아 둠 (첫 쓰기 요청이 조회 전용 확인을 지나치지 않게)
 readProducts();
 app.listen(PORT, () => {
