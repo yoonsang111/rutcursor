@@ -67,6 +67,9 @@ export function rollback(products, backupProducts) {
     if (!m.to || p.publishStatus !== m.to) { changes.push({ ...row, restored: false, why: '이전 뒤 공개 상태가 바뀜 — 그대로' }); return p; }
     // 백업이 이 이전의 '이전 전' 모습인지 확인: 공개 상태가 없고, 활성 값(칸 없음 포함)이 이전 때 남긴 기록과 같아야 함 (Codex 20차 — 칸이 빠진 백업으로 공개되면 안 됨)
     if (b.publishStatus !== undefined || !m.from || !Object.is(b.isAvailable, m.from.isAvailable)) { changes.push({ ...row, restored: false, why: '백업이 이전 기록과 다름 — 그대로' }); return p; }
+    // 손님 공개 여부는 절대 바꾸지 않음 (Codex 21차): 이전은 '보이던 상품 → 공개', '안 보이던 상품 → 초안·숨김·분류 필요'로만 옮겼으므로
+    // 되돌린 뒤 보임 여부(활성 값이 false가 아님)가 지금 상태(공개인지)와 같을 때만 되돌림. 백업과 기록이 함께 손상돼도 비공개 상품이 공개되지 않음
+    if ((m.from.isAvailable !== false) !== (m.to === 'published')) { changes.push({ ...row, restored: false, why: '이전 기록이 앞뒤가 안 맞음 — 그대로' }); return p; }
     const { publishStatus, publishMigration, ...rest } = p;
     const restored = { ...rest, rev: (Number(p.rev) || 0) + 1 };
     if (m.from.isAvailable === undefined) delete restored.isAvailable; else restored.isAvailable = m.from.isAvailable;

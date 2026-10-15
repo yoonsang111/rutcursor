@@ -39,6 +39,14 @@ async function setup() {
   return { dir, file, evidence, base, run: (...args) => runAsync(base, args), read: () => JSON.parse(fs.readFileSync(file, 'utf8')), stop: () => new Promise((r) => { if (proc.exitCode !== null || proc.signalCode !== null) return r(); proc.once('exit', r); proc.kill(); }) };
 }
 
+async function restart(s) {
+  const port = await freePort();
+  const proc = spawn(process.execPath, [path.join(__dirname, '../src/index.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: s.dir, ADMIN_API_KEY: KEY }, stdio: 'ignore' });
+  const base = `http://127.0.0.1:${port}/api`;
+  for (let i = 0; i < 100; i++) { try { await fetch(`${base}/counter`); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
+  return { base, run: (...args) => runAsync(base, args), stop: () => new Promise((r) => { if (proc.exitCode !== null || proc.signalCode !== null) return r(); proc.once('exit', r); proc.kill(); }) };
+}
+
 test('미리보기는 파일을 바꾸지 않고 변경표만 보여 줌 / 근거 없는 비활성은 이름·사진·가격이 있어도 분류 필요 / 관리자 키 필요', async () => {
   const s = await setup();
   try {
@@ -159,6 +167,15 @@ test('상태만 되돌리기: 백업 값이 이전 기록과 다르거나 빠졌
       assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, `${id}: 손님에게 안 보임`);
     }
     assert.match(applied.stdout, /\| 2 \|.*기록과 다름/);
+    // Codex 21차: 백업과 이전 기록에서 활성 값이 함께 빠져도(둘 다 손상) 비공개 상품은 공개되면 안 됨 — 되돌리기는 손님 공개 여부를 절대 바꾸지 않음
+    const cur = JSON.parse(fs.readFileSync(s.file, 'utf8'));
+    fs.writeFileSync(s.file, JSON.stringify(cur.map(p => p.id === '2' ? { ...p, publishMigration: { ...p.publishMigration, from: {} } } : p)));
+    fs.writeFileSync(path.join(s.dir, bad), JSON.stringify(orig.map(p => p.id === '2' ? { id: '2', name: p.name } : p)));
+    await s.stop(); Object.assign(s, await restart(s));
+    const again = await s.run('--rollback', bad, '--apply');
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(s.read().find(p => p.id === '2').isAvailable, false, '2: 둘 다 손상돼도 비공개 유지');
+    assert.equal((await fetch(`${s.base}/products/2`)).status, 404);
     assert.equal(byId('1').publishStatus, undefined, '1: 정상 상품은 되돌림');
     assert.equal(byId('1').isAvailable, true);
   } finally { await s.stop(); }
