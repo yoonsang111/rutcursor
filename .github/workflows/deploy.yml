@@ -142,7 +142,7 @@ jobs:
 
       - name: AWS key — 손님 사이트 버킷 쓰기·지우기, CloudFront 무효화 권한
         run: |
-          echo "사용자: $(aws sts get-caller-identity --query Arn --output text | sed -E 's/[0-9]{12}/<계정>/')"
+          echo "사용자: $(aws sts get-caller-identity --query Arn --output text | sed -E 's/[0-9]{12}/<계정>/') / 열쇠 ID 끝 4자리: ${AWS_ACCESS_KEY_ID: -4}"
           aws s3api list-objects-v2 --bucket "$S3_BUCKET" --max-items 1 --query 'KeyCount' --output text > /dev/null
           echo "check ${{ github.run_id }}" | aws s3 cp - "s3://$S3_BUCKET/_deploy-check/${{ github.run_id }}.txt"
           aws s3 rm "s3://$S3_BUCKET/_deploy-check/${{ github.run_id }}.txt"
