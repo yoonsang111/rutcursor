@@ -38,7 +38,7 @@ export function classify(product, evidence, at) {
     ...product,
     publishStatus: status,
     isAvailable: status === 'published',
-    publishMigration: { at, from: { isAvailable: product.isAvailable }, rule, ...(basis ? { evidence: basis } : {}) },
+    publishMigration: { at, from: { isAvailable: product.isAvailable }, to: status, rule, ...(basis ? { evidence: basis } : {}) },
   };
   return { product: next, change: { id, name: product.name, before: product.isAvailable === false ? '비활성' : '활성', after: status, rule, evidence: basis } };
 }
@@ -51,6 +51,31 @@ export function migrate(products, evidence, at = new Date().toISOString()) {
     return product;
   });
   return { products: next, changes };
+}
+
+// 상태만 되돌리기 (2026-10-15): 이전이 바꾼 칸(공개 상태·활성·이전 표시)만 이전 전 백업 값으로. 그 밖의 칸·새 상품·지운 상품은 지금 그대로
+// 이전 뒤 누군가 공개 상태를 바꾼 상품(지금 상태 ≠ 이전 결과)은 더 새로운 결정이라 건드리지 않고 알려 줌
+export function rollback(products, backupProducts) {
+  const before = new Map(backupProducts.map((b) => [String(b.id), b]));
+  const changes = [];
+  const next = products.map((p) => {
+    const m = p.publishMigration;
+    if (!m) return p;
+    const b = before.get(String(p.id));
+    const row = { id: String(p.id), name: p.name, now: p.publishStatus };
+    if (!b) { changes.push({ ...row, restored: false, why: '이전 전 백업에 없는 상품 — 그대로' }); return p; }
+    if (!m.to || p.publishStatus !== m.to) { changes.push({ ...row, restored: false, why: '이전 뒤 공개 상태가 바뀜 — 그대로' }); return p; }
+    const { publishStatus, publishMigration, ...rest } = p;
+    const restored = { ...rest, isAvailable: b.isAvailable, ...(b.publishStatus !== undefined ? { publishStatus: b.publishStatus } : {}), rev: (Number(p.rev) || 0) + 1 };
+    changes.push({ ...row, restored: true, why: `이전 전으로 (${b.isAvailable === false ? '비활성' : '활성'})` });
+    return restored;
+  });
+  return { products: next, changes };
+}
+export function rollbackTable(changes) {
+  const n = changes.filter((c) => c.restored).length;
+  return [`# 공개 상태 되돌리기 (${n}개 되돌림, ${changes.length - n}개 그대로)`, '', '| 상품 번호 | 이름 | 지금 상태 | 처리 |', '|---|---|---|---|',
+    ...changes.map((c) => `| ${c.id} | ${String(c.name || '').replace(/\|/g, '/')} | ${LABEL[c.now] || c.now || '-'} | ${c.why} |`)].join('\n');
 }
 
 const LABEL = { published: '공개', draft: '초안', hidden: '숨김', needs_classification: '분류 필요' };

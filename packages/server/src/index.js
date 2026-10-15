@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { getPartnerIntegration } from './integrations/index.js';
 import { readJsonArray, writeJsonAtomic, writeFileAtomic } from './productStore.js';
 import { acquireWriterLock } from './writerLock.js';
-import { migrate as migratePublishStatus, normalizeEvidence, changeTable } from './publishMigration.js';
+import { migrate as migratePublishStatus, normalizeEvidence, changeTable, rollback as rollbackPublishStatus, rollbackTable } from './publishMigration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1507,7 +1507,30 @@ app.post('/api/admin/publish-status-migration', requireAdminKey, lockProducts, (
   }
 });
 
-// 백업으로 되돌리기 (데이터 폴더 안의 products.before-*.json만). 되돌리기 직전 파일도 따로 보관
+// 공개 상태만 되돌리기 (이전 뒤 수정·가격·새 상품 보존). body: { backup: 'products.before-publish-status-….json', apply }
+app.post('/api/admin/publish-status-rollback', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const name = String(req.body?.backup || '');
+    if (!/^products\.before-publish-status-[\w.-]+\.json$/.test(name)) throw productInputError('이전 백업 파일 이름이 올바르지 않아요');
+    const backupPath = path.join(DATA_DIR, name);
+    if (!fs.existsSync(backupPath)) throw productInputError('백업 파일이 없어요');
+    const { products: next, changes } = rollbackPublishStatus(readProducts(), readJsonArray(backupPath));
+    const restored = changes.filter((c) => c.restored).length;
+    const result = { changes, table: rollbackTable(changes), restored, applied: false };
+    if (req.body?.apply === true && restored) {
+      const safety = path.join(DATA_DIR, `products.before-rollback-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+      fs.copyFileSync(PRODUCTS_FILE, safety);
+      writeProducts(next);
+      requestPublicRebuild('공개 상태 되돌림');
+      Object.assign(result, { applied: true, safety: path.basename(safety) });
+    }
+    res.json(result);
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 파일 전체를 백업으로 되돌리기 (비상용 — 백업 뒤의 모든 수정이 사라짐. 상태 이전만 되돌릴 때는 위 publish-status-rollback). 되돌리기 직전 파일도 따로 보관
 app.post('/api/admin/products-restore', requireAdminKey, lockProducts, (req, res) => {
   try {
     const name = String(req.body?.backup || '');

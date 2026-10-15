@@ -94,3 +94,47 @@ test('되돌리기는 데이터 폴더의 백업 이름만: 깨진 백업·다�
     assert.equal(fs.readFileSync(s.file, 'utf8'), before);
   } finally { await s.stop(); }
 });
+
+// 2026-10-15 대표 지시: 상태 이전 뒤 새 수정 내역을 잃지 않는 되돌리기. 파일 전체를 백업으로 덮으면 이전 뒤의 수정·가격 갱신·새 상품이 사라짐
+// → 이전이 바꾼 칸(공개 상태·활성)만, 이전 뒤 아무도 상태를 바꾸지 않은 상품만 되돌림. 그사이 상태를 바꾼 상품은 그대로 두고 알려 줌
+test('상태만 되돌리기: 이전 뒤의 이름 수정·가격·새 상품은 보존, 그사이 상태를 바꾼 상품은 그대로, 미리보기는 안 바꿈, 두 번째는 할 일 없음', async () => {
+  const s = await setup();
+  const admin = { 'Content-Type': 'application/json', 'X-Admin-Key': KEY };
+  const put = async (id, body) => { const cur = await (await fetch(`${s.base}/products/${id}`, { headers: admin })).json(); return fetch(`${s.base}/products/${id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ ...body, baseRev: cur.rev || 0 }) }); };
+  try {
+    const original = JSON.parse(fs.readFileSync(s.file, 'utf8'));
+    const r = await s.run('--evidence', s.evidence, '--apply');
+    const backup = r.stdout.match(/백업: (\S+)/)[1];
+    // 이전 뒤의 운영 변화
+    assert.equal((await put('2', { name: '이전 뒤 고친 이름' })).status, 200);
+    assert.equal((await put('4', { price: 7777 })).status, 200);
+    assert.equal((await put('3', { publishStatus: 'hidden' })).status, 200, '관리자가 분류 필요 → 숨김으로 정함');
+    const created = await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ name: '이전 뒤 새 상품', publishStatus: 'draft' }) });
+    assert.equal(created.status, 201);
+    const newId = (await created.json()).id;
+    const beforePreview = fs.readFileSync(s.file, 'utf8');
+    const preview = await s.run('--rollback', backup);
+    assert.equal(preview.status, 0, preview.stderr);
+    assert.equal(fs.readFileSync(s.file, 'utf8'), beforePreview, '미리보기는 파일을 바꾸지 않음');
+    assert.match(preview.stdout, /\| 3 \|.*그대로/, '그사이 상태를 바꾼 상품은 그대로 둔다고 알려 줌');
+    const applied = await s.run('--rollback', backup, '--apply');
+    assert.equal(applied.status, 0, applied.stderr);
+    const now = s.read();
+    const byId = id => now.find(p => String(p.id) === String(id));
+    for (const id of ['1', '2', '4']) {
+      const o = original.find(p => p.id === id);
+      assert.equal(byId(id).publishStatus, undefined, `${id}: 이전 전처럼 공개 상태 없음`);
+      assert.equal(byId(id).isAvailable, o.isAvailable, `${id}: 활성 여부 원래대로`);
+      assert.equal(byId(id).publishMigration, undefined, `${id}: 이전 표시 지움`);
+    }
+    assert.equal(byId('2').name, '이전 뒤 고친 이름', '이전 뒤 이름 수정 보존');
+    assert.equal(byId('4').price, 7777, '이전 뒤 가격 보존');
+    assert.equal(byId('3').publishStatus, 'hidden', '그사이 관리자가 정한 상태 보존');
+    assert.equal(byId('5').publishStatus, 'hidden', '이번 이전과 무관한 상품 그대로');
+    assert.ok(byId(newId), '이전 뒤 새 상품 보존');
+    assert.ok(fs.readdirSync(s.dir).some(f => f.startsWith('products.before-rollback-')), '되돌리기 직전 파일 보관');
+    const again = await s.run('--rollback', backup, '--apply');
+    assert.equal(again.status, 0);
+    assert.match(again.stdout, /되돌릴 상품이 없어요/);
+  } finally { await s.stop(); }
+});
