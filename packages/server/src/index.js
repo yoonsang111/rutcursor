@@ -245,7 +245,9 @@ const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 const RECOVERY_MARK = path.join(DATA_DIR, 'RECOVERY_READ_ONLY');
 const SCHEMA_FILE = path.join(DATA_DIR, 'schema.json');
 let newDataSeen = false; // 상품 파일에서 새 버전 칸을 한 번이라도 보면 이 프로세스가 끝날 때까지 조회 전용
+let productsReadError = null; // 상품 파일을 못 읽음(손상·형식 오류·복구 중 없음) → 빈 목록으로 보지 않고 오류, 쓰기 거절
 const readOnlyReason = () => {
+  if (productsReadError) return productsReadError;
   if (fs.existsSync(RECOVERY_MARK)) return '복구 표시 파일이 있어요';
   if (fs.existsSync(SCHEMA_FILE)) return '새 버전 데이터예요 (schema.json)';
   if (newDataSeen) return '새 버전 데이터예요 (상품 공개 상태)';
@@ -263,9 +265,7 @@ app.use((req, res, next) => {
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
-if (!fs.existsSync(IMAGES_DIR)) {
-  fs.mkdirSync(IMAGES_DIR, { recursive: true });
-}
+// 사진 폴더는 처음 사진을 저장할 때 만든다 (시작 때 만들지 않음 — 조회 전용이면 폴더도 만들지 않게)
 
 // 떼어낸 이미지 파일 서빙. 파일명이 내용 해시라 내용이 바뀌면 이름도 바뀌므로 영구 캐시해도 안전하다.
 app.use('/images', express.static(IMAGES_DIR, { maxAge: '365d', immutable: true }));
@@ -285,7 +285,7 @@ const externalizeImage = (value) => {
     if (buf.length === 0) return '';
     const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
     const file = path.join(IMAGES_DIR, name);
-    if (!fs.existsSync(file) && !readOnlyReason()) fs.writeFileSync(file, buf);
+    if (!fs.existsSync(file) && !readOnlyReason()) { fs.mkdirSync(IMAGES_DIR, { recursive: true }); fs.writeFileSync(file, buf); }
     return `${PUBLIC_API_URL}/images/${name}`;
   } catch (error) {
     console.error('[이미지] 파일 저장 실패:', error.message);
@@ -327,22 +327,29 @@ const readProducts = () => {
     if (fs.existsSync(PRODUCTS_FILE)) {
       const data = fs.readFileSync(PRODUCTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.some((p) => p && p.publishStatus !== undefined)) newDataSeen = true;
+      if (!Array.isArray(parsed)) throw new Error('상품 파일 형식이 배열이 아니에요');
+      productsReadError = null;
+      if (parsed.some((p) => p && p.publishStatus !== undefined)) newDataSeen = true;
       const hasLegacyData = Array.isArray(parsed) && parsed.some((p) => !Array.isArray(p.partnerLinks));
       if (hasLegacyData) {
         console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
         const migrated = parsed.map(migrateLegacyPartnerLinks);
-        writeProducts(migrated); // 조회 전용이면 메모리에서만 바꿈 (writeProducts가 쓰지 않음)
+        if (!readOnlyReason()) writeProducts(migrated); // 조회 전용이면 메모리에서만 바꿈
         console.log(`[API] partnerLinks 마이그레이션 완료: ${migrated.length}개 상품`);
         return migrated;
       }
       return parsed;
     }
+    // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이면 데이터가 사라진 것 → 오류
+    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE)) productsReadError = '상품 파일이 없어요 (복구 중)';
   } catch (error) {
     console.error('상품 데이터 읽기 오류:', error);
+    productsReadError = `상품 파일을 읽을 수 없어요 (${error.message})`;
   }
   return [];
 };
+// 상품 파일을 못 읽었으면 빈 목록 대신 오류로 응답 (손님·관리자 모두)
+const productsReadFailed = (res) => (productsReadError ? (res.status(500).json({ error: productsReadError }), true) : false);
 
 const readCounter = () => {
   try {
@@ -371,7 +378,8 @@ const readViewEvents = () => {
 
 // 파일에 데이터 쓰기
 const writeProducts = (products) => {
-  if (readOnlyReason()) return; // 조회 전용: 쓰지 않음 (쓰기 요청은 앞에서 503)
+  // 조회 전용·상품 파일 읽기 실패면 쓰지 않고 오류 (조용히 성공처럼 보이지 않게 — 쓰기 요청은 보통 앞에서 503)
+  if (readOnlyReason()) throw Object.assign(new Error(`읽기 전용이라 저장할 수 없어요: ${readOnlyReason()}`), { status: 503 });
   try {
     fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
   } catch (error) {
@@ -768,6 +776,7 @@ const deriveLocationsFromProducts = (products = []) => {
 app.get('/api/products', (req, res) => {
   // 비활성 상품은 관리자 요청에만 포함 (공개 목록으로 비활성 상품이 새지 않게)
   const products = visibleTo(req, res, readProducts());
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const viewEvents = trimExpiredViewEvents(readViewEvents());
   writeViewEvents(viewEvents);
   console.log(`[API] GET /api/products 요청 - ${products.length}개 상품 반환`);
@@ -788,6 +797,7 @@ app.get('/api/products', (req, res) => {
 // 상품 상세 조회
 app.get('/api/products/:id', (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const nowMs = Date.now();
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
@@ -798,7 +808,7 @@ app.get('/api/products/:id', (req, res) => {
   }
 
   const userAgent = req.get('user-agent') || '';
-  if (!isBotUserAgent(userAgent) && !isAdminRequest(req)) {
+  if (!isBotUserAgent(userAgent) && !isAdminRequest(req) && !readOnlyReason()) {
     // 상세 조회 시 조회수 증가 (어드민이 보는 건 세지 않음)
     const currentViews = Number(products[index].views) || 0;
     products[index] = {
@@ -833,6 +843,7 @@ app.post('/api/products/:id/view', (req, res) => {
   const userAgent = req.get('user-agent') || '';
   if (isBotUserAgent(userAgent)) {
     const products = readProducts();
+    if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
     const product = products.find((p) => sameProductId(p.id, req.params.id));
     if (!product || (!isGuestVisible(product) && !isAdminRequest(req))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
@@ -846,6 +857,7 @@ app.post('/api/products/:id/view', (req, res) => {
   }
 
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const nowMs = Date.now();
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   const index = findProductIndex(products, req.params.id);
@@ -877,6 +889,7 @@ app.post('/api/products/:id/view', (req, res) => {
 app.get('/api/metrics/views', (req, res) => {
   const nowMs = Date.now();
   const products = visibleTo(req, res, readProducts());
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   return res.json(buildViewMetrics(products, viewEvents, nowMs));
@@ -885,6 +898,7 @@ app.get('/api/metrics/views', (req, res) => {
 // 상품 등록
 app.post('/api/products', requireAdminKey, async (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   let counter = readCounter();
 
   // 다음 상품 번호 생성
@@ -910,6 +924,7 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
 // 상품 수정
 app.put('/api/products/:id', requireAdminKey, async (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const index = findProductIndex(products, req.params.id);
 
   if (index === -1) {
@@ -934,6 +949,7 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
 // 상품 삭제
 app.delete('/api/products/:id', requireAdminKey, (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const index = findProductIndex(products, req.params.id);
   
   if (index === -1) {

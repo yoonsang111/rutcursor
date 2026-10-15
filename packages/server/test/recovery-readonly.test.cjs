@@ -33,7 +33,8 @@ async function start(dir, port) {
 // 데이터 폴더 전체(하위 폴더 포함)의 파일 지문
 function fingerprint(dir) {
   const out = {};
-  const walk = d => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else out[path.relative(dir, p)] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); } };
+  // 폴더도 기록 (빈 폴더를 새로 만드는 것도 쓰기)
+  const walk = d => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) { out[`${path.relative(dir, p)}/`] = 'dir'; walk(p); } else out[path.relative(dir, p)] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); } };
   walk(dir);
   return out;
 }
@@ -153,5 +154,31 @@ test('손님 응답은 허용 칸만: 위·아래(판매처·SEO) 어디에 새 
     assert.equal(one.seo.title, 't');
     const adminText = JSON.stringify(await (await fetch(`${s.base}/products`, { headers: admin })).json());
     assert.ok(adminText.includes('내부-감사') && adminText.includes('ext-secret'));
+  } finally { await s.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('상품 파일이 깨졌으면 빈 목록으로 보지 않음: 조회는 500, 등록·수정은 거절하고 파일 그대로 (표시·schema 없어도)', async () => {
+  const dir = setup(false);
+  fs.writeFileSync(path.join(dir, 'products.json'), '{broken');
+  const s = await start(dir, 49000 + Math.floor(Math.random() * 900));
+  try {
+    assert.equal((await fetch(`${s.base}/products`)).status, 500);
+    assert.equal((await fetch(`${s.base}/products`, { headers: admin })).status, 500);
+    const r = await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ name: '새 상품', isAvailable: false }) });
+    assert.notEqual(r.status, 201);
+    assert.ok(r.status >= 500, String(r.status));
+    assert.equal(fs.readFileSync(path.join(dir, 'products.json'), 'utf8'), '{broken', '깨진 파일을 덮어쓰지 않음');
+  } finally { await s.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('복구 중(표시 파일)인데 상품 파일이 없으면 빈 목록이 아니라 500 / 시작해도 사진 폴더 등 아무 폴더도 만들지 않음', async () => {
+  const dir = setup(true);
+  fs.unlinkSync(path.join(dir, 'products.json'));
+  const before = fingerprint(dir);
+  const s = await start(dir, 49000 + Math.floor(Math.random() * 900));
+  try {
+    assert.equal((await fetch(`${s.base}/products`)).status, 500);
+    assert.deepEqual(fingerprint(dir), before);
+    assert.ok(!fs.existsSync(path.join(dir, 'images')));
   } finally { await s.stop(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
