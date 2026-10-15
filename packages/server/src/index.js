@@ -130,6 +130,32 @@ const sessionCookieOptions = {
   path: '/',
 };
 
+// 조회 요청이 관리자(어드민 로그인 쿠키 또는 관리자 키)인지. 비활성 상품은 관리자에게만 보여 준다.
+const isAdminRequest = (req) =>
+  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER));
+// 손님에게 보이는 상품: 활성이고, (새 버전이 쓴 데이터라면) 공개 상태가 '공개'인 것만.
+// 새 버전에서 이 버전으로 되돌린 기간에 예전 어드민이 초안·숨김을 '활성'으로 바꿔도 손님에게 나가지 않게
+const isGuestVisible = (p) => p.isAvailable !== false && (!p.publishStatus || p.publishStatus === 'published');
+// 손님 응답은 손님에게 필요한 칸만 (허용 목록). 새 내부 칸이 생겨도 저절로 빠짐 (판매처 칸·SEO 칸도 같은 방식)
+const PUBLIC_FIELDS = ['id', 'name', 'description', 'categories', 'locations', 'tags', 'price', 'minPrice', 'salePrice', 'rating', 'reviewCount', 'isRecommended', 'isAvailable', 'views', 'image', 'images', 'recentViews7d', 'recentViews30d'];
+const PUBLIC_LINK_FIELDS = ['partner', 'url', 'price', 'priceDisplay', 'priceCurrency', 'priceConditions', 'priceCheckedAt'];
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj && obj[k] !== undefined).map((k) => [k, obj[k]]));
+const withoutInternal = (p) => ({
+  ...pick(p, PUBLIC_FIELDS),
+  ...(p.seo && typeof p.seo === 'object' ? { seo: pick(p.seo, ['title', 'description', 'keywords']) } : {}),
+  partnerLinks: (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).map((l) => pick(l, PUBLIC_LINK_FIELDS)),
+});
+// 관리자 응답(비활성 포함)은 어디에도 저장되지 않게, 손님 응답과 섞이지 않게
+const visibleTo = (req, res, products) => {
+  res.set('Vary', 'Origin, Cookie, X-Admin-Key');
+  if (isAdminRequest(req)) {
+    res.set('Cache-Control', 'private, no-store');
+    return products;
+  }
+  res.set('Cache-Control', 'no-cache');
+  return products.filter(isGuestVisible).map(withoutInternal);
+};
+
 const requireAdminKey = (req, res, next) => {
   if (!ADMIN_API_KEY) {
     console.error(`[인증] ADMIN_API_KEY 미설정으로 거부: ${req.method} ${req.path}`);
@@ -212,13 +238,34 @@ const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://api.tourstream.kr
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 
-// 데이터 디렉토리 생성
+// 조회 전용(복구) 모드: 아래 중 하나면 이 서버는 데이터 폴더에 아무것도 쓰지 않는다 (요청마다 다시 확인)
+//  - 복구 표시 파일 RECOVERY_READ_ONLY가 있음 (복구 실행자가 만들고 지움)
+//  - 새 버전(상품 공개 상태 기능)이 쓴 데이터: schema.json이 있거나 읽을 수 없음, 또는 상품에 publishStatus가 있음
+//    → 이 버전은 새 칸(가격 통화·확인 시각·판매처 예약 상태 등)을 모르고 저장하면 지워서, 표시 파일을 잊어도 쓰지 않음
+const RECOVERY_MARK = path.join(DATA_DIR, 'RECOVERY_READ_ONLY');
+const SCHEMA_FILE = path.join(DATA_DIR, 'schema.json');
+let newDataSeen = false; // 상품 파일에서 새 버전 칸을 한 번이라도 보면 이 프로세스가 끝날 때까지 조회 전용
+let productsReadError = null; // 상품 파일을 못 읽음(손상·형식 오류·복구 중 없음) → 빈 목록으로 보지 않고 오류, 쓰기 거절
+const readOnlyReason = () => {
+  if (productsReadError) return productsReadError;
+  if (fs.existsSync(RECOVERY_MARK)) return '복구 표시 파일이 있어요';
+  if (fs.existsSync(SCHEMA_FILE)) return '새 버전 데이터예요 (schema.json)';
+  if (newDataSeen) return '새 버전 데이터예요 (상품 공개 상태)';
+  return null;
+};
+const RO_ALLOWED = new Set(['/api/admin/login', '/api/admin/logout', '/api/admin/session']);
+app.use((req, res, next) => {
+  const reason = readOnlyReason();
+  if (reason) res.set('X-Read-Only', '1');
+  if (!reason || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || RO_ALLOWED.has(req.path)) return next();
+  return res.status(503).json({ error: `복구 중 읽기 전용이라 저장할 수 없어요: ${reason}` });
+});
+
+// 데이터 디렉토리 생성 (없을 때만 — 있는 폴더는 건드리지 않음)
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
-if (!fs.existsSync(IMAGES_DIR)) {
-  fs.mkdirSync(IMAGES_DIR, { recursive: true });
-}
+// 사진 폴더는 처음 사진을 저장할 때 만든다 (시작 때 만들지 않음 — 조회 전용이면 폴더도 만들지 않게)
 
 // 떼어낸 이미지 파일 서빙. 파일명이 내용 해시라 내용이 바뀌면 이름도 바뀌므로 영구 캐시해도 안전하다.
 app.use('/images', express.static(IMAGES_DIR, { maxAge: '365d', immutable: true }));
@@ -238,7 +285,7 @@ const externalizeImage = (value) => {
     if (buf.length === 0) return '';
     const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
     const file = path.join(IMAGES_DIR, name);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    if (!fs.existsSync(file) && !readOnlyReason()) { fs.mkdirSync(IMAGES_DIR, { recursive: true }); fs.writeFileSync(file, buf); }
     return `${PUBLIC_API_URL}/images/${name}`;
   } catch (error) {
     console.error('[이미지] 파일 저장 실패:', error.message);
@@ -246,8 +293,8 @@ const externalizeImage = (value) => {
   }
 };
 
-// 레거시 경로에만 데이터가 있는 경우 자동 이관
-if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR) {
+// 레거시 경로에만 데이터가 있는 경우 자동 이관 (조회 전용이면 하지 않음)
+if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR && !readOnlyReason()) {
   ['products.json', 'counter.json', 'categories.json', 'locations.json', 'view-events.json'].forEach((fileName) => {
     const legacyFile = path.join(LEGACY_DATA_DIR, fileName);
     const currentFile = path.join(DATA_DIR, fileName);
@@ -280,49 +327,81 @@ const readProducts = () => {
     if (fs.existsSync(PRODUCTS_FILE)) {
       const data = fs.readFileSync(PRODUCTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
+      if (!Array.isArray(parsed)) throw new Error('상품 파일 형식이 배열이 아니에요');
+      productsReadError = null;
+      if (parsed.some((p) => p && p.publishStatus !== undefined)) newDataSeen = true;
       const hasLegacyData = Array.isArray(parsed) && parsed.some((p) => !Array.isArray(p.partnerLinks));
       if (hasLegacyData) {
         console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
         const migrated = parsed.map(migrateLegacyPartnerLinks);
-        writeProducts(migrated);
+        if (!readOnlyReason()) writeProducts(migrated); // 조회 전용이면 메모리에서만 바꿈
         console.log(`[API] partnerLinks 마이그레이션 완료: ${migrated.length}개 상품`);
         return migrated;
       }
       return parsed;
     }
+    // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이거나 카운터가 있으면(데이터가 있던 폴더) 사라진 것 → 오류
+    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE) || hasOtherData()) productsReadError = '상품 파일이 없어요 (데이터가 있던 폴더)';
   } catch (error) {
     console.error('상품 데이터 읽기 오류:', error);
+    productsReadError = `상품 파일을 읽을 수 없어요 (${error.message})`;
   }
   return [];
 };
+// 상품 파일을 못 읽었으면 빈 목록 대신 오류로 응답 (손님·관리자 모두)
+const productsReadFailed = (res) => (productsReadError ? (res.status(500).json({ error: productsReadError }), true) : false);
 
+// 데이터 파일 규칙 (13차 설계 재검토): 필수 = products.json(다른 데이터가 있을 때)·counter.json(등록에 필요),
+// 선택 = view-events.json·categories.json·locations.json·coupons.json·images/. 선택 파일이 없는 것은 정상.
+// 손상된 필수 데이터는 기본값으로 덮어쓰지 않고, 그 파일에 기대는 쓰기를 거절한다.
+let counterReadError = null;
+// 카운터: 없으면 null(기존 최대 번호로 대신), 숫자가 아니면 손상(null + 오류). 예전 {"counter": n} 모양도 읽음
 const readCounter = () => {
+  counterReadError = null;
   try {
-    if (fs.existsSync(COUNTER_FILE)) {
-      const data = fs.readFileSync(COUNTER_FILE, 'utf8');
-      return parseInt(data, 10) || 100000;
-    }
+    if (!fs.existsSync(COUNTER_FILE)) return null;
+    const text = fs.readFileSync(COUNTER_FILE, 'utf8').trim();
+    // 정확히 셀 수 있는 정수(안전 정수)만 — 그보다 크면 +1을 해도 같은 수가 되어 번호가 겹침
+    const value = /^\d+$/.test(text) ? Number(text) : JSON.parse(text)?.counter;
+    if (Number.isSafeInteger(value) && value >= 0 && value < Number.MAX_SAFE_INTEGER) return value;
+    throw new Error('정확히 셀 수 있는 숫자가 아니에요');
   } catch (error) {
-    console.error('카운터 읽기 오류:', error);
+    counterReadError = `상품 번호 파일(counter.json)이 손상됐어요 (${error.message}) — 고치기 전에는 새 상품을 등록하지 않아요`;
+    return null;
   }
-  return 100000;
 };
+// 기존 최대 상품 번호. 정확히 셀 수 없는 큰 번호가 있으면 NaN (등록 거절)
+const maxProductNumber = (products) => products.reduce((max, p) => {
+  if (!/^\d+$/.test(String(p?.id))) return max;
+  const n = Number(p.id);
+  return Number.isSafeInteger(n) && n < Number.MAX_SAFE_INTEGER ? Math.max(max, n) : NaN;
+}, 100000);
+// 처음 설치인지: 데이터 폴더에 데이터 파일이 하나도 없을 때만 (상품 파일만 없고 다른 데이터가 있으면 사라진 것)
+const OTHER_DATA_FILES = ['counter.json', 'categories.json', 'locations.json', 'coupons.json', 'view-events.json'];
+const hasOtherData = () => OTHER_DATA_FILES.some((f) => fs.existsSync(path.join(DATA_DIR, f))) || (fs.existsSync(IMAGES_DIR) && fs.readdirSync(IMAGES_DIR).length > 0);
 
+// 조회 기록(선택 파일): 없으면 빈 기록. 손상됐으면 화면은 빈 기록으로 보여 주되 파일은 덮어쓰지 않음 (고칠 때까지 기록 안 함)
+let viewEventsReadError = null;
 const readViewEvents = () => {
+  viewEventsReadError = null;
   try {
     if (fs.existsSync(VIEW_EVENTS_FILE)) {
       const data = fs.readFileSync(VIEW_EVENTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
-      return parsed && typeof parsed === 'object' ? parsed : {};
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('형식이 객체가 아니에요');
+      return parsed;
     }
   } catch (error) {
-    console.error('조회수 이벤트 읽기 오류:', error);
+    viewEventsReadError = error.message;
+    console.error('조회수 이벤트 읽기 오류 (파일은 그대로 둠):', error.message);
   }
   return {};
 };
 
 // 파일에 데이터 쓰기
 const writeProducts = (products) => {
+  // 조회 전용·상품 파일 읽기 실패면 쓰지 않고 오류 (조용히 성공처럼 보이지 않게 — 쓰기 요청은 보통 앞에서 503)
+  if (readOnlyReason()) throw Object.assign(new Error(`읽기 전용이라 저장할 수 없어요: ${readOnlyReason()}`), { status: 503 });
   try {
     fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
   } catch (error) {
@@ -331,6 +410,7 @@ const writeProducts = (products) => {
 };
 
 const writeCounter = (counter) => {
+  if (readOnlyReason()) return;
   try {
     fs.writeFileSync(COUNTER_FILE, counter.toString(), 'utf8');
   } catch (error) {
@@ -339,6 +419,8 @@ const writeCounter = (counter) => {
 };
 
 const writeViewEvents = (viewEvents) => {
+  if (readOnlyReason()) return; // 조회수·조회 기록 정리도 하지 않음
+  if (viewEventsReadError) return; // 손상된 조회 기록을 빈 기록으로 덮어쓰지 않음
   try {
     fs.writeFileSync(VIEW_EVENTS_FILE, JSON.stringify(viewEvents, null, 2), 'utf8');
   } catch (error) {
@@ -715,7 +797,9 @@ const deriveLocationsFromProducts = (products = []) => {
 
 // 상품 목록 조회
 app.get('/api/products', (req, res) => {
-  const products = readProducts();
+  // 비활성 상품은 관리자 요청에만 포함 (공개 목록으로 비활성 상품이 새지 않게)
+  const products = visibleTo(req, res, readProducts());
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const viewEvents = trimExpiredViewEvents(readViewEvents());
   writeViewEvents(viewEvents);
   console.log(`[API] GET /api/products 요청 - ${products.length}개 상품 반환`);
@@ -736,17 +820,19 @@ app.get('/api/products', (req, res) => {
 // 상품 상세 조회
 app.get('/api/products/:id', (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const nowMs = Date.now();
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   const index = findProductIndex(products, req.params.id);
-  if (index === -1) {
+  const shown = index === -1 ? [] : visibleTo(req, res, [products[index]]);
+  if (!shown.length) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
   const userAgent = req.get('user-agent') || '';
-  if (!isBotUserAgent(userAgent)) {
-    // 상세 조회 시 조회수 증가
+  if (!isBotUserAgent(userAgent) && !isAdminRequest(req) && !readOnlyReason()) {
+    // 상세 조회 시 조회수 증가 (어드민이 보는 건 세지 않음)
     const currentViews = Number(products[index].views) || 0;
     products[index] = {
       ...products[index],
@@ -759,7 +845,7 @@ app.get('/api/products/:id', (req, res) => {
     writeViewEvents(viewEvents);
     warnIfViewSpike(productId, viewEvents, nowMs);
   }
-  const product = products[index];
+  const product = { ...shown[0], views: products[index].views }; // 손님에게는 내부 칸을 뺀 모양
 
   // placeholder 이미지 URL 제거
   const cleanedProduct = {
@@ -780,8 +866,9 @@ app.post('/api/products/:id/view', (req, res) => {
   const userAgent = req.get('user-agent') || '';
   if (isBotUserAgent(userAgent)) {
     const products = readProducts();
+    if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
     const product = products.find((p) => sameProductId(p.id, req.params.id));
-    if (!product) {
+    if (!product || (!isGuestVisible(product) && !isAdminRequest(req))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
     return res.json({
@@ -793,11 +880,12 @@ app.post('/api/products/:id/view', (req, res) => {
   }
 
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const nowMs = Date.now();
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   const index = findProductIndex(products, req.params.id);
 
-  if (index === -1) {
+  if (index === -1 || (!isGuestVisible(products[index]) && !isAdminRequest(req))) {
     return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
   }
 
@@ -823,7 +911,8 @@ app.post('/api/products/:id/view', (req, res) => {
 
 app.get('/api/metrics/views', (req, res) => {
   const nowMs = Date.now();
-  const products = readProducts();
+  const products = visibleTo(req, res, readProducts());
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
   return res.json(buildViewMetrics(products, viewEvents, nowMs));
@@ -832,10 +921,12 @@ app.get('/api/metrics/views', (req, res) => {
 // 상품 등록
 app.post('/api/products', requireAdminKey, async (req, res) => {
   const products = readProducts();
-  let counter = readCounter();
-
-  // 다음 상품 번호 생성
-  counter++;
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
+  const counterValue = readCounter();
+  if (counterReadError) return res.status(503).json({ error: counterReadError });
+  // 다음 상품 번호 = max(카운터, 기존 최대 번호) + 1 (카운터가 없거나 뒤처져도 같은 번호를 다시 쓰지 않게)
+  const counter = Math.max(counterValue ?? 100000, maxProductNumber(products)) + 1;
+  if (!Number.isSafeInteger(counter)) return res.status(503).json({ error: '상품 번호를 정확히 셀 수 없어요 (아주 큰 번호가 있음) — 새 상품을 등록하지 않아요' });
   const productId = counter.toString();
 
   const normalizedPayload = await normalizeProductPayload(req.body);
@@ -857,6 +948,7 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
 // 상품 수정
 app.put('/api/products/:id', requireAdminKey, async (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const index = findProductIndex(products, req.params.id);
 
   if (index === -1) {
@@ -881,6 +973,7 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
 // 상품 삭제
 app.delete('/api/products/:id', requireAdminKey, (req, res) => {
   const products = readProducts();
+  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
   const index = findProductIndex(products, req.params.id);
   
   if (index === -1) {
@@ -909,7 +1002,8 @@ app.post('/api/admin/logout', (req, res) => {
 
 // 현재 세션이 살아있는지 확인 (새로고침 시 로그인 상태 복원용)
 app.get('/api/admin/session', (req, res) => {
-  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)) });
+  // readOnly: 복구 중 읽기 전용이면 그 이유 (어드민 화면이 '저장할 수 없음'을 미리 보여 주게)
+  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)), readOnly: readOnlyReason() });
 });
 
 // 예전 어드민 빌드가 호출하던 경로. 키 확인만 하고 쿠키는 주지 않는다.
@@ -1049,7 +1143,8 @@ app.post('/api/flights/search-link', async (req, res) => {
 // 카운터 조회
 app.get('/api/counter', (req, res) => {
   const counter = readCounter();
-  res.json({ counter });
+  if (counterReadError) return res.status(500).json({ error: counterReadError });
+  res.json({ counter: counter ?? maxProductNumber(readProducts()) });
 });
 
 // Sitemap은 메인 사이트 빌드(generate-seo-route-shells.mjs)가 생성한다.
@@ -1072,7 +1167,7 @@ app.get('/api/categories', (req, res) => {
       if (hasStringData) {
         console.log('[API] categories.json 레거시 데이터 감지, 자동 정규화 실행...');
         const normalized = normalizeCategoriesPayload(parsed);
-        fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
         console.log(`[API] categories.json 정규화 완료: 메인 ${normalized.mainCategories.length}개, 서브 ${normalized.subCategories.length}개`);
         return res.json(normalized);
       }
@@ -1235,7 +1330,7 @@ app.get('/api/locations', (req, res) => {
         // 레거시 string 배열 → 자동 수정 후 저장
         console.log('[API] locations.json 레거시 데이터 감지, 자동 정규화 실행...');
         const fixed = fixLegacyLocationsData(parsed, readProducts());
-        fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
         console.log(`[API] locations.json 정규화 완료: 국가 ${fixed.countries.length}개, 지역 ${fixed.regions.length}개`);
         return res.json(fixed);
       }
@@ -1293,6 +1388,13 @@ app.use((req, res) => {
   });
 });
 
+// 처음 설치(데이터 파일이 하나도 없는 폴더): 빈 상품 목록을 만들어 '처음 설치'를 분명히 남김
+// (그 뒤에 생기는 조회 기록 등 때문에 '상품 파일만 사라진 폴더'와 헷갈리지 않게). 조회 전용이면 만들지 않음
+if (!fs.existsSync(PRODUCTS_FILE) && !hasOtherData() && !fs.existsSync(RECOVERY_MARK) && !fs.existsSync(SCHEMA_FILE)) {
+  fs.writeFileSync(PRODUCTS_FILE, '[]', 'utf8');
+}
+// 시작 때 한 번 상품을 읽어 새 버전 데이터인지 먼저 알아 둠 (첫 쓰기 요청이 조회 전용 확인을 지나치지 않게)
+readProducts();
 app.listen(PORT, () => {
   console.log(`✅ 서버가 http://localhost:${PORT}에서 실행 중입니다`);
   console.log(`📚 API 문서: packages/server/API.md`);

@@ -47,8 +47,9 @@ if (!fs.existsSync(PICKS_FILE)) {
 
 const authHeaders = { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_API_KEY };
 
+// 관리자 키로 조회: 서버가 공개 목록에서 비활성(임시저장) 상품을 숨겨도 중복 검사에 포함되게
 const apiGet = async (p) => {
-  const res = await fetch(`${API_BASE_URL}${p}`);
+  const res = await fetch(`${API_BASE_URL}${p}`, { headers: { 'X-Admin-Key': ADMIN_API_KEY } });
   if (!res.ok) throw new Error(`GET ${p} 실패 (${res.status})`);
   return res.json();
 };

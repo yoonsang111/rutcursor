@@ -27,6 +27,24 @@ if (!Array.isArray(products)) {
   throw new Error('products.json 형식이 배열이 아닙니다.');
 }
 
+// 조회 전용(복구) 확인 — 서버와 같은 조건: 복구 표시 파일, 새 버전 데이터(schema.json 또는 상품 공개 상태 칸)면 쓰지 않음.
+// 시작 때와 저장 직전 두 번 본다. (그래도 저장 직전 확인과 쓰기 사이의 틈은 남아서, 복구 전환 때 cron을 멈추고 실행 중인 스크립트가 끝난 것을 확인함 — 복구절차.md)
+const readOnlyReason = () => {
+  if (fs.existsSync(path.join(DATA_DIR, 'RECOVERY_READ_ONLY'))) return '복구 표시 파일이 있어요';
+  if (fs.existsSync(path.join(DATA_DIR, 'schema.json'))) return '새 버전 데이터예요 (schema.json)';
+  try {
+    const latest = JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8'));
+    if (Array.isArray(latest) && latest.some((p) => p && p.publishStatus !== undefined)) return '새 버전 데이터예요 (상품 공개 상태)';
+  } catch {
+    return '상품 파일을 읽을 수 없어요';
+  }
+  return null;
+};
+if (readOnlyReason()) {
+  console.log(`[refresh-partner-ratings] 읽기 전용(복구)이라 아무것도 바꾸지 않고 끝내요: ${readOnlyReason()}`);
+  process.exit(0);
+}
+
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
 let refreshed = 0;
@@ -61,6 +79,10 @@ for (const product of products) {
   }
 }
 
+if (readOnlyReason()) {
+  console.log(`[refresh-partner-ratings] 저장 직전에 읽기 전용(복구)으로 바뀌어서 저장하지 않아요: ${readOnlyReason()}`);
+  process.exit(0);
+}
 fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
 
 console.log(`[refresh-partner-ratings] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 실패: ${failed}`);
