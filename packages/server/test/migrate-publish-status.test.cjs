@@ -167,6 +167,8 @@ test('상태만 되돌리기: 백업 값이 이전 기록과 다르거나 빠졌
       assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, `${id}: 손님에게 안 보임`);
     }
     assert.match(applied.stdout, /\| 2 \|.*기록과 다름/);
+    assert.equal(byId('1').publishStatus, undefined, '1: 정상 상품은 되돌림');
+    assert.equal(byId('1').isAvailable, true);
     // Codex 21차: 백업과 이전 기록에서 활성 값이 함께 빠져도(둘 다 손상) 비공개 상품은 공개되면 안 됨 — 되돌리기는 손님 공개 여부를 절대 바꾸지 않음
     const cur = JSON.parse(fs.readFileSync(s.file, 'utf8'));
     fs.writeFileSync(s.file, JSON.stringify(cur.map(p => p.id === '2' ? { ...p, publishMigration: { ...p.publishMigration, from: {} } } : p)));
@@ -186,7 +188,8 @@ test('상태만 되돌리기: 백업 값이 이전 기록과 다르거나 빠졌
     assert.equal(third.status, 0, third.stderr);
     assert.equal((await fetch(`${s.base}/products/1`)).status, 404, '1: 되돌린 뒤에도 안 보임');
     assert.match(third.stdout, /\| 1 \|.*공개 여부가 바뀜/);
-    assert.equal(byId('1').publishStatus, undefined, '1: 정상 상품은 되돌림');
-    assert.equal(byId('1').isAvailable, true);
+    const p1 = s.read().find(p => p.id === '1');
+    assert.equal(p1.publishStatus, 'published', '1: 저장된 상태 그대로');
+    assert.equal(p1.isAvailable, false, '1: 저장된 활성 값 그대로');
   } finally { await s.stop(); }
 });
