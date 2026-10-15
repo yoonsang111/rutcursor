@@ -4,16 +4,21 @@ import { useProducts } from '../context/ProductContext';
 export default function DashboardPage() {
   const { products } = useProducts();
 
-  const activeCount = products.filter((p) => p.isAvailable).length;
+  const statusOf = (p: (typeof products)[number]) => p.publishStatus || (p.isAvailable === false ? 'needs_classification' : 'published');
+  const activeCount = products.filter((p) => statusOf(p) === 'published').length;
   const inactiveCount = products.length - activeCount;
+  const needsClassification = products.filter((p) => statusOf(p) === 'needs_classification').length;
+  const noBookable = products.filter((p) => statusOf(p) === 'published' && p.bookable === 'none').length;
   const noLinkCount = products.filter(
     (p) => !(p.partnerLinks || []).some((link) => link.url && link.url.trim() !== '')
   ).length;
 
   const cards = [
     { label: '등록된 상품', value: products.length, tone: 'bg-blue-100 text-blue-600' },
-    { label: '활성 상품', value: activeCount, tone: 'bg-green-100 text-green-600' },
-    { label: '비활성 상품', value: inactiveCount, tone: 'bg-gray-100 text-gray-600' },
+    { label: '공개 상품', value: activeCount, tone: 'bg-green-100 text-green-600' },
+    { label: '비공개 (초안·숨김·분류 필요)', value: inactiveCount, tone: 'bg-gray-100 text-gray-600' },
+    { label: '분류 필요', value: needsClassification, tone: 'bg-amber-100 text-amber-700' },
+    { label: '공개 중 · 판매처 모두 중지', value: noBookable, tone: 'bg-orange-100 text-orange-700' },
     { label: '링크 없는 상품', value: noLinkCount, tone: 'bg-red-100 text-red-600' },
   ];
 

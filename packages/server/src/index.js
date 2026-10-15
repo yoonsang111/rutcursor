@@ -5,6 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPartnerIntegration } from './integrations/index.js';
+import { readJsonArray, writeJsonAtomic, writeFileAtomic } from './productStore.js';
+import { acquireWriterLock } from './writerLock.js';
+import { migrate as migratePublishStatus, normalizeEvidence, changeTable, rollback as rollbackPublishStatus, rollbackTable, PUBLISH_STATUSES, publishStatusOf, isPublicProduct } from './publishMigration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,12 +56,17 @@ if (!ADMIN_API_KEY) {
 }
 
 // 길이가 달라도 timingSafeEqual이 던지지 않도록 해시로 고정 길이 비교
-const isValidAdminKey = (provided) => {
-  if (!ADMIN_API_KEY || typeof provided !== 'string' || provided.length === 0) return false;
+const sameSecret = (provided, expected) => {
+  if (!expected || typeof provided !== 'string' || provided.length === 0) return false;
   const a = crypto.createHash('sha256').update(provided).digest();
-  const b = crypto.createHash('sha256').update(ADMIN_API_KEY).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
   return crypto.timingSafeEqual(a, b);
 };
+const isValidAdminKey = (provided) => sameSecret(provided, ADMIN_API_KEY);
+// TOURSTREAM OFFICE(AI 사무실) 전용 키: 같은 x-admin-key 머리글로 보내지만 서버가 '사무실'로 구분한다.
+// 사무실 키는 상품 조회(초안 포함)와 초안 등록만 할 수 있다 — 공개·숨김·수정·삭제 불가 (요청 머리글을 빼도 마찬가지)
+const OFFICE_API_KEY = process.env.OFFICE_API_KEY || '';
+const isValidOfficeKey = (provided) => Boolean(OFFICE_API_KEY) && OFFICE_API_KEY !== ADMIN_API_KEY && sameSecret(provided, OFFICE_API_KEY);
 
 // 쓰기 요청 속도 제한. 관리자 키가 43자라 현실적으로 추측은 어렵지만,
 // 시도 자체를 막아야 로그가 더러워지지 않고 같은 통로로 서버를 때리는 것도 막힌다.
@@ -132,29 +140,9 @@ const sessionCookieOptions = {
 
 // 조회 요청이 관리자(어드민 로그인 쿠키 또는 관리자 키)인지. 비활성 상품은 관리자에게만 보여 준다.
 const isAdminRequest = (req) =>
-  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER));
-// 손님에게 보이는 상품: 활성이고, (새 버전이 쓴 데이터라면) 공개 상태가 '공개'인 것만.
-// 새 버전에서 이 버전으로 되돌린 기간에 예전 어드민이 초안·숨김을 '활성'으로 바꿔도 손님에게 나가지 않게
-const isGuestVisible = (p) => p.isAvailable !== false && (!p.publishStatus || p.publishStatus === 'published');
-// 손님 응답은 손님에게 필요한 칸만 (허용 목록). 새 내부 칸이 생겨도 저절로 빠짐 (판매처 칸·SEO 칸도 같은 방식)
-const PUBLIC_FIELDS = ['id', 'name', 'description', 'categories', 'locations', 'tags', 'price', 'minPrice', 'salePrice', 'rating', 'reviewCount', 'isRecommended', 'isAvailable', 'views', 'image', 'images', 'recentViews7d', 'recentViews30d'];
-const PUBLIC_LINK_FIELDS = ['partner', 'url', 'price', 'priceDisplay', 'priceCurrency', 'priceConditions', 'priceCheckedAt'];
-const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj && obj[k] !== undefined).map((k) => [k, obj[k]]));
-const withoutInternal = (p) => ({
-  ...pick(p, PUBLIC_FIELDS),
-  ...(p.seo && typeof p.seo === 'object' ? { seo: pick(p.seo, ['title', 'description', 'keywords']) } : {}),
-  partnerLinks: (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).map((l) => pick(l, PUBLIC_LINK_FIELDS)),
-});
-// 관리자 응답(비활성 포함)은 어디에도 저장되지 않게, 손님 응답과 섞이지 않게
-const visibleTo = (req, res, products) => {
-  res.set('Vary', 'Origin, Cookie, X-Admin-Key');
-  if (isAdminRequest(req)) {
-    res.set('Cache-Control', 'private, no-store');
-    return products;
-  }
-  res.set('Cache-Control', 'no-cache');
-  return products.filter(isGuestVisible).map(withoutInternal);
-};
+  isValidSessionToken(readCookie(req, SESSION_COOKIE)) || isValidAdminKey(req.get(ADMIN_KEY_HEADER)) || isValidOfficeKey(req.get(ADMIN_KEY_HEADER));
+// 공개 상태가 '공개'인 상품만 손님(비로그인)에게 보인다. 초안·숨김·분류 필요는 관리자만 (publishStatusOf는 아래 상품 정책 참고)
+const visibleTo = (req, products) => (isAdminRequest(req) ? products : products.filter(isPublicProduct));
 
 const requireAdminKey = (req, res, next) => {
   if (!ADMIN_API_KEY) {
@@ -165,7 +153,16 @@ const requireAdminKey = (req, res, next) => {
   const ip = clientIp(req);
 
   // 브라우저는 HttpOnly 쿠키로, 배치 스크립트는 헤더로 인증한다.
-  if (isValidSessionToken(readCookie(req, SESSION_COOKIE))) return next();
+  if (isValidSessionToken(readCookie(req, SESSION_COOKIE))) { req.tsActor = 'admin'; return next(); }
+
+  // 사무실 키: 초안 등록(POST /api/products)만 허용
+  if (isValidOfficeKey(req.get(ADMIN_KEY_HEADER))) {
+    req.tsActor = 'office';
+    if (!(req.method === 'POST' && req.baseUrl + req.path === '/api/products')) {
+      return res.status(403).json({ error: 'AI 사무실 키로는 초안 등록만 할 수 있어요' });
+    }
+    return next();
+  }
 
   // 인증 실패부터 센다. 무차별 대입을 막는 게 목적이라 임계값을 낮게 둔다.
   if (!isValidAdminKey(req.get(ADMIN_KEY_HEADER))) {
@@ -177,6 +174,7 @@ const requireAdminKey = (req, res, next) => {
     return res.status(401).json({ error: '관리자 인증이 필요합니다' });
   }
 
+  req.tsActor = 'admin';
   // 인증은 통과했지만 폭주하는 경우에 대한 안전장치.
   // 일괄 등록 스크립트가 정상적으로 수백 건을 쓰므로 한도를 넉넉히 잡는다.
   if (hitLimit(`write:${ip}`, RATE_MAX_WRITES)) {
@@ -238,34 +236,108 @@ const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://api.tourstream.kr
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 
-// 조회 전용(복구) 모드: 아래 중 하나면 이 서버는 데이터 폴더에 아무것도 쓰지 않는다 (요청마다 다시 확인)
-//  - 복구 표시 파일 RECOVERY_READ_ONLY가 있음 (복구 실행자가 만들고 지움)
-//  - 새 버전(상품 공개 상태 기능)이 쓴 데이터: schema.json이 있거나 읽을 수 없음, 또는 상품에 publishStatus가 있음
-//    → 이 버전은 새 칸(가격 통화·확인 시각·판매처 예약 상태 등)을 모르고 저장하면 지워서, 표시 파일을 잊어도 쓰지 않음
+// 공개 여부가 바뀌면(공개→숨김·초안·삭제, 또는 그 반대) 메인 사이트 정적 페이지·사이트맵을 다시 만들어 달라고 GitHub에 알림.
+// 다시 만드는 코드는 '마지막으로 승인된 배포 커밋'(deploy.yml의 예약 실행과 같은 규칙) — 승인 안 된 코드는 나가지 않음.
+// GITHUB_DISPATCH_TOKEN(이 저장소의 'Actions: 읽기·쓰기'만 있는 세분화 토큰 — 코드 쓰기 권한 없음)이 없으면 알리지 않고 다음 예약 빌드(매일 00:30)에 반영.
+// ponytail: 2분 안의 여러 변경은 한 번으로 묶음 (빌드는 3~5분 걸림)
+const DISPATCH_TOKEN = process.env.GITHUB_DISPATCH_TOKEN || '';
+const DISPATCH_REPO = process.env.GITHUB_DISPATCH_REPO || 'yoonsang111/rutcursor';
+const DISPATCH_API = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, ''); // 시험에서만 바꿈
+const REBUILD_DEBOUNCE_MS = Number(process.env.REBUILD_DEBOUNCE_MS) || 2 * 60 * 1000;
+let rebuildTimer = null;
+const rebuildReasons = [];
+const requestPublicRebuild = (reason) => {
+  if (!DISPATCH_TOKEN) {
+    console.log(`[공개 변경] ${reason} — GitHub 알림 토큰이 없어 다음 예약 빌드에 반영돼요`);
+    return;
+  }
+  rebuildReasons.push(reason);
+  if (rebuildTimer) return;
+  rebuildTimer = setTimeout(async () => {
+    const reasons = rebuildReasons.splice(0).slice(0, 20);
+    rebuildTimer = null;
+    try {
+      // workflow_dispatch(mode=rebuild-main): Actions 실행 권한만 필요. 다시 빌드할 커밋은 워크플로가 '마지막 승인 배포'에서 고름
+      const r = await fetch(`${DISPATCH_API}/repos/${DISPATCH_REPO}/actions/workflows/deploy.yml/dispatches`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${DISPATCH_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: 'main', inputs: { mode: 'rebuild-main' } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      console.log(`[공개 변경] 메인 사이트 다시 빌드 요청 ${r.status === 204 ? '성공' : `실패(${r.status})`}: ${reasons.join(', ')}`);
+    } catch (error) {
+      console.warn('[공개 변경] 메인 사이트 다시 빌드 요청 실패 — 다음 예약 빌드에 반영:', error.message);
+    }
+  }, REBUILD_DEBOUNCE_MS);
+  rebuildTimer.unref?.();
+};
+
+// 상품 파일을 쓰는 요청은 한 줄로 세운다 (이 서버 안의 대기열). 다른 프로세스는 상품 파일을 쓰지 않고 이 서버 API를 거친다 —
+// 서버는 켜져 있는 동안 작성자 잠금을 쥐고 있어서 두 번째 서버나 파일을 직접 쓰는 스크립트와 겹치지 않는다.
+// 응답이 끝나야 다음 요청이 상품 파일을 읽는다 → 읽기→고치기→저장이 서로 섞이지 않음
+let productsQueue = Promise.resolve();
+const lockProducts = (req, res, next) => {
+  let releaseQueue;
+  const turn = new Promise((resolve) => { releaseQueue = resolve; });
+  const previous = productsQueue;
+  productsQueue = previous.then(() => turn);
+  previous.then(() => {
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      releaseQueue();
+    };
+    res.once('finish', done);
+    res.once('close', done);
+    if (res.writableEnded || res.destroyed) { done(); return; } // 기다리는 사이 손님이 연결을 끊음
+    next();
+  });
+};
+
+// 데이터 폴더가 없으면 만들기 (잠금 열쇠가 폴더 정체성이라 이것만 잠금 전에 함). 그 밖의 쓰기는 모두 잠금 뒤
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// 서버 시작: 작성자 잠금을 얻고 끝날 때까지 쥔다 (상품 데이터는 이 서버 한 프로세스만 씀 — 설계서 v2 C-1).
+// 이전 서버가 끝나는 중이면 잠깐(최대 15초) 기다리고, 그래도 다른 서버·프로그램이 포트를 쓰고 있으면 시작하지 않는다.
+let writerLock;
+try {
+  // 폴더 잠금으로 지킬 수 없는 구성은 시작 거절: 상품 파일이 심볼릭 링크이거나 다른 이름으로도 연결된 하드 링크
+  if (fs.existsSync(PRODUCTS_FILE)) {
+    const st = fs.lstatSync(PRODUCTS_FILE);
+    if (st.isSymbolicLink()) throw new Error('상품 파일이 심볼릭 링크예요 (다른 폴더의 파일을 가리키면 폴더 잠금으로 지킬 수 없어요)');
+    if (st.nlink > 1) throw new Error('상품 파일이 하드 링크로 다른 곳과 연결돼 있어요 (폴더 잠금으로 지킬 수 없어요)');
+  }
+  writerLock = await acquireWriterLock(DATA_DIR);
+} catch (error) {
+  console.error(`[서버] 시작하지 않아요: ${error.message}`);
+  process.exit(1);
+}
+const releaseWriterLock = () => { try { writerLock.release(); } catch { /* 이미 없음 */ } };
+process.once('exit', releaseWriterLock);
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { releaseWriterLock(); process.exit(0); });
+
+// 조회 전용(복구) 모드: 데이터 폴더에 RECOVERY_READ_ONLY가 있으면 아무것도 쓰지 않는다 (요청마다 확인, 복구 실행자가 만들고 지움 — 복구절차.md)
 const RECOVERY_MARK = path.join(DATA_DIR, 'RECOVERY_READ_ONLY');
-const SCHEMA_FILE = path.join(DATA_DIR, 'schema.json');
-let newDataSeen = false; // 상품 파일에서 새 버전 칸을 한 번이라도 보면 이 프로세스가 끝날 때까지 조회 전용
-let productsReadError = null; // 상품 파일을 못 읽음(손상·형식 오류·복구 중 없음) → 빈 목록으로 보지 않고 오류, 쓰기 거절
-const readOnlyReason = () => {
-  if (productsReadError) return productsReadError;
-  if (fs.existsSync(RECOVERY_MARK)) return '복구 표시 파일이 있어요';
-  if (fs.existsSync(SCHEMA_FILE)) return '새 버전 데이터예요 (schema.json)';
-  if (newDataSeen) return '새 버전 데이터예요 (상품 공개 상태)';
-  return null;
+const readOnlyReason = () => (fs.existsSync(RECOVERY_MARK) ? '복구 표시 파일이 있어요' : null);
+const assertWritable = () => {
+  const reason = readOnlyReason();
+  if (reason) throw Object.assign(new Error(`복구 중 읽기 전용이라 저장할 수 없어요: ${reason}`), { status: 503 });
 };
 const RO_ALLOWED = new Set(['/api/admin/login', '/api/admin/logout', '/api/admin/session']);
 app.use((req, res, next) => {
   const reason = readOnlyReason();
-  if (reason) res.set('X-Read-Only', '1');
   if (!reason || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || RO_ALLOWED.has(req.path)) return next();
   return res.status(503).json({ error: `복구 중 읽기 전용이라 저장할 수 없어요: ${reason}` });
 });
 
-// 데이터 디렉토리 생성 (없을 때만 — 있는 폴더는 건드리지 않음)
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// 이 데이터는 새 버전(공개 상태·가격 묶음) 형식이라는 표시 — 예전 버전 서버(A)는 이 파일을 보면 조회 전용으로 동작
+if (!readOnlyReason()) writeJsonAtomic(path.join(DATA_DIR, 'schema.json'), { schemaVersion: 2, writer: 'tourstream-api', at: new Date().toISOString() });
+if (!fs.existsSync(IMAGES_DIR) && !readOnlyReason()) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
-// 사진 폴더는 처음 사진을 저장할 때 만든다 (시작 때 만들지 않음 — 조회 전용이면 폴더도 만들지 않게)
 
 // 떼어낸 이미지 파일 서빙. 파일명이 내용 해시라 내용이 바뀌면 이름도 바뀌므로 영구 캐시해도 안전하다.
 app.use('/images', express.static(IMAGES_DIR, { maxAge: '365d', immutable: true }));
@@ -285,7 +357,7 @@ const externalizeImage = (value) => {
     if (buf.length === 0) return '';
     const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
     const file = path.join(IMAGES_DIR, name);
-    if (!fs.existsSync(file) && !readOnlyReason()) { fs.mkdirSync(IMAGES_DIR, { recursive: true }); fs.writeFileSync(file, buf); }
+    if (!fs.existsSync(file)) { assertWritable(); fs.writeFileSync(file, buf); }
     return `${PUBLIC_API_URL}/images/${name}`;
   } catch (error) {
     console.error('[이미지] 파일 저장 실패:', error.message);
@@ -293,7 +365,7 @@ const externalizeImage = (value) => {
   }
 };
 
-// 레거시 경로에만 데이터가 있는 경우 자동 이관 (조회 전용이면 하지 않음)
+// 레거시 경로에만 데이터가 있는 경우 자동 이관 (잠금 뒤, 조회 전용이면 안 함)
 if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR && !readOnlyReason()) {
   ['products.json', 'counter.json', 'categories.json', 'locations.json', 'view-events.json'].forEach((fileName) => {
     const legacyFile = path.join(LEGACY_DATA_DIR, fileName);
@@ -321,106 +393,54 @@ const migrateLegacyPartnerLinks = (product) => {
   return { ...rest, partnerLinks };
 };
 
-// 파일에서 데이터 읽기
-const readProducts = () => {
-  try {
-    if (fs.existsSync(PRODUCTS_FILE)) {
-      const data = fs.readFileSync(PRODUCTS_FILE, 'utf8');
-      const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed)) throw new Error('상품 파일 형식이 배열이 아니에요');
-      productsReadError = null;
-      if (parsed.some((p) => p && p.publishStatus !== undefined)) newDataSeen = true;
-      const hasLegacyData = Array.isArray(parsed) && parsed.some((p) => !Array.isArray(p.partnerLinks));
-      if (hasLegacyData) {
-        console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
-        const migrated = parsed.map(migrateLegacyPartnerLinks);
-        if (!readOnlyReason()) writeProducts(migrated); // 조회 전용이면 메모리에서만 바꿈
-        console.log(`[API] partnerLinks 마이그레이션 완료: ${migrated.length}개 상품`);
-        return migrated;
-      }
-      return parsed;
-    }
-    // 파일이 없음: 처음 설치면 빈 목록이 맞지만, 복구 중(표시·schema.json)이거나 카운터가 있으면(데이터가 있던 폴더) 사라진 것 → 오류
-    if (fs.existsSync(RECOVERY_MARK) || fs.existsSync(SCHEMA_FILE) || hasOtherData()) productsReadError = '상품 파일이 없어요 (데이터가 있던 폴더)';
-  } catch (error) {
-    console.error('상품 데이터 읽기 오류:', error);
-    productsReadError = `상품 파일을 읽을 수 없어요 (${error.message})`;
-  }
-  return [];
-};
-// 상품 파일을 못 읽었으면 빈 목록 대신 오류로 응답 (손님·관리자 모두)
-const productsReadFailed = (res) => (productsReadError ? (res.status(500).json({ error: productsReadError }), true) : false);
+// 파일에서 데이터 읽기 — 깨졌으면 오류 (빈 목록으로 읽은 뒤 저장해서 상품을 전부 지우는 사고 방지)
+const readProducts = () => readJsonArray(PRODUCTS_FILE);
 
-// 데이터 파일 규칙 (13차 설계 재검토): 필수 = products.json(다른 데이터가 있을 때)·counter.json(등록에 필요),
-// 선택 = view-events.json·categories.json·locations.json·coupons.json·images/. 선택 파일이 없는 것은 정상.
-// 손상된 필수 데이터는 기본값으로 덮어쓰지 않고, 그 파일에 기대는 쓰기를 거절한다.
-let counterReadError = null;
-// 카운터: 없으면 null(기존 최대 번호로 대신), 숫자가 아니면 손상(null + 오류). 예전 {"counter": n} 모양도 읽음
+// 서버 시작 때 한 번: 예전 externalUrl 필드를 partnerLinks로 바꿔 저장 (조회 전용이면 안 함)
+try {
+  const parsed = readJsonArray(PRODUCTS_FILE);
+  if (parsed.some((p) => !Array.isArray(p.partnerLinks)) && !readOnlyReason()) {
+    console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
+    writeJsonAtomic(PRODUCTS_FILE, parsed.map(migrateLegacyPartnerLinks));
+  }
+} catch (error) {
+  console.error('[API] 상품 파일 확인 실패 (서버는 켜지만 상품 요청은 오류로 응답):', error.message);
+}
+
 const readCounter = () => {
-  counterReadError = null;
   try {
-    if (!fs.existsSync(COUNTER_FILE)) return null;
-    const text = fs.readFileSync(COUNTER_FILE, 'utf8').trim();
-    // 정확히 셀 수 있는 정수(안전 정수)만 — 그보다 크면 +1을 해도 같은 수가 되어 번호가 겹침
-    const value = /^\d+$/.test(text) ? Number(text) : JSON.parse(text)?.counter;
-    if (Number.isSafeInteger(value) && value >= 0 && value < Number.MAX_SAFE_INTEGER) return value;
-    throw new Error('정확히 셀 수 있는 숫자가 아니에요');
+    if (fs.existsSync(COUNTER_FILE)) {
+      const data = fs.readFileSync(COUNTER_FILE, 'utf8');
+      return parseInt(data, 10) || 100000;
+    }
   } catch (error) {
-    counterReadError = `상품 번호 파일(counter.json)이 손상됐어요 (${error.message}) — 고치기 전에는 새 상품을 등록하지 않아요`;
-    return null;
+    console.error('카운터 읽기 오류:', error);
   }
+  return 100000;
 };
-// 기존 최대 상품 번호. 정확히 셀 수 없는 큰 번호가 있으면 NaN (등록 거절)
-const maxProductNumber = (products) => products.reduce((max, p) => {
-  if (!/^\d+$/.test(String(p?.id))) return max;
-  const n = Number(p.id);
-  return Number.isSafeInteger(n) && n < Number.MAX_SAFE_INTEGER ? Math.max(max, n) : NaN;
-}, 100000);
-// 처음 설치인지: 데이터 폴더에 데이터 파일이 하나도 없을 때만 (상품 파일만 없고 다른 데이터가 있으면 사라진 것)
-const OTHER_DATA_FILES = ['counter.json', 'categories.json', 'locations.json', 'coupons.json', 'view-events.json'];
-const hasOtherData = () => OTHER_DATA_FILES.some((f) => fs.existsSync(path.join(DATA_DIR, f))) || (fs.existsSync(IMAGES_DIR) && fs.readdirSync(IMAGES_DIR).length > 0);
 
-// 조회 기록(선택 파일): 없으면 빈 기록. 손상됐으면 화면은 빈 기록으로 보여 주되 파일은 덮어쓰지 않음 (고칠 때까지 기록 안 함)
-let viewEventsReadError = null;
 const readViewEvents = () => {
-  viewEventsReadError = null;
   try {
     if (fs.existsSync(VIEW_EVENTS_FILE)) {
       const data = fs.readFileSync(VIEW_EVENTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('형식이 객체가 아니에요');
-      return parsed;
+      return parsed && typeof parsed === 'object' ? parsed : {};
     }
   } catch (error) {
-    viewEventsReadError = error.message;
-    console.error('조회수 이벤트 읽기 오류 (파일은 그대로 둠):', error.message);
+    console.error('조회수 이벤트 읽기 오류:', error);
   }
   return {};
 };
 
-// 파일에 데이터 쓰기
-const writeProducts = (products) => {
-  // 조회 전용·상품 파일 읽기 실패면 쓰지 않고 오류 (조용히 성공처럼 보이지 않게 — 쓰기 요청은 보통 앞에서 503)
-  if (readOnlyReason()) throw Object.assign(new Error(`읽기 전용이라 저장할 수 없어요: ${readOnlyReason()}`), { status: 503 });
-  try {
-    fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
-  } catch (error) {
-    console.error('상품 데이터 쓰기 오류:', error);
-  }
-};
+// 파일에 데이터 쓰기 — 임시 파일에 다 쓴 뒤 교체. 실패하면 오류를 던져서 요청에 실패로 응답 (성공처럼 보이지 않게)
+// 조회 전용(복구)이면 상품·번호 저장은 503 오류 (요청은 앞에서 막히지만, 막힌 뒤에 표시가 생긴 경우도 성공처럼 보이지 않게)
+const writeProducts = (products) => { assertWritable(); writeJsonAtomic(PRODUCTS_FILE, products); };
 
-const writeCounter = (counter) => {
-  if (readOnlyReason()) return;
-  try {
-    fs.writeFileSync(COUNTER_FILE, counter.toString(), 'utf8');
-  } catch (error) {
-    console.error('카운터 쓰기 오류:', error);
-  }
-};
+const writeCounter = (counter) => { assertWritable(); writeFileAtomic(COUNTER_FILE, counter.toString()); };
 
+// 조회 기록 정리는 화면을 볼 때 따라오는 쓰기라 조회 전용이면 조용히 건너뜀 (사용자 입력이 아님)
 const writeViewEvents = (viewEvents) => {
-  if (readOnlyReason()) return; // 조회수·조회 기록 정리도 하지 않음
-  if (viewEventsReadError) return; // 손상된 조회 기록을 빈 기록으로 덮어쓰지 않음
+  if (readOnlyReason()) return;
   try {
     fs.writeFileSync(VIEW_EVENTS_FILE, JSON.stringify(viewEvents, null, 2), 'utf8');
   } catch (error) {
@@ -567,43 +587,9 @@ const COUNTRY_NAME_SET = new Set([
 // 이름이 일치하면 저장 시 자동으로 변환하고, 어드민에서 별도 버튼을 누를 필요가 없음.
 const AUTO_TRACKED_PARTNER_KEYS = { klook: 'klook', kkday: 'kkday' };
 
-const normalizePartnerLinks = async (rawLinks) => {
-  if (!Array.isArray(rawLinks)) return [];
-  const links = rawLinks
-    .map((link) => {
-      const url = typeof link?.url === 'string' ? link.url.trim() : '';
-      if (!url) return null;
-      const normalizedLink = {
-        partner: typeof link?.partner === 'string' ? link.partner.trim() : '',
-        url,
-        source: link?.source === 'api' ? 'api' : 'manual',
-      };
-      const price = toNumberOrUndefined(link?.price, { min: 0 });
-      if (price !== undefined) normalizedLink.price = price;
-      if (typeof link?.priceDisplay === 'string' && link.priceDisplay.trim()) normalizedLink.priceDisplay = link.priceDisplay.trim();
-      if (typeof link?.externalId === 'string' && link.externalId.trim()) normalizedLink.externalId = link.externalId.trim();
-      if (typeof link?.updatedAt === 'string' && link.updatedAt.trim()) normalizedLink.updatedAt = link.updatedAt.trim();
-      return normalizedLink;
-    })
-    .filter(Boolean);
-
-  await Promise.all(
-    links.map(async (link) => {
-      const partnerKey = AUTO_TRACKED_PARTNER_KEYS[link.partner.toLowerCase()];
-      if (!partnerKey) return;
-      try {
-        const integration = getPartnerIntegration(partnerKey);
-        link.url = await integration.createTrackedLink(link.url);
-      } catch (error) {
-        console.warn(`[normalizePartnerLinks] ${link.partner} 트래킹 링크 변환 실패, 원본 URL 유지:`, error.message);
-      }
-    }),
-  );
-
-  return links;
-};
-
-const normalizeProductPayload = async (payload = {}) => {
+const normalizeProductPayload = async (input = {}) => {
+  // 서버만 정하는 칸(숨김 반영 상태·이전 기록)은 요청으로 바꿀 수 없음
+  const { visibilitySync: _vs, publishMigration: _pm, ...payload } = input || {};
   const categories = toTrimmedStringArray(payload.categories);
   const locations = toTrimmedStringArray(payload.locations);
 
@@ -616,12 +602,8 @@ const normalizeProductPayload = async (payload = {}) => {
     tags: toTrimmedStringArray(payload.tags),
     // base64로 들어온 이미지는 파일로 떼어낸다. 안 그러면 /api/products 응답에 전부 실려
     // 방문자가 어느 페이지를 열든 수 MB를 내려받게 된다.
-    images: toTrimmedStringArray(payload.images)
-      .filter((img) => !img.includes('via.placeholder.com') && !img.includes('placeholder.com'))
-      .map(externalizeImage)
-      .filter(Boolean),
+    images: toTrimmedStringArray(payload.images).filter((img) => !isPlaceholderImage(img)), // 파일 저장은 검사 뒤 externalizeImages에서
     isRecommended: Boolean(payload.isRecommended),
-    isAvailable: payload.isAvailable !== false,
   };
 
   const price = toNumberOrUndefined(payload.price, { min: 0 });
@@ -630,16 +612,405 @@ const normalizeProductPayload = async (payload = {}) => {
   const rating = toNumberOrUndefined(payload.rating, { min: 0, max: 5 });
   const reviewCount = toNumberOrUndefined(payload.reviewCount, { min: 0 });
 
-  if (price !== undefined) normalized.price = price;
-  if (minPrice !== undefined) normalized.minPrice = minPrice;
-  if (salePrice !== undefined) normalized.salePrice = salePrice;
-  if (rating !== undefined) normalized.rating = rating;
-  if (reviewCount !== undefined) normalized.reviewCount = reviewCount;
+  // 숫자로 바꿀 수 없는 값('not-a-price', 빈 칸 등)은 원래 글자 그대로 남기지 않고 지운다 (가격이 있는 것처럼 보이지 않게)
+  for (const [key, value] of Object.entries({ price, minPrice, salePrice, rating, reviewCount })) {
+    if (value !== undefined) normalized[key] = value;
+    else delete normalized[key];
+  }
 
-  normalized.partnerLinks = await normalizePartnerLinks(payload.partnerLinks);
+  delete normalized.partnerLinks; // 판매처 목록은 저장된 목록과 합쳐야 해서 처리 함수(mergePartnerLinks)에서
+  delete normalized.rev; // 저장 번호는 서버만 정함
+  delete normalized.baseRev;
 
   return normalized;
 };
+
+
+// ── 상품 공개 상태와 판매처 예약 가능 여부 (2026-10-14 대표 확정 정책) ─────────────────────────
+// 공개 상태(publishStatus) — 손님에게 보여 줄지:
+//   draft 초안(작성·수집·검수 중, 관리자만) / published 공개 / hidden 숨김(정보 오류 등으로 의도적으로 공개 중단)
+//   needs_classification 분류 필요(예전 '비활성'을 옮길 때 근거가 부족한 상품. 비공개, 관리자가 정함)
+// 판매처 예약 가능 여부(partnerLinks[].availability)는 공개 상태와 따로 관리하고, 서로를 자동으로 바꾸지 않는다.
+// (이 구역의 함수는 상품 등록·수정 처리에서 쓰므로 normalizeProductPayload 바로 뒤에 둔다)
+// 공개 판정(publishStatusOf·isPublicProduct)은 publishMigration.js 한 곳에 있음 (되돌리기도 같은 판정을 써야 해서 — Codex 22차)
+const SETTABLE_PUBLISH_STATUSES = ['draft', 'published', 'hidden'];
+
+const productInputError = (message, status = 400) => Object.assign(new Error(message), { status });
+const sendProductError = (res, error) => {
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 500;
+  if (status >= 500) console.error('[상품 처리 오류]', error);
+  return res.status(status).json({
+    error: status >= 500 && !error?.status ? '상품을 저장하지 못했어요. 변경은 반영되지 않았어요. 잠시 뒤 다시 시도해 주세요' : error.message,
+  });
+};
+const maxProductNumber = (products) => products.reduce((max, p) => (/^\d+$/.test(String(p?.id)) ? Math.max(max, Number(p.id)) : max), 0);
+
+// placeholder(자리표시) 사진은 실제 상품 사진으로 인정하지 않는다
+const PLACEHOLDER_IMAGE_PATTERN = /placeholder|placehold\.(co|it)|dummyimage\.com|fakeimg\.pl|placekitten\.com|no[-_]?image/i;
+const isPlaceholderImage = (src) => PLACEHOLDER_IMAGE_PATTERN.test(String(src || ''));
+const isWebUrl = (value, protocols, allowLocal = false) => {
+  try {
+    const url = new URL(String(value || ''));
+    return protocols.includes(url.protocol) && (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(url.hostname) || (allowLocal && url.hostname === 'localhost'));
+  } catch {
+    return false;
+  }
+};
+// 로컬 서버가 만든 사진 주소(localhost)도 사진으로 인정
+// 아직 파일로 떼어내기 전의 사진(data URI)도 저장 직전에 주소가 되므로 사진으로 인정
+const isRealProductImage = (src) => (isWebUrl(src, ['https:', 'http:'], true) && !isPlaceholderImage(src)) || /^data:image\/(png|jpe?g|webp|gif|avif);base64,./i.test(String(src || ''));
+
+// 판매처 예약 가능 여부: available 예약 가능 / unavailable 예약 불가 / unknown 확인 못 함
+const AVAILABILITY_STATUSES = ['available', 'unavailable', 'unknown'];
+// 확인 못 한 이유 — 접근 실패·CAPTCHA·가격 누락·미확인은 '판매 중지'가 아니다
+const UNKNOWN_REASONS = ['access_failed', 'captcha', 'price_missing', 'not_checked', 'other'];
+// 예약 불가 이유 — 일시 품절 / 판매 중지(끝났는지는 모름) / 판매 종료(근거가 있을 때만)
+const UNAVAILABLE_REASONS = ['temporary_soldout', 'sales_stopped', 'sales_ended'];
+const STALE_AVAILABILITY_MS = 7 * 24 * 60 * 60 * 1000; // 7일 넘은 확인은 '예전 확인'으로 표시
+const cleanTextList = (value, max = 30) =>
+  (Array.isArray(value) ? value : []).map((v) => String(v ?? '').trim().slice(0, 100)).filter(Boolean).slice(0, max);
+
+// 판매처 상태 기록 정리. 출처·확인 시각·범위(상품 전체 또는 날짜·인원·옵션)를 함께 남긴다
+const normalizeAvailability = (raw, nowMs = Date.now()) => {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw productInputError('판매처 예약 상태 형식이 올바르지 않아요');
+  const status = String(raw.status || '');
+  if (!AVAILABILITY_STATUSES.includes(status)) throw productInputError('판매처 예약 상태는 예약 가능·예약 불가·확인 못 함 중 하나여야 해요');
+  const source = String(raw.source || '').trim().slice(0, 300);
+  const checkedAtMs = Date.parse(raw.checkedAt);
+  const reason = String(raw.reason || '').trim();
+  const scopeIn = raw.scope && typeof raw.scope === 'object' ? raw.scope : {};
+  const scope = { whole: scopeIn.whole === true, dates: cleanTextList(scopeIn.dates), pax: cleanTextList(scopeIn.pax), options: cleanTextList(scopeIn.options) };
+  const hasScope = scope.whole || scope.dates.length || scope.pax.length || scope.options.length;
+  const evidence = String(raw.evidence || '').trim().slice(0, 500);
+  const out = { status };
+  const updatedMs = Date.parse(raw.updatedAt); // 정보 수정 시각 (판매처를 다시 확인한 시각 checkedAt과 따로)
+  if (Number.isFinite(updatedMs)) out.updatedAt = new Date(updatedMs).toISOString();
+  if (status === 'unknown') {
+    // 확인 못 함도 어디서·언제·어떤 날짜·인원·옵션을 확인하려다 못 했는지 남김 (미입력과 확인 실패를 구분)
+    if (reason && !UNKNOWN_REASONS.includes(reason)) throw productInputError('확인 못 한 이유가 올바르지 않아요');
+    if (reason) out.reason = reason;
+    if (source) out.source = source;
+    if (Number.isFinite(checkedAtMs)) out.checkedAt = new Date(checkedAtMs).toISOString();
+    if (hasScope) out.scope = scope;
+    if (evidence) out.evidence = evidence;
+    return out;
+  }
+  if (UNKNOWN_REASONS.includes(reason)) throw productInputError('접근 실패·CAPTCHA·가격 누락은 판매 중지가 아니에요. "확인 못 함"으로 기록해 주세요');
+  if (!source) throw productInputError('판매처 상태를 어디서 확인했는지(출처) 적어 주세요');
+  if (!Number.isFinite(checkedAtMs) || checkedAtMs > nowMs + 60 * 60 * 1000) throw productInputError('판매처 상태를 확인한 시각이 올바르지 않아요');
+  out.source = source;
+  out.checkedAt = new Date(checkedAtMs).toISOString();
+  if (status === 'unavailable') {
+    const why = reason || 'sales_stopped';
+    if (!UNAVAILABLE_REASONS.includes(why)) throw productInputError('예약 불가 이유가 올바르지 않아요');
+    if (why === 'sales_ended' && !evidence) {
+      throw productInputError('판매 종료는 근거(공지·안내 문구 등)가 있을 때만 기록할 수 있어요. 근거가 없으면 "판매 중지"로 기록해 주세요');
+    }
+    // 특정 날짜·옵션 품절을 상품 전체 판매 중지로 넓히지 않도록, 범위를 꼭 적게 한다
+    if (!hasScope) throw productInputError('예약 불가 범위를 적어 주세요 (상품 전체, 또는 날짜·인원·옵션)');
+    out.reason = why;
+  }
+  // 예약 가능도 어떤 범위를 확인했는지 꼭 (상품 전체, 또는 확인한 날짜·인원·옵션) — 특정 날짜 확인을 상품 전체 정보처럼 쓰지 않게
+  if (status === 'available' && !hasScope) throw productInputError('예약 가능을 확인한 범위를 적어 주세요 (상품 전체, 또는 확인한 날짜·인원·옵션)');
+  out.scope = scope; // 예약 가능이면 '확인한 범위', 예약 불가면 '불가한 범위'
+  if (evidence) out.evidence = evidence;
+  return out;
+};
+
+// 판매처 하나의 상태: available / partial(일부 날짜·인원·옵션만 불가) / stopped(상품 전체 불가 확인) / unknown
+const partnerStateOf = (link) => {
+  const a = link?.availability;
+  if (!a || a.status === 'unknown') return 'unknown';
+  if (a.status === 'available') return 'available';
+  return a.scope?.whole ? 'stopped' : 'partial';
+};
+// 상품의 예약 가능 여부: 한 곳이라도 가능(일부 가능 포함) → available / 모든 판매처가 전체 불가로 확인 → none / 그 밖 → unknown
+// (한 곳이라도 미확인이면 '모두 판매 중지'라고 단정하지 않음)
+const bookableOf = (product) => {
+  const links = (product?.partnerLinks || []).filter((l) => l && l.url);
+  if (!links.length) return 'unknown';
+  const states = links.map(partnerStateOf);
+  if (states.some((state) => state === 'available' || state === 'partial')) return 'available';
+  if (states.every((state) => state === 'stopped')) return 'none';
+  return 'unknown';
+};
+
+// 공개 전 필수 확인 (등록·일부 수정·공개만 요청 등 모든 경로에서 같은 규칙): 상품 이름 · 실제 사진 · https 판매처 링크
+const publishProblems = (product) => {
+  const missing = [];
+  if (!String(product?.name || '').trim()) missing.push('상품 이름');
+  if (!(product?.images || []).some(isRealProductImage)) missing.push('실제 상품 사진(placeholder 제외)');
+  if (!(product?.partnerLinks || []).some((l) => isWebUrl(l?.url, ['https:']))) missing.push('판매 링크(https)');
+  return missing;
+};
+
+// 요청이 원하는 공개 상태. publishStatus가 우선이고, 예전 어드민·스크립트의 isAvailable(true/false)도 받는다
+const requestedPublishStatus = (body, current) => {
+  if (body && body.publishStatus !== undefined) {
+    if (!SETTABLE_PUBLISH_STATUSES.includes(body.publishStatus)) throw productInputError('공개 상태는 초안·공개·숨김 중 하나여야 해요');
+    return body.publishStatus;
+  }
+  if (body && typeof body.isAvailable === 'boolean') {
+    if (body.isAvailable) return 'published';
+    if (!current) return 'draft'; // 새 상품을 비활성으로 등록 = 초안
+    return current === 'published' ? 'hidden' : current; // 공개 상품을 비활성으로 = 숨김
+  }
+  return current || 'draft';
+};
+// 이 요청을 보낸 쪽 (서버가 확인한 자격 기준). 관리자 키·로그인으로 확인된 요청만 'admin'.
+// 사무실 키이거나 자격이 확인되지 않은 HTTP 요청은 가장 낮은 권한('office')으로 본다 — 머리글을 빼거나 바꿔도 공개 권한이 생기지 않음.
+// 관리자도 x-tourstream-actor: office를 보내면 스스로 사무실 권한으로 낮춤. HTTP 요청이 아닌 서버 내부 호출(시험·스크립트)은 'internal'
+const actorOf = (req) => {
+  if (typeof req?.get !== 'function') return 'internal';
+  if (req.tsActor === 'admin' && String(req.get('x-tourstream-actor') || '').trim().toLowerCase() !== 'office') return 'admin';
+  return 'office';
+};
+// TOURSTREAM OFFICE(AI 사무실)는 초안만: 공개·재공개·숨김 해제는 대표가 어드민에서
+const assertActorMayChangeStatus = (actor, from, to) => {
+  if (actor !== 'office' || from === to) return;
+  if (to !== 'draft' || from === 'hidden' || from === 'published') {
+    throw productInputError('AI 사무실은 상품 공개 상태를 바꿀 수 없어요 (초안 등록만 가능). 공개·숨김은 대표가 어드민에서 정해요', 403);
+  }
+};
+
+// ── 판매처 목록 병합 규칙 (설계서 v2 C-3~C-6) ─────────────────────────────────────────
+// 판매처 정체성: (판매처 이름, 외부 번호)가 있으면 그것, 없으면 정확한 주소. 같은 판매처면 요청에 없는 칸은 그대로 두고,
+// 다른 판매처(주소가 바뀌었고 외부 번호 없음, 외부 번호가 다름)면 예전 가격·확인 정보·예약 상태를 넘기지 않는다.
+// 가격 = {값, 통화, 조건, 확인 시각} 묶음. 묶음이 바뀌면 새 확인이라 네 가지가 다 있어야 하고, 옛 확인 시각으로는 덮어쓰지 못한다.
+// 잘못된 값은 400·409로 알리고 조용히 지우지 않는다.
+const PRICE_KEYS = ['price', 'priceCurrency', 'priceConditions', 'priceCheckedAt'];
+const hasKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const partnerKeyOf = (value) => String(value ?? '').trim().toLowerCase();
+const externalIdOf = (link) => (link?.externalId === undefined || link?.externalId === null ? '' : String(link.externalId).trim());
+// 같은 상품 페이지인지 (트래킹 꼬리표 같은 쿼리는 빼고 주소·경로만)
+const pageOf = (url) => { try { const u = new URL(url); return `${u.hostname.toLowerCase()}${u.pathname.replace(/\/+$/, '')}`; } catch { return String(url || ''); } };
+const linkLabel = (link) => `${String(link?.partner || '').trim() || '판매처'} ${String(link?.url || '').slice(0, 80)}`.trim();
+const ISO_CURRENCIES = new Set(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['KRW', 'USD', 'JPY', 'EUR', 'CNY', 'TWD', 'THB', 'VND', 'HKD', 'SGD']);
+const FUTURE_SLACK_MS = 5 * 60 * 1000;
+const MAX_PRICE = 1e10; // 가격 상한 (어느 통화든 상품 가격으로 이보다 크면 입력 오류)
+
+// 요청의 판매처 하나 검사 (빈 줄만 무시, 그 밖의 잘못된 값은 400)
+const parseSentLink = (raw, nowMs) => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw productInputError('판매처 형식이 올바르지 않아요');
+  const label = linkLabel(raw);
+  const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+  const partner = typeof raw.partner === 'string' ? raw.partner.trim() : '';
+  if (!url) {
+    const blank = !partner && !PRICE_KEYS.some((key) => hasKey(raw, key) && raw[key] !== null && raw[key] !== '') && !raw.availability;
+    if (blank) return null; // 어드민 화면의 빈 줄
+    throw productInputError(`판매처 주소가 비어 있어요: ${label}`);
+  }
+  const out = { partner, url, source: raw.source === 'api' ? 'api' : 'manual' };
+  if (hasKey(raw, 'externalId')) out.externalId = externalIdOf(raw); // 빈 글자 = 외부 번호 없음을 명시
+  if (hasKey(raw, 'price')) {
+    const v = raw.price;
+    // 숫자로 바꾼 뒤 유한하고 상식적인 범위인지 확인 (아주 긴 숫자 글자가 무한대가 되어 저장되지 않게)
+    const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN;
+    if (v === null || v === 0) out.price = null; // 가격 삭제
+    else if (Number.isFinite(n) && n > 0 && n <= MAX_PRICE) out.price = n;
+    else throw productInputError(`가격이 올바른 숫자가 아니에요 (0보다 크고 ${MAX_PRICE.toLocaleString()} 이하, 삭제는 null 또는 0): ${label}`);
+  }
+  if (hasKey(raw, 'priceCurrency')) {
+    const c = String(raw.priceCurrency ?? '').trim().toUpperCase();
+    if (!ISO_CURRENCIES.has(c)) throw productInputError(`통화가 올바르지 않아요 (예: KRW): ${label}`);
+    out.priceCurrency = c;
+  }
+  if (hasKey(raw, 'priceConditions')) {
+    if (typeof raw.priceConditions !== 'string' || raw.priceConditions.length > 200) throw productInputError(`가격 조건은 200자 이하 글자예요 (조건 없음은 빈 글자): ${label}`);
+    out.priceConditions = raw.priceConditions.trim();
+  }
+  if (hasKey(raw, 'priceCheckedAt')) {
+    const ms = Date.parse(raw.priceCheckedAt);
+    if (!Number.isFinite(ms) || ms > nowMs + FUTURE_SLACK_MS) throw productInputError(`가격 확인 시각이 올바르지 않아요: ${label}`);
+    out.priceCheckedAt = new Date(ms).toISOString();
+  }
+  if (hasKey(raw, 'priceDisplay')) {
+    if (raw.priceDisplay === null || raw.priceDisplay === '') out.priceDisplay = null;
+    else if (typeof raw.priceDisplay !== 'string' || raw.priceDisplay.length > 100) throw productInputError(`가격 표시 문구가 올바르지 않아요: ${label}`);
+    else out.priceDisplay = raw.priceDisplay.trim();
+  }
+  if (hasKey(raw, 'availability')) out.availability = raw.availability === null ? null : normalizeAvailability(raw.availability, nowMs);
+  if (hasKey(raw, 'updatedAt') && raw.updatedAt) {
+    const ms = Date.parse(raw.updatedAt);
+    if (!Number.isFinite(ms)) throw productInputError(`수정 시각이 올바르지 않아요: ${label}`);
+    out.updatedAt = new Date(ms).toISOString();
+  }
+  return out;
+};
+
+// 같은 판매처인지: 외부 번호를 보냈으면 (이름, 외부 번호)로, 빈 외부 번호면 '외부 번호 없는 같은 주소'로, 안 보냈으면 정확한 주소로
+const sameIdentity = (sent, cur) => {
+  if (!cur) return false;
+  if (hasKey(sent, 'externalId')) {
+    if (!sent.externalId) return !externalIdOf(cur) && cur.url === sent.url;
+    return externalIdOf(cur) === sent.externalId && partnerKeyOf(cur.partner) === partnerKeyOf(sent.partner);
+  }
+  return cur.url === sent.url;
+};
+
+const mergeLink = (sent, cur) => {
+  const label = linkLabel(sent);
+  const out = cur ? { ...cur } : {};
+  out.partner = sent.partner;
+  out.url = sent.url;
+  out.source = sent.source;
+  if (hasKey(sent, 'externalId')) { if (sent.externalId) out.externalId = sent.externalId; else delete out.externalId; }
+  if (hasKey(sent, 'availability')) { if (sent.availability) out.availability = sent.availability; else delete out.availability; }
+  if (hasKey(sent, 'updatedAt')) out.updatedAt = sent.updatedAt;
+  const older = (a, b) => a && b && Date.parse(a) < Date.parse(b);
+  const sentPrice = PRICE_KEYS.filter((key) => hasKey(sent, key));
+  if (hasKey(sent, 'price') && sent.price === null) {
+    for (const key of [...PRICE_KEYS, 'priceDisplay']) delete out[key];
+  } else if (sentPrice.length) {
+    const curHas = Boolean(cur && cur.price > 0);
+    const nextPrice = hasKey(sent, 'price') ? sent.price : cur?.price;
+    const nextCurrency = hasKey(sent, 'priceCurrency') ? sent.priceCurrency : cur?.priceCurrency;
+    const nextConditions = hasKey(sent, 'priceConditions') ? sent.priceConditions : cur?.priceConditions;
+    const changed = !curHas || nextPrice !== cur.price || nextCurrency !== cur.priceCurrency || nextConditions !== cur.priceConditions;
+    if (changed) {
+      const missing = [!(sent.price > 0) && '가격', !hasKey(sent, 'priceCurrency') && '통화', !hasKey(sent, 'priceConditions') && '조건(없으면 빈 글자)', !hasKey(sent, 'priceCheckedAt') && '확인 시각'].filter(Boolean);
+      if (missing.length) throw productInputError(`새 가격(값·통화·조건 중 바뀜)에는 ${missing.join('·')}이 필요해요: ${label}`);
+      if (curHas && older(sent.priceCheckedAt, cur.priceCheckedAt)) throw productInputError(`저장된 가격보다 옛날에 확인한 가격이에요 (그사이 다른 곳에서 바뀜 — 새로 불러와 주세요): ${label}`, 409);
+      Object.assign(out, { price: sent.price, priceCurrency: sent.priceCurrency, priceConditions: sent.priceConditions, priceCheckedAt: sent.priceCheckedAt });
+      if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay; // 새 확인이면 옛 표시 문구는 버림
+    } else {
+      if (hasKey(sent, 'priceCheckedAt')) {
+        if (older(sent.priceCheckedAt, cur.priceCheckedAt)) throw productInputError(`저장된 가격보다 옛날에 확인한 가격이에요 (새로 불러와 주세요): ${label}`, 409);
+        out.priceCheckedAt = sent.priceCheckedAt;
+      }
+      if (hasKey(sent, 'priceDisplay')) { if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay; }
+    }
+  } else if (hasKey(sent, 'priceDisplay')) {
+    if (sent.priceDisplay && !(out.price > 0)) throw productInputError(`가격 없이 가격 표시 문구만 있어요: ${label}`);
+    if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay;
+  }
+  return out;
+};
+
+// 요청의 판매처 목록(= 원하는 전체 목록)을 저장된 목록과 합침. 목록에 없는 판매처는 지워짐(명시적 교체), partnerLinks를 안 보내면 그대로
+const mergePartnerLinks = async (sentRaw, currentLinks = [], nowMs = Date.now()) => {
+  if (!Array.isArray(sentRaw)) throw productInputError('판매처 목록(partnerLinks)은 배열이어야 해요');
+  const current = Array.isArray(currentLinks) ? currentLinks : [];
+  const sent = sentRaw.map((raw) => parseSentLink(raw, nowMs)).filter(Boolean);
+  // 트래킹 링크로 바꾸는 판매처(KLOOK·KKday)는 양쪽 다 바꾼 주소로 비교 (변환은 여러 번 해도 같음 — 저장된 예전 주소가 변환 전이어도 맞춰짐)
+  const tracked = async (partner, url) => {
+    const partnerKey = AUTO_TRACKED_PARTNER_KEYS[partnerKeyOf(partner)];
+    if (!partnerKey) return url;
+    try {
+      return await getPartnerIntegration(partnerKey).createTrackedLink(url);
+    } catch (error) {
+      console.warn(`[판매처] ${partner} 트래킹 링크 변환 실패, 원본 URL 유지:`, error.message);
+      return url;
+    }
+  };
+  for (const link of sent) link.url = await tracked(link.partner, link.url);
+  const currentUrls = new Map();
+  for (const cur of current) currentUrls.set(cur, await tracked(cur.partner, cur.url));
+  const used = new Set();
+  const seen = new Set();
+  const merged = sent.map((link) => {
+    const label = linkLabel(link);
+    const key = hasKey(link, 'externalId') && link.externalId ? `x:${partnerKeyOf(link.partner)}:${link.externalId}` : `u:${link.url}`;
+    if (seen.has(key)) throw productInputError(`같은 판매처가 두 번 있어요: ${label}`);
+    seen.add(key);
+    const matches = current.filter((cur) => sameIdentity(link, { ...cur, url: currentUrls.get(cur) }));
+    if (matches.length > 1) throw productInputError(`어느 판매처인지 정할 수 없어요 (같은 판매처가 둘): ${label}`);
+    const cur = matches[0] || null;
+    // 외부 번호로 찾은 판매처와 주소가 같은 다른 판매처가 따로 있으면 모호함
+    if (cur && current.some((other) => other !== cur && pageOf(currentUrls.get(other)) === pageOf(link.url))) throw productInputError(`외부 번호와 주소가 서로 다른 판매처를 가리켜요: ${label}`);
+    if (cur && used.has(cur)) throw productInputError(`같은 판매처가 두 번 있어요: ${label}`);
+    if (cur) used.add(cur);
+    return mergeLink(link, cur);
+  });
+  return merged;
+};
+
+// 요청의 상품 칸 검사 (보낸 칸만): 숫자 칸·사진. 잘못되면 400 (조용히 지우지 않음). null은 '지우기'
+const PRODUCT_NUMBER_RULES = { price: { min: 0, zeroRemoves: true }, minPrice: { min: 0, zeroRemoves: true }, salePrice: { min: 0, zeroRemoves: true }, rating: { min: 0, max: 5 }, reviewCount: { min: 0, integer: true } };
+const VALID_DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=\s]+$/i;
+const validateProductBody = (body) => {
+  for (const [key, rule] of Object.entries(PRODUCT_NUMBER_RULES)) {
+    if (!hasKey(body, key) || body[key] === null) continue;
+    const v = body[key];
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    const max = rule.max !== undefined ? rule.max : MAX_PRICE;
+    if (!Number.isFinite(n) || n < rule.min || n > max || (rule.integer && !Number.isInteger(n))) {
+      throw productInputError(`${key} 값이 올바르지 않아요 (지우려면 null)`);
+    }
+  }
+  if (hasKey(body, 'images')) {
+    if (!Array.isArray(body.images)) throw productInputError('사진(images)은 배열이어야 해요');
+    for (const img of body.images) {
+      const src = String(img ?? '').trim();
+      if (!src) continue; // 어드민 화면의 빈 사진 칸
+      if (isPlaceholderImage(src)) throw productInputError(`placeholder 사진은 저장할 수 없어요: ${src.slice(0, 80)}`);
+      if (src.startsWith('data:') ? !VALID_DATA_IMAGE.test(src) : !isWebUrl(src, ['https:', 'http:'], true)) throw productInputError(`사진 주소·형식이 올바르지 않아요: ${src.slice(0, 80)}`);
+    }
+  }
+};
+// 사진 파일 저장은 모든 검사가 끝난 뒤에만 (검사 실패면 아무것도 쓰지 않게)
+const externalizeImages = (product) => ({ ...product, images: (product.images || []).map(externalizeImage).filter(Boolean) });
+
+const NUMERIC_PRODUCT_FIELDS = { price: { min: 0, positive: true }, minPrice: { min: 0, positive: true }, salePrice: { min: 0, positive: true }, rating: { min: 0, max: 5 }, reviewCount: { min: 0 } };
+// 최종 저장될 상품 전체에 같은 정리·검사를 한다 (일부 칸만 고쳐도, 공개 상태만 바꿔도 같은 규칙)
+const finalizeProduct = (product, { status, checkPublish }) => {
+  const next = { ...product };
+  const warnings = [];
+  const images = toTrimmedStringArray(next.images);
+  next.images = images.filter((img) => !isPlaceholderImage(img));
+  if (next.images.length !== images.length) warnings.push(`저장돼 있던 placeholder 사진 ${images.length - next.images.length}장을 정리했어요`);
+  for (const [key, range] of Object.entries(NUMERIC_PRODUCT_FIELDS)) {
+    if (next[key] === undefined) continue;
+    const value = toNumberOrUndefined(next[key], range);
+    if (value === undefined || (range.positive && !(value > 0))) {
+      if (value === undefined) warnings.push(`저장돼 있던 ${key} 값이 숫자가 아니어서 정리했어요`);
+      delete next[key]; // 0원은 가격이 아님 (판매처에서 확인)
+    } else next[key] = value;
+  }
+  next.publishStatus = status;
+  next.isAvailable = status === 'published'; // 예전 화면·스크립트 호환: 공개일 때만 true
+  return { product: next, problems: checkPublish ? publishProblems(next) : [], warnings };
+};
+
+// 손님(공개 API)에게 보내는 상품: 필요한 칸만. 내부 메모·요청 번호·승인 이력·출처 같은 칸은 빼고,
+// 판매 중지가 확인된 판매처는 예약 주소를 보내지 않는다. 예전 확인은 확인 날짜와 '예전 확인' 표시를 붙인다
+const PUBLIC_PRODUCT_FIELDS = ['id', 'name', 'description', 'categories', 'locations', 'tags', 'price', 'minPrice', 'salePrice', 'rating', 'reviewCount', 'isRecommended', 'views', 'seo'];
+const toPublicProduct = (product, viewMeta = {}, nowMs = Date.now()) => {
+  const out = {};
+  for (const key of PUBLIC_PRODUCT_FIELDS) if (product[key] !== undefined) out[key] = product[key];
+  if (product.seo && typeof product.seo === 'object') { // 검색용 칸도 정해진 것만
+    out.seo = {};
+    for (const key of ['title', 'description', 'keywords']) if (typeof product.seo[key] === 'string') out.seo[key] = product.seo[key];
+  }
+  out.images = (product.images || []).filter((img) => typeof img === 'string' && img.trim() && !isPlaceholderImage(img));
+  out.partnerLinks = (product.partnerLinks || [])
+    .filter((link) => link && link.url)
+    .map((link) => {
+      const state = partnerStateOf(link);
+      const a = link.availability || {};
+      const checkedMs = Date.parse(a.checkedAt);
+      const availability = { state };
+      if (Number.isFinite(checkedMs)) Object.assign(availability, { checkedAt: new Date(checkedMs).toISOString(), stale: nowMs - checkedMs > STALE_AVAILABILITY_MS });
+      if (state === 'partial') Object.assign(availability, { dates: a.scope?.dates || [], pax: a.scope?.pax || [], options: a.scope?.options || [] });
+      const publicLink = { partner: link.partner, availability };
+      if (link.price > 0) {
+        publicLink.price = link.price;
+        if (link.priceCurrency) publicLink.priceCurrency = link.priceCurrency;
+        if (link.priceConditions) publicLink.priceConditions = link.priceConditions;
+        if (link.priceCheckedAt) publicLink.priceCheckedAt = link.priceCheckedAt;
+        if (link.priceDisplay) publicLink.priceDisplay = link.priceDisplay;
+      }
+      if (link.updatedAt) publicLink.updatedAt = link.updatedAt;
+      if (state !== 'stopped') publicLink.url = link.url;
+      return publicLink;
+    });
+  out.bookable = bookableOf(product);
+  out.isAvailable = true; // 공개 상품만 내보냄 (예전 메인 화면의 isAvailable 필터 호환)
+  return { ...out, ...viewMeta };
+};
+// 관리자에게는 전체 + 계산한 공개 상태·예약 가능 여부
+const toAdminProduct = (product, viewMeta = {}) => ({ ...product, ...viewMeta, publishStatus: publishStatusOf(product), bookable: bookableOf(product) });
 
 // 카테고리/지역 데이터를 항상 object 형태로 정규화
 const normalizeCategoryItem = (item, index, prefix = 'cat') => {
@@ -795,196 +1166,374 @@ const deriveLocationsFromProducts = (products = []) => {
   return { countries, regions };
 };
 
-// 상품 목록 조회
-app.get('/api/products', (req, res) => {
-  // 비활성 상품은 관리자 요청에만 포함 (공개 목록으로 비활성 상품이 새지 않게)
-  const products = visibleTo(req, res, readProducts());
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const viewEvents = trimExpiredViewEvents(readViewEvents());
-  writeViewEvents(viewEvents);
-  console.log(`[API] GET /api/products 요청 - ${products.length}개 상품 반환`);
-  // placeholder 이미지 URL 제거
-  const cleanedProducts = products.map(product => ({
-    ...product,
-    ...getRecentViewMeta(viewEvents, product.id),
-    images: (product.images || []).filter((img) => 
-      img && 
-      img.trim() !== '' && 
-      !img.includes('via.placeholder.com') && 
-      !img.includes('placeholder.com')
-    )
-  }));
-  res.json(cleanedProducts);
+// 상품 파일을 쓸 수 있는 요청(등록·수정·삭제·판매처 상태·상세 조회수)은 모두 상품 파일 잠금을 거친다. 목록 조회만 잠금 없이 읽음
+app.use('/api/products', (req, res, next) => {
+  // 저장 처리가 '공개 여부 바뀜'을 표시하면(res.visibilityChanged) 응답이 끝난 뒤 메인 사이트 다시 빌드를 요청
+  res.once('finish', () => { if (res.visibilityChanged && res.statusCode < 400) requestPublicRebuild(res.visibilityChanged); });
+  return req.method === 'GET' && (req.path === '/' || req.path === '') ? next() : lockProducts(req, res, next);
 });
 
-// 상품 상세 조회
-app.get('/api/products/:id', (req, res) => {
-  const products = readProducts();
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
+// 상품 목록 조회 — 손님: 공개 상품만, 필요한 칸만 / 관리자(로그인 쿠키·관리자 키): 초안·숨김·분류 필요까지 전체
+// 판매처가 모두 중지된 공개 상품(bookable: 'none')도 상세 안내 페이지를 위해 목록에는 남기고, 메인 화면이 일반 목록에서 뺀다
+app.get('/api/products', (req, res) => {
+  // 상품 API 기능 버전: 3 = 공개 상태(초안·공개·숨김) + 판매처 예약 가능 여부 + 등록 요청 번호(clientRequestId) 중복 방지
+  res.set('X-Tourstream-Products-Api', '3');
+  res.vary('Cookie');
+  res.vary(ADMIN_KEY_HEADER);
+  let all;
+  try {
+    all = readProducts();
+  } catch (error) {
+    return sendProductError(res, error);
+  }
+  const admin = isAdminRequest(req);
+  // 관리자 응답(초안 포함)은 어디에도 저장(캐시)되지 않게, 공개 응답은 매번 새로 확인하게 → 숨김이 바로 반영
+  res.set('Cache-Control', admin ? 'private, no-store' : 'no-cache');
   const nowMs = Date.now();
   const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
   writeViewEvents(viewEvents);
-  const index = findProductIndex(products, req.params.id);
-  const shown = index === -1 ? [] : visibleTo(req, res, [products[index]]);
-  if (!shown.length) {
-    return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
-  }
-
-  const userAgent = req.get('user-agent') || '';
-  if (!isBotUserAgent(userAgent) && !isAdminRequest(req) && !readOnlyReason()) {
-    // 상세 조회 시 조회수 증가 (어드민이 보는 건 세지 않음)
-    const currentViews = Number(products[index].views) || 0;
-    products[index] = {
-      ...products[index],
-      views: currentViews + 1
-    };
-    writeProducts(products);
-    const productId = products[index].id;
-    const currentEvents = Array.isArray(viewEvents[productId]) ? viewEvents[productId] : [];
-    viewEvents[productId] = [...currentEvents, nowMs];
-    writeViewEvents(viewEvents);
-    warnIfViewSpike(productId, viewEvents, nowMs);
-  }
-  const product = { ...shown[0], views: products[index].views }; // 손님에게는 내부 칸을 뺀 모양
-
-  // placeholder 이미지 URL 제거
-  const cleanedProduct = {
-    ...product,
-    ...getRecentViewMeta(viewEvents, product.id),
-    images: (product.images || []).filter((img) => 
-      img && 
-      img.trim() !== '' && 
-      !img.includes('via.placeholder.com') && 
-      !img.includes('placeholder.com')
-    )
-  };
-  res.json(cleanedProduct);
+  const out = admin
+    ? all.map((product) => toAdminProduct(product, getRecentViewMeta(viewEvents, product.id, nowMs)))
+    : all.filter(isPublicProduct).map((product) => toPublicProduct(product, getRecentViewMeta(viewEvents, product.id, nowMs), nowMs));
+  console.log(`[API] GET /api/products 요청 - ${out.length}개 상품 반환${admin ? ' (관리자)' : ''}`);
+  res.json(out);
 });
 
-// 상품 조회수 증가
-app.post('/api/products/:id/view', (req, res) => {
-  const userAgent = req.get('user-agent') || '';
-  if (isBotUserAgent(userAgent)) {
+// 상품 상세 조회 — 손님에게는 공개 상품만 (초안·숨김은 예전에 공개됐어도 404). 조회수 증가는 상품 파일 잠금 안에서
+app.get('/api/products/:id', (req, res) => {
+  try {
+    res.vary('Cookie');
+    res.vary(ADMIN_KEY_HEADER);
+    const admin = isAdminRequest(req);
+    res.set('Cache-Control', admin ? 'private, no-store' : 'no-cache');
     const products = readProducts();
-    if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-    const product = products.find((p) => sameProductId(p.id, req.params.id));
-    if (!product || (!isGuestVisible(product) && !isAdminRequest(req))) {
+    const nowMs = Date.now();
+    const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
+    writeViewEvents(viewEvents);
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1 || (!admin && !isPublicProduct(products[index]))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
-    return res.json({
-      id: product.id,
-      views: Number(product.views) || 0,
-      counted: false,
-      reason: 'bot',
-    });
+    if (!admin && !isBotUserAgent(req.get('user-agent') || '') && req.query.check !== '1' && !readOnlyReason()) {
+      // 상세 조회 시 조회수 증가 (어드민이 보는 건, 화면의 '아직 공개인지' 확인(check=1)은 세지 않음)
+      products[index] = { ...products[index], views: (Number(products[index].views) || 0) + 1 };
+      writeProducts(products);
+      const productId = products[index].id;
+      viewEvents[productId] = [...(Array.isArray(viewEvents[productId]) ? viewEvents[productId] : []), nowMs];
+      writeViewEvents(viewEvents);
+      warnIfViewSpike(productId, viewEvents, nowMs);
+    }
+    const product = products[index];
+    const meta = getRecentViewMeta(viewEvents, product.id, nowMs);
+    res.json(admin ? toAdminProduct(product, meta) : toPublicProduct(product, meta, nowMs));
+  } catch (error) {
+    sendProductError(res, error);
   }
-
-  const products = readProducts();
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const nowMs = Date.now();
-  const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
-  const index = findProductIndex(products, req.params.id);
-
-  if (index === -1 || (!isGuestVisible(products[index]) && !isAdminRequest(req))) {
-    return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
-  }
-
-  const currentViews = Number(products[index].views) || 0;
-  products[index] = {
-    ...products[index],
-    views: currentViews + 1
-  };
-  writeProducts(products);
-  const productId = products[index].id;
-  const currentEvents = Array.isArray(viewEvents[productId]) ? viewEvents[productId] : [];
-  viewEvents[productId] = [...currentEvents, nowMs];
-  writeViewEvents(viewEvents);
-  warnIfViewSpike(productId, viewEvents, nowMs);
-
-  res.json({
-    id: products[index].id,
-    views: products[index].views,
-    counted: true,
-    ...getRecentViewMeta(viewEvents, productId, nowMs),
-  });
 });
 
+// 상품 조회수 증가 — 공개 상품만
+app.post('/api/products/:id/view', (req, res) => {
+  try {
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1 || !isPublicProduct(products[index])) {
+      return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    }
+    if (isBotUserAgent(req.get('user-agent') || '')) {
+      return res.json({ id: products[index].id, views: Number(products[index].views) || 0, counted: false, reason: 'bot' });
+    }
+    const nowMs = Date.now();
+    const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
+    products[index] = { ...products[index], views: (Number(products[index].views) || 0) + 1 };
+    writeProducts(products);
+    const productId = products[index].id;
+    viewEvents[productId] = [...(Array.isArray(viewEvents[productId]) ? viewEvents[productId] : []), nowMs];
+    writeViewEvents(viewEvents);
+    warnIfViewSpike(productId, viewEvents, nowMs);
+    res.json({ id: productId, views: products[index].views, counted: true, ...getRecentViewMeta(viewEvents, productId, nowMs) });
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 관리자에 따라 내용이 달라지는 응답은 공용 캐시에 저장되지 않게
+const varyByAuth = (req, res) => {
+  res.vary('Cookie');
+  res.vary(ADMIN_KEY_HEADER);
+  res.set('Cache-Control', isAdminRequest(req) ? 'private, no-store' : 'no-cache');
+};
+
 app.get('/api/metrics/views', (req, res) => {
-  const nowMs = Date.now();
-  const products = visibleTo(req, res, readProducts());
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
-  writeViewEvents(viewEvents);
-  return res.json(buildViewMetrics(products, viewEvents, nowMs));
+  try {
+    varyByAuth(req, res);
+    const nowMs = Date.now();
+    const products = visibleTo(req, readProducts());
+    const viewEvents = trimExpiredViewEvents(readViewEvents(), nowMs);
+    writeViewEvents(viewEvents);
+    return res.json(buildViewMetrics(products, viewEvents, nowMs));
+  } catch (error) {
+    return sendProductError(res, error);
+  }
 });
 
 // 상품 등록
 app.post('/api/products', requireAdminKey, async (req, res) => {
-  const products = readProducts();
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const counterValue = readCounter();
-  if (counterReadError) return res.status(503).json({ error: counterReadError });
-  // 다음 상품 번호 = max(카운터, 기존 최대 번호) + 1 (카운터가 없거나 뒤처져도 같은 번호를 다시 쓰지 않게)
-  const counter = Math.max(counterValue ?? 100000, maxProductNumber(products)) + 1;
-  if (!Number.isSafeInteger(counter)) return res.status(503).json({ error: '상품 번호를 정확히 셀 수 없어요 (아주 큰 번호가 있음) — 새 상품을 등록하지 않아요' });
-  const productId = counter.toString();
+  try {
+    const body = req.body || {};
+    const clientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.trim().slice(0, 80) : '';
+    const status = requestedPublishStatus(body, null); // 기본은 초안
+    assertActorMayChangeStatus(actorOf(req), 'draft', status);
+    validateProductBody(body);
+    const normalizedPayload = await normalizeProductPayload(body);
+    const partnerLinks = await mergePartnerLinks(Array.isArray(body.partnerLinks) ? body.partnerLinks : [], []);
 
-  const normalizedPayload = await normalizeProductPayload(req.body);
-  
-  const newProduct = {
-    ...normalizedPayload,
-    id: productId,
-    views: 0,
-  };
-  
-  products.push(newProduct);
-  writeProducts(products);
-  writeCounter(counter);
-  
-  console.log(`[API] POST /api/products - 상품 등록 성공: ${newProduct.id} ${newProduct.name}`);
-  res.status(201).json(newProduct);
+    // 기다리는 작업(정리)이 끝난 뒤에 읽고, 기다림 없이 바로 저장한다 (상품 파일 잠금 안 → 동시 등록이 서로 덮어쓰지 않음)
+    const products = readProducts();
+    // 같은 요청 번호로 다시 오면 새로 만들지 않고 처음 만든 상품을 돌려줌 (응답이 끊겨 다시 보내도 두 번 생기지 않게)
+    if (clientRequestId) {
+      const existing = products.find((p) => p.clientRequestId === clientRequestId);
+      if (existing) return res.status(200).json(existing);
+    }
+    // 다음 상품 번호 (번호 파일이 뒤처져 있어도 이미 있는 번호를 다시 쓰지 않게)
+    const counter = Math.max(readCounter(), maxProductNumber(products)) + 1;
+    const { clientRequestId: _rid, publishStatus: _ps, isAvailable: _ia, ...payloadRest } = normalizedPayload;
+    const { product, problems } = finalizeProduct(
+      { ...payloadRest, partnerLinks, id: counter.toString(), views: 0, rev: 1, ...(clientRequestId ? { clientRequestId } : {}) },
+      { status, checkPublish: status === 'published' },
+    );
+    if (problems.length) return res.status(400).json({ error: `공개 전에 채워 주세요: ${problems.join(', ')}`, missing: problems });
+
+    writeCounter(counter); // 번호를 먼저 저장 (상품 저장 전에 꺼져도 같은 번호를 다시 쓰지 않게)
+    const saved = externalizeImages(product); // 사진 파일은 검사가 다 끝난 뒤에만 저장
+    products.push(saved);
+    writeProducts(products);
+    console.log(`[API] POST /api/products - 상품 등록 성공: ${saved.id} ${saved.name} (${status})`);
+    res.status(201).json(saved);
+  } catch (error) {
+    sendProductError(res, error);
+  }
 });
 
-// 상품 수정
+// 상품 수정 — 이 요청이 보낸 칸만 최신 상품에 반영하고, 최종 저장될 상품 전체에 같은 정리·공개 검사를 한다
 app.put('/api/products/:id', requireAdminKey, async (req, res) => {
-  const products = readProducts();
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const index = findProductIndex(products, req.params.id);
+  try {
+    const body = req.body || {};
+    validateProductBody(body); // 보낸 칸만 검사 (저장된 예전 값 때문에 관계없는 수정이 막히지 않게)
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    }
 
-  if (index === -1) {
-    return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    const normalizedPayload = await normalizeProductPayload({
+      ...products[index],
+      ...body,
+    });
+
+    // 기다린 뒤 최신 목록을 다시 읽고, 이 요청이 보낸 칸만 최신 상품에 반영한다
+    // (다른 칸·늘어난 조회수는 저장된 최신 값. 같은 칸을 동시에 고치면 나중 요청이 남음)
+    const latest = readProducts();
+    const latestIndex = findProductIndex(latest, req.params.id);
+    if (latestIndex === -1) {
+      return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    }
+    const current = latest[latestIndex];
+    // 어드민은 불러온 저장 번호(baseRev)를 보냄 — 그사이 다른 저장이 있었으면 옛 화면으로 덮어쓰지 않게 409
+    if (hasKey(body, 'baseRev') && Number(body.baseRev) !== (Number(current.rev) || 0)) {
+      return res.status(409).json({ error: '그사이 다른 곳에서 이 상품이 바뀌었어요. 새로 불러온 뒤 다시 저장해 주세요', rev: Number(current.rev) || 0 });
+    }
+    const from = publishStatusOf(current);
+    const to = requestedPublishStatus(body, from);
+    assertActorMayChangeStatus(actorOf(req), from, to);
+    const next = { ...current };
+    for (const key of Object.keys(body)) {
+      // 서버만 정하는 칸은 요청으로 바꾸거나 지우지 못함. 판매처 목록은 아래에서 저장된 목록과 합침
+      if (['id', 'views', 'clientRequestId', 'publishStatus', 'isAvailable', 'visibilitySync', 'publishMigration', 'rev', 'baseRev', 'warnings', 'partnerLinks'].includes(key)) continue;
+      if (key in normalizedPayload && normalizedPayload[key] !== null) next[key] = normalizedPayload[key];
+      else delete next[key]; // null = 지우기 (잘못된 값은 위 검사에서 400)
+    }
+    if (hasKey(body, 'partnerLinks')) next.partnerLinks = await mergePartnerLinks(body.partnerLinks, current.partnerLinks);
+    next.rev = (Number(current.rev) || 0) + 1;
+
+    // 공개로 바꾸는 경우, 공개를 다시 요청한 경우(이미 공개여도), 공개 상품의 이름·사진·판매처를 고치는 경우 공개 필수 항목 검사
+    const touched = ['name', 'images', 'partnerLinks'].some((key) => key in body);
+    const askedPublish = body.publishStatus === 'published' || body.isAvailable === true;
+    const { product, problems, warnings } = finalizeProduct(next, { status: to, checkPublish: to === 'published' && (from !== 'published' || touched || askedPublish) });
+    if (problems.length) {
+      return res.status(400).json({ error: `공개 전에 채워 주세요: ${problems.join(', ')}`, missing: problems });
+    }
+
+    latest[latestIndex] = { ...externalizeImages(product), id: req.params.id }; // ID는 변경 불가, 사진 파일은 검사 뒤에만 저장
+    const visibilityChanged = (from === 'published') !== (to === 'published');
+    // 공개 여부가 바뀜: API는 바로 반영, 정적 페이지·사이트맵·CDN은 메인 사이트 다시 빌드가 끝나야 반영 → 그때까지 '반영 중' (상품과 한 번에 저장)
+    if (visibilityChanged) latest[latestIndex].visibilitySync = { state: 'pending', since: new Date().toISOString(), from, to };
+    writeProducts(latest);
+    if (visibilityChanged) res.visibilityChanged = `상품 ${req.params.id} ${from}→${to}`; // 응답 뒤 메인 사이트 다시 빌드 요청
+    res.json(warnings.length ? { ...latest[latestIndex], warnings } : latest[latestIndex]); // 저장된 예전 데이터를 정리했으면 알림
+  } catch (error) {
+    sendProductError(res, error);
   }
-
-  const normalizedPayload = await normalizeProductPayload({
-    ...products[index],
-    ...req.body
-  });
-  
-  products[index] = {
-    ...products[index],
-    ...normalizedPayload,
-    id: req.params.id, // ID는 변경 불가
-  };
-  
-  writeProducts(products);
-  res.json(products[index]);
 });
 
-// 상품 삭제
+// 상품 삭제 (기존 삭제 정책 그대로: 관리자만, 영구 삭제)
 app.delete('/api/products/:id', requireAdminKey, (req, res) => {
-  const products = readProducts();
-  if (productsReadFailed(res)) return; // 상품 파일을 못 읽으면 빈 목록이 아니라 오류
-  const index = findProductIndex(products, req.params.id);
-  
-  if (index === -1) {
-    return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+  try {
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    }
+    const deletedProduct = products[index];
+    products.splice(index, 1);
+    writeProducts(products);
+    if (isPublicProduct(deletedProduct)) res.visibilityChanged = `상품 ${req.params.id} 삭제`;
+    res.json({ message: '상품이 삭제되었습니다', product: deletedProduct });
+  } catch (error) {
+    sendProductError(res, error);
   }
-  
-  const deletedProduct = products[index];
-  products.splice(index, 1);
-  writeProducts(products);
-  
-  res.json({ message: '상품이 삭제되었습니다', product: deletedProduct });
+});
+
+// 판매처 예약 상태만 갱신 — 공개 상태는 절대 바꾸지 않는다
+// (대표가 숨긴 상품은 판매처가 다시 팔아도 자동 공개되지 않고, 판매 중지가 확인돼도 공개 상태는 그대로)
+// body: { updates: [{ url | externalId | index, availability: { status, reason, scope, source, checkedAt, evidence } | null }] }
+app.put('/api/products/:id/partner-availability', requireAdminKey, (req, res) => {
+  try {
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (!updates.length) throw productInputError('바꿀 판매처 상태(updates)가 없어요');
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1) return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    const links = (products[index].partnerLinks || []).map((link) => ({ ...link }));
+    for (const update of updates) {
+      const at = links.findIndex((link, i) => (update.url && link.url === update.url) || (update.externalId && link.externalId === update.externalId) || (Number.isInteger(update.index) && i === update.index));
+      if (at === -1) throw productInputError(`판매처를 찾지 못했어요: ${update.url || update.externalId || update.index}`);
+      const availability = normalizeAvailability(update.availability);
+      if (availability) links[at].availability = availability;
+      else delete links[at].availability;
+    }
+    products[index] = { ...products[index], partnerLinks: links, rev: (Number(products[index].rev) || 0) + 1 };
+    writeProducts(products);
+    res.json(toAdminProduct(products[index]));
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 판매처 가격만 갱신 (가격 갱신 스크립트용 — 파일을 직접 쓰지 않고 이 서버를 거침). 공개 상태·판매처 예약 상태는 바꾸지 않음
+// body: { updates: [{ url | externalId | index, price, priceCurrency, priceConditions, priceCheckedAt, priceDisplay? }] }
+// 일반 수정과 같은 가격 묶음 규칙(mergePartnerLinks): 새 가격이면 값·통화·조건·확인 시각 모두, 옛 확인 시각이면 409, price가 null·0이면 가격 삭제
+app.put('/api/products/:id/partner-prices', requireAdminKey, async (req, res) => {
+  try {
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (!updates.length) throw productInputError('바꿀 판매처 가격(updates)이 없어요');
+    const products = readProducts();
+    const index = findProductIndex(products, req.params.id);
+    if (index === -1) return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
+    const links = products[index].partnerLinks || [];
+    // 다른 판매처는 '그대로'(정체성만), 바꿀 판매처에는 가격 칸만 실어서 일반 수정과 같은 규칙으로 합침
+    const sent = links.map((link) => ({ partner: link.partner, url: link.url, source: link.source, ...(externalIdOf(link) ? { externalId: externalIdOf(link) } : {}) }));
+    for (const update of updates) {
+      const at = links.findIndex((link, i) => (update.url && link.url === update.url) || (update.externalId !== undefined && externalIdOf(link) && externalIdOf(link) === String(update.externalId).trim()) || (Number.isInteger(update.index) && i === update.index));
+      if (at === -1) throw productInputError(`판매처를 찾지 못했어요: ${update.url || update.externalId || update.index}`);
+      for (const key of [...PRICE_KEYS, 'priceDisplay']) if (hasKey(update, key)) sent[at][key] = update[key];
+      if (hasKey(update, 'price') && (update.price === 0 || update.price === null)) sent[at].price = null;
+    }
+    const merged = await mergePartnerLinks(sent, links);
+    products[index] = { ...products[index], partnerLinks: merged, rev: (Number(products[index].rev) || 0) + 1 };
+    writeProducts(products);
+    res.json(toAdminProduct(products[index]));
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 메인 사이트 다시 빌드·CDN 무효화가 끝났다는 알림 (배포 프로그램이 보냄, 전용 키 VISIBILITY_SYNC_KEY).
+// fetchedAt = 그 빌드가 상품 목록을 읽은 시각. 그 전에 바뀐 공개 여부는 이제 정적 페이지·사이트맵·CDN에도 반영됨 → '반영 완료'
+const VISIBILITY_SYNC_KEY = process.env.VISIBILITY_SYNC_KEY || '';
+app.post('/api/admin/visibility-synced', lockProducts, (req, res) => {
+  try {
+    if (!VISIBILITY_SYNC_KEY || !sameSecret(req.get('x-visibility-sync-key'), VISIBILITY_SYNC_KEY)) return res.status(401).json({ error: '인증이 필요합니다' });
+    const fetchedMs = Date.parse(req.body?.fetchedAt);
+    const runId = String(req.body?.runId || '').trim();
+    if (!Number.isFinite(fetchedMs)) throw productInputError('fetchedAt이 필요해요');
+    if (fetchedMs > Date.now() + 120000) throw productInputError('fetchedAt이 미래예요 (빌드가 상품을 읽은 시각만 받아요)');
+    if (!/^\d{1,20}$/.test(runId)) throw productInputError('runId(배포 실행 번호)가 필요해요');
+    const products = readProducts();
+    const doneAt = new Date().toISOString();
+    let count = 0;
+    for (const product of products) {
+      const sync = product.visibilitySync;
+      if (sync?.state === 'pending' && Date.parse(sync.since) <= fetchedMs) {
+        product.visibilitySync = { ...sync, state: 'done', doneAt, build: runId };
+        count += 1;
+      }
+    }
+    if (count) writeProducts(products);
+    res.json({ updated: count });
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 공개 상태 이전 (미리보기 / 적용). 파일을 직접 쓰는 스크립트 대신 이 서버가 한 줄로 처리 (서버만 상품 파일을 씀)
+// 적용 전 백업 파일을 만들고, 이미 이전된 상품은 건드리지 않음 (반복 실행 안전)
+app.post('/api/admin/publish-status-migration', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const products = readProducts();
+    const { products: next, changes } = migratePublishStatus(products, normalizeEvidence(req.body?.evidence));
+    const result = { changes, table: changeTable(changes), applied: false };
+    if (req.body?.apply === true && changes.length) {
+      const backup = path.join(DATA_DIR, `products.before-publish-status-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+      fs.copyFileSync(PRODUCTS_FILE, backup);
+      const changedIds = new Set(changes.map((c) => String(c.id)));
+      writeProducts(next.map((p) => (changedIds.has(String(p.id)) ? { ...p, rev: (Number(p.rev) || 0) + 1 } : p))); // 바뀐 상품은 저장 번호 올림 (열어 둔 어드민이 덮어쓰지 않게)
+      Object.assign(result, { applied: true, backup: path.basename(backup) });
+    }
+    res.json(result);
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 공개 상태만 되돌리기 (이전 뒤 수정·가격·새 상품 보존). body: { backup: 'products.before-publish-status-….json', apply }
+app.post('/api/admin/publish-status-rollback', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const name = String(req.body?.backup || '');
+    if (!/^products\.before-publish-status-[\w.-]+\.json$/.test(name)) throw productInputError('이전 백업 파일 이름이 올바르지 않아요');
+    const backupPath = path.join(DATA_DIR, name);
+    if (!fs.existsSync(backupPath)) throw productInputError('백업 파일이 없어요');
+    const { products: next, changes } = rollbackPublishStatus(readProducts(), readJsonArray(backupPath));
+    const restored = changes.filter((c) => c.restored).length;
+    const result = { changes, table: rollbackTable(changes), restored, applied: false };
+    if (req.body?.apply === true && restored) {
+      const safety = path.join(DATA_DIR, `products.before-rollback-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+      fs.copyFileSync(PRODUCTS_FILE, safety);
+      writeProducts(next);
+      requestPublicRebuild('공개 상태 되돌림');
+      Object.assign(result, { applied: true, safety: path.basename(safety) });
+    }
+    res.json(result);
+  } catch (error) {
+    sendProductError(res, error);
+  }
+});
+
+// 파일 전체를 백업으로 되돌리기 (비상용 — 백업 뒤의 모든 수정이 사라짐. 상태 이전만 되돌릴 때는 위 publish-status-rollback). 되돌리기 직전 파일도 따로 보관
+app.post('/api/admin/products-restore', requireAdminKey, lockProducts, (req, res) => {
+  try {
+    const name = String(req.body?.backup || '');
+    if (!/^products\.before-[\w.-]+\.json$/.test(name)) throw productInputError('되돌릴 백업 파일 이름이 올바르지 않아요');
+    const backupPath = path.join(DATA_DIR, name);
+    if (!fs.existsSync(backupPath)) throw productInputError('백업 파일이 없어요');
+    const backup = readJsonArray(backupPath); // 깨진 백업이면 여기서 오류
+    const safety = path.join(DATA_DIR, `products.before-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    fs.copyFileSync(PRODUCTS_FILE, safety);
+    writeProducts(backup);
+    requestPublicRebuild('백업으로 되돌림'); // 공개·숨김이 바뀌었을 수 있음 → 정적 페이지·사이트맵도 다시 빌드
+    res.json({ restored: backup.length, safety: path.basename(safety) });
+  } catch (error) {
+    sendProductError(res, error);
+  }
 });
 
 // 어드민 - 파트너 API 상품 검색 (등록 폼에서 API 연동 링크를 고를 때 사용)
@@ -1002,8 +1551,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 // 현재 세션이 살아있는지 확인 (새로고침 시 로그인 상태 복원용)
 app.get('/api/admin/session', (req, res) => {
-  // readOnly: 복구 중 읽기 전용이면 그 이유 (어드민 화면이 '저장할 수 없음'을 미리 보여 주게)
-  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)), readOnly: readOnlyReason() });
+  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)), readOnly: readOnlyReason() }); // readOnly: 복구 중이면 이유
 });
 
 // 예전 어드민 빌드가 호출하던 경로. 키 확인만 하고 쿠키는 주지 않는다.
@@ -1143,8 +1691,7 @@ app.post('/api/flights/search-link', async (req, res) => {
 // 카운터 조회
 app.get('/api/counter', (req, res) => {
   const counter = readCounter();
-  if (counterReadError) return res.status(500).json({ error: counterReadError });
-  res.json({ counter: counter ?? maxProductNumber(readProducts()) });
+  res.json({ counter });
 });
 
 // Sitemap은 메인 사이트 빌드(generate-seo-route-shells.mjs)가 생성한다.
@@ -1157,6 +1704,7 @@ app.get('/sitemap.xml', (req, res) => {
 
 // 카테고리 목록 조회
 app.get('/api/categories', (req, res) => {
+  varyByAuth(req, res);
   const categoriesFile = path.join(DATA_DIR, 'categories.json');
   try {
     if (fs.existsSync(categoriesFile)) {
@@ -1181,7 +1729,7 @@ app.get('/api/categories', (req, res) => {
     console.warn('[API] categories.json 로드 실패, 상품 데이터로 복구:', error.message);
   }
 
-  const derived = deriveCategoriesFromProducts(readProducts());
+  const derived = deriveCategoriesFromProducts(visibleTo(req, readProducts()));
   res.json(derived);
 });
 
@@ -1319,6 +1867,7 @@ app.post('/api/coupons', requireAdminKey, (req, res) => {
 
 // 지역 목록 조회
 app.get('/api/locations', (req, res) => {
+  varyByAuth(req, res);
   const locationsFile = path.join(DATA_DIR, 'locations.json');
   try {
     if (fs.existsSync(locationsFile)) {
@@ -1344,7 +1893,7 @@ app.get('/api/locations', (req, res) => {
     console.warn('[API] locations.json 로드 실패, 상품 데이터로 복구:', error.message);
   }
 
-  const derived = deriveLocationsFromProducts(readProducts());
+  const derived = deriveLocationsFromProducts(visibleTo(req, readProducts()));
   res.json(derived);
 });
 
@@ -1365,6 +1914,8 @@ app.use((req, res) => {
       'GET /',
       'GET /api/products',
       'GET /api/products/:id',
+      'PUT /api/products/:id/partner-availability',
+      'PUT /api/products/:id/partner-prices',
       'POST /api/products/:id/view',
       'POST /api/products',
       'PUT /api/products/:id',
@@ -1388,13 +1939,6 @@ app.use((req, res) => {
   });
 });
 
-// 처음 설치(데이터 파일이 하나도 없는 폴더): 빈 상품 목록을 만들어 '처음 설치'를 분명히 남김
-// (그 뒤에 생기는 조회 기록 등 때문에 '상품 파일만 사라진 폴더'와 헷갈리지 않게). 조회 전용이면 만들지 않음
-if (!fs.existsSync(PRODUCTS_FILE) && !hasOtherData() && !fs.existsSync(RECOVERY_MARK) && !fs.existsSync(SCHEMA_FILE)) {
-  fs.writeFileSync(PRODUCTS_FILE, '[]', 'utf8');
-}
-// 시작 때 한 번 상품을 읽어 새 버전 데이터인지 먼저 알아 둠 (첫 쓰기 요청이 조회 전용 확인을 지나치지 않게)
-readProducts();
 app.listen(PORT, () => {
   console.log(`✅ 서버가 http://localhost:${PORT}에서 실행 중입니다`);
   console.log(`📚 API 문서: packages/server/API.md`);

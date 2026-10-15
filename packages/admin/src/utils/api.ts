@@ -305,7 +305,7 @@ export const api = {
     if (hasStringSub) {
       let products: any[] = [];
       try {
-        const productsRes = await fetch(`${API_BASE_URL}/products`);
+        const productsRes = await fetch(`${API_BASE_URL}/products`, adminRequestInit()); // 비활성 상품의 분류·지역도 포함
         if (productsRes.ok) products = await productsRes.json();
       } catch { products = []; }
 
@@ -363,7 +363,7 @@ export const api = {
     if (hasStringRegion) {
       let products: any[] = [];
       try {
-        const productsRes = await fetch(`${API_BASE_URL}/products`);
+        const productsRes = await fetch(`${API_BASE_URL}/products`, adminRequestInit()); // 비활성 상품의 분류·지역도 포함
         if (productsRes.ok) products = await productsRes.json();
       } catch { products = []; }
 

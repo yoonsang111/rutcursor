@@ -8,15 +8,37 @@ import { useV2Coupons } from "../hooks/useV2Coupons";
 import { couponsForProduct, formatDeadline, formatDiscount } from "../utils/coupons";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import { trackEvent } from "../../utils/analytics";
+import { api } from "../../utils/api";
 
 const VIEW_THROTTLE_MS = 12 * 60 * 60 * 1000; // 12시간
+// 판매처 상태를 언제 확인했는지 (예: 10월 3일 확인). 7일 넘은 확인은 '예전 확인'으로 따로 표시
+const checkedLabel = (iso?: string, stale?: boolean) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 확인${stale ? " · 예전 확인" : ""}`;
+};
 const VIEW_STORAGE_PREFIX = "tourstream_v2_view_";
 
 export default function V2ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { byId, countries, categories, incrementProductView, loading } = useV2Products();
+  const { byId, items, countries, categories, incrementProductView, loading } = useV2Products();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const product = id ? byId.get(id) : null;
+  // 예전에 받아 둔 목록에 있어도, 서버가 '지금은 공개 아님(숨김·초안·삭제)'이라고 하면 보여 주지 않음
+  const [goneId, setGoneId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!id) return;
+    let active = true;
+    // 열 때 + 다른 탭·앱에 갔다가 돌아올 때마다 다시 확인 (열어 둔 화면도 숨김을 반영)
+    const check = () => api.isStillPublic(id).then((ok) => { if (active && ok === false) setGoneId(id); });
+    check();
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check); // 뒤로 가기로 돌아온 저장된 페이지
+    return () => { active = false; document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", check); window.removeEventListener("pageshow", check); };
+  }, [id]);
+  const product = id && goneId !== id ? byId.get(id) : null;
   const favorited = id ? isFavorite(id) : false;
   const [shareCopied, setShareCopied] = React.useState(false);
 
@@ -50,12 +72,26 @@ export default function V2ProductDetailPage() {
     });
   }, [coupons, product, countries, categories]);
   const category = categories.find((c) => c.id === product?.categoryId);
-  const partnerLinks = product?.partnerLinks.length ? product.partnerLinks : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
+  const noBookable = product?.bookable === "none"; // 모든 판매처의 판매 중지가 확인됨 (상세는 안내용)
+  const partnerLinks: NonNullable<typeof product>["partnerLinks"] = product?.partnerLinks.length
+    ? product.partnerLinks
+    : noBookable
+      ? []
+      : [{ name: "공식 링크", url: product?.url || "https://tourstream.kr" }];
+  const openLinks = partnerLinks.filter((p) => p.url && p.state !== "stopped");
+  // 대신 볼 만한 상품: 같은 분류·나라의 예약 가능한 공개 상품
+  const alternatives = React.useMemo(() => {
+    if (!product || !noBookable) return [];
+    return items
+      .filter((o) => o.id !== product.id && (o.categoryId === product.categoryId || o.countryId === product.countryId))
+      .sort((a, b) => Number(b.categoryId === product.categoryId) - Number(a.categoryId === product.categoryId) || b.popularityScore - a.popularityScore)
+      .slice(0, 4);
+  }, [items, product, noBookable]);
   const hasCoupangLink = partnerLinks.some((p) => p.name.trim() === "쿠팡");
   const hasPrice = Number(product?.price || 0) > 0;
   const safePrice = hasPrice ? product!.price : 0;
   const hasRating = Number(product?.rating || 0) > 0 && Number(product?.reviews || 0) > 0;
-  const pricedLinks = partnerLinks.filter((p) => p.price !== undefined) as Array<{ price: number }>;
+  const pricedLinks = openLinks.filter((p) => p.price !== undefined) as Array<{ price: number }>;
   const savings =
     pricedLinks.length >= 2
       ? (() => {
@@ -74,7 +110,7 @@ export default function V2ProductDetailPage() {
   const seoTitle = priceLabel ? `${safeName} ${priceLabel}부터 | TourStream` : `${safeName} 가격비교 | TourStream`;
   const seoDescription = priceLabel
     ? `${safeDescription.slice(0, 90)} ${priceLabel}부터${
-        partnerLinks.length >= 2 ? `, 파트너사 ${partnerLinks.length}곳` : ""
+        openLinks.length >= 2 ? `, 파트너사 ${openLinks.length}곳` : ""
       } 가격을 비교해보세요.`.slice(0, 155)
     : safeDescription.slice(0, 140);
 
@@ -108,7 +144,7 @@ export default function V2ProductDetailPage() {
     // 예약 링크가 하나도 없는 상품은 들어와도 할 수 있는 게 없는 막다른 페이지라 색인 대상에서 뺀다.
     // (링크가 등록되면 자동으로 다시 색인 대상이 된다)
     robots:
-      !loading && (!product || (product.partnerLinks || []).filter((l) => l.url).length === 0)
+      !loading && (!product || noBookable || (product.partnerLinks || []).filter((l) => l.url).length === 0)
         ? "noindex, follow"
         : "index, follow",
     jsonLd: [
@@ -121,17 +157,22 @@ export default function V2ProductDetailPage() {
         url: `https://tourstream.kr${canonicalPath}`,
         category: category?.name || "여행상품",
         brand: { "@type": "Brand", name: "TourStream" },
-        offers: {
-          "@type": "Offer",
-          price: safePrice,
-          priceCurrency: "KRW",
-          priceValidUntil,
-          availability: "https://schema.org/InStock",
-          url: `https://tourstream.kr${canonicalPath}`,
-          seller: { "@type": "Organization", name: "TourStream", url: "https://tourstream.kr" },
-          hasMerchantReturnPolicy: returnPolicy,
-          shippingDetails,
-        },
+        // 가격이 없으면 가격 정보(Offer)를 넣지 않음 (0원으로 알리지 않음)
+        ...(hasPrice
+          ? {
+              offers: {
+                "@type": "Offer",
+                price: safePrice,
+                priceCurrency: "KRW",
+                priceValidUntil,
+                availability: noBookable ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
+                url: `https://tourstream.kr${canonicalPath}`,
+                seller: { "@type": "Organization", name: "TourStream", url: "https://tourstream.kr" },
+                hasMerchantReturnPolicy: returnPolicy,
+                shippingDetails,
+              },
+            }
+          : {}),
         ...(hasRating
           ? {
               aggregateRating: {
@@ -295,6 +336,26 @@ export default function V2ProductDetailPage() {
               <div className="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md mb-1">{partnerLinks.length}개 파트너사 비교</div>
             </div>
 
+            {noBookable && (
+              <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-bold">현재 예약 가능한 판매처가 없어요</div>
+                <div className="text-xs mt-1">모든 판매처에서 일시 품절이거나 판매를 멈췄어요.{alternatives.length > 0 ? " 비슷한 상품을 확인해 보세요." : ""}</div>
+                {alternatives.length > 0 && (
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {alternatives.map((alt) => (
+                      <li key={alt.id}>
+                        <Link to={`/product/${alt.id}`} className="flex items-center gap-2 text-xs font-bold text-slate-800 hover:text-brand">
+                          <img src={alt.image} alt="" className="w-8 h-8 rounded-md object-cover flex-shrink-0" />
+                          <span className="line-clamp-1">{alt.name}</span>
+                          {alt.price > 0 && <span className="ml-auto flex-shrink-0 text-slate-500 font-medium">{alt.price.toLocaleString()}원부터</span>}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {savings && (
               <div className="text-xs font-bold text-save bg-save-tint px-2.5 py-1.5 rounded-lg inline-block mb-4">
                 최고가 대비 {savings.diff.toLocaleString()}원(-{savings.percent}%) 절약
@@ -302,18 +363,35 @@ export default function V2ProductDetailPage() {
             )}
 
             <div className="flex flex-col gap-2">
-              {partnerLinks.map((partner, idx) => (
+              {partnerLinks.map((partner, idx) => (partner.state === "stopped" || !partner.url) ? (
+                <div key={`${partner.name}-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 opacity-70">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-sm font-bold text-slate-500">{partner.name}</span>
+                    <span className="text-xs text-slate-500 mt-0.5">일시 품절 또는 판매 중지{checkedLabel(partner.checkedAt, partner.stale) ? ` (${checkedLabel(partner.checkedAt, partner.stale)})` : ""}</span>
+                  </div>
+                  <span aria-disabled="true" className="flex-shrink-0 whitespace-nowrap px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold bg-slate-200 text-slate-500 cursor-not-allowed">
+                    예약 불가
+                  </span>
+                </div>
+              ) : (
                 <div key={`${partner.name}-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100 transition-colors group">
                   <div className="flex flex-col min-w-0">
                     <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                       {partner.name}
-                      {idx === 0 && partner.price !== undefined && (
+                      {idx === 0 && partner.price !== undefined && partner.state !== "partial" && (
                         <span className="text-[10px] bg-brand-tint text-brand px-1.5 py-0.5 rounded-sm font-bold">가장 낮은 가격</span>
                       )}
                     </span>
                     {(partner.priceDisplay || partner.price !== undefined) && (
                       <span className="text-xs text-slate-500 mt-0.5">
                         {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
+                        {partner.priceNote ? ` · ${partner.priceNote}` : ""}
+                      </span>
+                    )}
+                    {partner.state === "partial" && (
+                      <span className="text-[11px] text-amber-700 mt-0.5">
+                        일부 날짜·옵션 품절{partner.soldOutNote ? `: ${partner.soldOutNote}` : ""}
+                        {checkedLabel(partner.checkedAt, partner.stale) ? ` (${checkedLabel(partner.checkedAt, partner.stale)})` : ""}
                       </span>
                     )}
                     {productCoupons

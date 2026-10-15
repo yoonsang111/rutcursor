@@ -11,7 +11,8 @@ interface ProductListRowProps {
 }
 
 export function ProductListRow({ product, countryName, rank }: ProductListRowProps) {
-  const sortedLinks = [...product.partnerLinks].sort((a, b) => {
+  // 판매 중지가 확인된 판매처는 목록 버튼에서 뺀다 (상세 페이지에서 '판매 중지'로 안내)
+  const sortedLinks = product.partnerLinks.filter((l) => l.url && l.state !== "stopped").sort((a, b) => {
     const ap = a.price ?? Number.MAX_SAFE_INTEGER;
     const bp = b.price ?? Number.MAX_SAFE_INTEGER;
     return ap - bp;

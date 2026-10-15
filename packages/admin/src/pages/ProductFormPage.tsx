@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
 import { useLocations } from '../context/LocationContext';
-import { Product, PartnerLink } from '@tourstream/shared';
+import { Product, PartnerLink, PartnerAvailability, PublishStatus } from '@tourstream/shared';
 import { api } from '../utils/api';
 import { useUnsavedChangesGuard } from '../components/AdminLayout';
 
@@ -16,6 +16,17 @@ const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }]
 // 서버가 상품 저장 시 파트너명을 보고 자동으로 변환해줌 (어드민에서 따로 버튼 누를 필요 없음).
 
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
+
+// 공개 상태 안내 (손님에게 보일지). 판매처 예약 가능 여부와는 따로 정함
+const PUBLISH_OPTIONS: Array<{ value: Exclude<PublishStatus, 'needs_classification'>; label: string; help: string }> = [
+  { value: 'draft', label: '초안', help: '작성·수집·검수 중. 관리자만 볼 수 있어요' },
+  { value: 'published', label: '공개', help: '손님에게 보여요. 이름·실제 사진·https 판매처 링크가 있어야 해요' },
+  { value: 'hidden', label: '숨김', help: '정보 오류 등으로 공개를 멈춰요. 판매처가 다시 팔아도 자동으로 공개되지 않아요' },
+];
+const AVAILABILITY_LABEL: Record<string, string> = { '': '기록 안 함', available: '예약 가능', unavailable: '예약 불가', unknown: '확인 못 함' };
+const UNAVAILABLE_REASONS: Record<string, string> = { temporary_soldout: '일시 품절', sales_stopped: '판매 중지', sales_ended: '판매 종료 (근거 필요)' };
+const UNKNOWN_REASONS: Record<string, string> = { not_checked: '아직 확인 안 함', access_failed: '접근 실패', captcha: 'CAPTCHA', price_missing: '가격 누락', other: '기타' };
+const splitList = (text: string) => text.split(',').map((v) => v.trim()).filter(Boolean);
 
 interface PartnerSearchResult {
   externalId: string;
@@ -61,9 +72,11 @@ function buildFormStateFromProduct(product: Product) {
     tags,
     isRecommended: Boolean(product.isRecommended),
     isAvailable: product.isAvailable !== false,
+    publishStatus: (product.publishStatus || (product.isAvailable === false ? 'needs_classification' : 'published')) as PublishStatus,
     partnerLinks: Array.isArray(product.partnerLinks) && product.partnerLinks.length > 0
       ? product.partnerLinks
       : [emptyPartnerLink()],
+    baseRev: Number(product.rev) || 0, // 불러온 저장 번호 — 저장할 때 보내서, 그사이 바뀌었으면 서버가 거절(409)
   };
 }
 
@@ -88,8 +101,10 @@ export default function ProductFormPage() {
     locations: [] as string[],
     tags: [] as string[],
     isRecommended: false,
-    isAvailable: true,
+    isAvailable: false,
+    publishStatus: 'draft' as PublishStatus, // 새 상품은 초안으로 시작 (검수 후 공개)
     partnerLinks: [emptyPartnerLink()] as PartnerLink[],
+    baseRev: 0,
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -155,21 +170,24 @@ export default function ProductFormPage() {
     const productData: Omit<Product, 'id' | 'views'> = {
       name: formData.name,
       description: formData.description,
-      price: parseOptionalNumber(formData.price),
-      rating: parseOptionalNumber(formData.rating),
-      reviewCount: parseOptionalNumber(formData.reviewCount),
+      // 빈 칸 = 지우기(null). 서버는 칸을 안 보내면 그대로 두기 때문에 지울 때는 null을 보냄
+      price: formData.price.trim() === '' ? null : parseOptionalNumber(formData.price),
+      rating: formData.rating.trim() === '' ? null : parseOptionalNumber(formData.rating),
+      reviewCount: formData.reviewCount.trim() === '' ? null : parseOptionalNumber(formData.reviewCount),
       images: formData.images.filter(img => img.trim() !== ''),
       categories: formData.categories,
       locations: formData.locations,
       tags: formData.tags,
       isRecommended: formData.isRecommended,
-      isAvailable: formData.isAvailable,
+      isAvailable: formData.publishStatus === 'published',
+      // '분류 필요'는 관리자가 정하기 전까지 그대로 둔다 (서버가 받는 값은 초안·공개·숨김)
+      ...(formData.publishStatus !== 'needs_classification' ? { publishStatus: formData.publishStatus } : {}),
       partnerLinks,
-    };
+    } as any;
 
     try {
       if (isEdit && id) {
-        await updateProduct(id, productData);
+        await updateProduct(id, { ...productData, baseRev: formData.baseRev } as any);
       } else {
         await addProduct(productData);
       }
@@ -194,6 +212,31 @@ export default function ProductFormPage() {
     setFormData({ ...formData, tags: formData.tags.filter(t => t !== tag) });
   };
 
+  // 판매처 예약 상태 바꾸기. 확인 시각은 '상태를 바꿨을 때'와 '지금 다시 확인함'을 눌렀을 때만 지금으로 (범위·근거 문구만 고치면 예전 확인 시각 유지 — 예전 확인을 최신처럼 보이지 않게)
+  // 확인 시각이 없던 기록도 문구만 고치면 '확인 시각 없음' 그대로 (수정 시각 updatedAt만 남김)
+  // ('지금 다시 확인함'은 patch.checkedAt = 'now'로 알림)
+  const updateAvailability = (index: number, patch: Partial<PartnerAvailability> | null) => {
+    const partnerLinks = formData.partnerLinks.map((link, i) => {
+      if (i !== index) return link;
+      if (patch === null) {
+        const { availability, ...rest } = link;
+        return rest;
+      }
+      const prev = link.availability || { status: 'unknown' as const };
+      const reconfirm = patch.checkedAt === 'now';
+      const statusChanged = patch.status !== undefined && patch.status !== prev.status;
+      const next: PartnerAvailability = { ...prev, ...patch, checkedAt: prev.checkedAt };
+      const now = new Date().toISOString();
+      next.updatedAt = now;
+      if (statusChanged || reconfirm) {
+        next.checkedAt = now;
+        next.source = '관리자 직접 확인';
+      }
+      return { ...link, availability: next };
+    });
+    setFormData({ ...formData, partnerLinks });
+  };
+
   const addPartnerLink = () => {
     setFormData({ ...formData, partnerLinks: [...formData.partnerLinks, emptyPartnerLink()] });
   };
@@ -202,13 +245,23 @@ export default function ProductFormPage() {
     setFormData({ ...formData, partnerLinks: formData.partnerLinks.filter((_, i) => i !== index) });
   };
 
-  const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price', value: string) => {
+  // 가격 값을 새로 넣으면 그때가 가격 확인 시각 (통화가 없으면 원화). 0·빈 값은 가격 없음 → 통화·조건·확인 시각도 지움
+  const updatePartnerLink = (index: number, field: 'partner' | 'url' | 'price' | 'priceCurrency' | 'priceConditions', value: string) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
       if (field === 'price') {
         const parsed = parseOptionalNumber(value);
-        return { ...link, price: parsed };
+        if (parsed === undefined || parsed <= 0) {
+          // 가격을 비우면 '삭제'를 서버에 알림 (null) — 칸을 빼면 서버는 예전 가격을 그대로 둠
+          const { priceCurrency, priceConditions, priceCheckedAt, priceDisplay, ...rest } = link;
+          return { ...rest, price: null };
+        }
+        // 새 가격 = 새 확인: 통화·조건(없으면 빈 글자)·확인 시각을 함께
+        return { ...link, price: parsed, priceCurrency: link.priceCurrency || 'KRW', priceConditions: link.priceConditions ?? '', priceCheckedAt: new Date().toISOString() };
       }
+      // 통화·조건을 바꾸는 것도 새 확인 (지금 확인한 것으로)
+      if (field === 'priceCurrency') return { ...link, priceCurrency: value.trim().toUpperCase(), priceConditions: link.priceConditions ?? '', priceCheckedAt: new Date().toISOString() };
+      if (field === 'priceConditions') return { ...link, priceConditions: value, priceCheckedAt: new Date().toISOString() };
       return { ...link, [field]: value };
     });
     setFormData({ ...formData, partnerLinks });
@@ -250,8 +303,10 @@ export default function ProductFormPage() {
             url: trackedUrl,
             source: 'api' as const,
             externalId: result.externalId,
-            price: result.price,
-            priceDisplay: result.priceDisplay,
+            // 판매처 검색으로 찾은 가격 = 지금 확인한 가격 묶음 (원화, 판매처 표시 가격)
+            ...(result.price !== undefined && result.price !== null && result.price > 0
+              ? { price: result.price, priceCurrency: 'KRW', priceConditions: '판매처 표시 가격', priceCheckedAt: new Date().toISOString(), priceDisplay: result.priceDisplay }
+              : { price: null }),
             updatedAt: new Date().toISOString(),
           }
         : link,
@@ -268,8 +323,9 @@ export default function ProductFormPage() {
   const disconnectPartnerApi = (index: number) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
-      const { source, externalId, price, priceDisplay, updatedAt, ...rest } = link;
-      return { ...rest, source: 'manual' as const };
+      // 연동 해제 = 외부 번호·가격을 지운다고 서버에 명시 (칸을 빼면 서버는 같은 판매처의 예전 값을 그대로 둠)
+      const { source, externalId, price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt, updatedAt, ...rest } = link;
+      return { ...rest, source: 'manual' as const, externalId: '', price: null };
     });
     setFormData({ ...formData, partnerLinks });
   };
@@ -773,7 +829,7 @@ export default function ProductFormPage() {
                         <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">API 연동됨</span>
                       </div>
                       <div className="text-xs text-gray-500 mt-0.5">
-                        {link.priceDisplay || (link.price !== undefined ? `${link.price.toLocaleString()}원` : '가격 정보 없음')}
+                        {link.priceDisplay || (link.price != null ? `${link.price.toLocaleString()}원` : '가격 정보 없음')}
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
@@ -823,11 +879,20 @@ export default function ProductFormPage() {
                       type="number"
                       min="0"
                       step="1"
-                      value={link.price !== undefined ? String(link.price) : ''}
+                      value={link.price != null ? String(link.price) : ''}
                       onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
-                      placeholder="가격(원, 선택) - 알고 있으면 입력"
+                      placeholder="가격(선택) - 모르면 비워 두기"
                     />
+                    {(link.price ?? 0) > 0 && (
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <select aria-label="통화" value={link.priceCurrency || 'KRW'} onChange={(e) => updatePartnerLink(index, 'priceCurrency', e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {['KRW', 'JPY', 'USD', 'TWD', 'THB', 'VND', 'EUR', 'CNY'].map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <input aria-label="가격 조건" value={link.priceConditions || ''} onChange={(e) => updatePartnerLink(index, 'priceConditions', e.target.value)} placeholder="가격 조건 (예: 성인 1인, 2인 이상)" className="flex-1 min-w-[180px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                        <span className="text-[11px] text-gray-500">{link.priceCheckedAt ? `${new Date(link.priceCheckedAt).toLocaleString('ko-KR')} 가격 확인` : '가격 확인 시각 모름'}</span>
+                      </div>
+                    )}
                     <div className="flex gap-2 flex-wrap">
                       {PARTNER_API_OPTIONS.map((option) => (
                         <button
@@ -890,6 +955,66 @@ export default function ProductFormPage() {
                     )}
                   </div>
                 )}
+                {link.url.trim() !== '' && (
+                  <div className="border-t border-gray-100 pt-2 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold text-gray-700">예약 가능 여부</span>
+                      <select
+                        aria-label="판매처 예약 가능 여부"
+                        value={link.availability?.status || ''}
+                        onChange={(e) => {
+                          const status = e.target.value as PartnerAvailability['status'] | '';
+                          if (!status) return updateAvailability(index, null);
+                          updateAvailability(index, status === 'unavailable'
+                            ? { status, reason: link.availability?.reason && UNAVAILABLE_REASONS[link.availability.reason] ? link.availability.reason : 'temporary_soldout', scope: link.availability?.scope || { whole: false, dates: [], options: [] } }
+                            : status === 'unknown' ? { status, reason: 'not_checked' } : { status, reason: undefined }); // 범위·근거는 남겨 둠
+                        }}
+                        className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white"
+                      >
+                        {Object.entries(AVAILABILITY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      {link.availability?.status === 'unavailable' && (
+                        <select aria-label="예약 불가 이유" value={link.availability.reason || 'temporary_soldout'} onChange={(e) => updateAvailability(index, { reason: e.target.value })} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {Object.entries(UNAVAILABLE_REASONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      )}
+                      {link.availability?.status === 'unknown' && (
+                        <select aria-label="확인 못 한 이유" value={link.availability.reason || 'not_checked'} onChange={(e) => updateAvailability(index, { reason: e.target.value })} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
+                          {Object.entries(UNKNOWN_REASONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </select>
+                      )}
+                      {link.availability?.checkedAt && (
+                        <span className="text-[11px] text-gray-500">{new Date(link.availability.checkedAt).toLocaleString('ko-KR')} 확인 · {link.availability.source}</span>
+                      )}
+                      {link.availability && (
+                        <button type="button" onClick={() => updateAvailability(index, { checkedAt: 'now' })} className="px-2 py-1 border border-gray-300 rounded-md text-[11px] bg-white hover:bg-gray-50">
+                          지금 다시 확인함
+                        </button>
+                      )}
+                    </div>
+                    {(link.availability?.status === 'unavailable' || link.availability?.status === 'available' || link.availability?.status === 'unknown') && (
+                      <div className="space-y-1.5 pl-1">
+                        <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                          <input type="checkbox" checked={Boolean(link.availability.scope?.whole)} onChange={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, whole: e.target.checked } })} />
+                          {link.availability.status === 'unavailable'
+                            ? '상품 전체가 예약 불가 (특정 날짜·옵션만 품절이면 체크하지 말고 아래에 적어 주세요)'
+                            : link.availability.status === 'available'
+                              ? '상품 전체 기준으로 예약 가능을 확인 (특정 날짜·옵션만 확인했으면 체크하지 말고 아래에 적어 주세요)'
+                              : '상품 전체를 확인하려 했음 (특정 날짜·옵션만 확인하려 했으면 아래에 적어 주세요)'}
+                        </label>
+                        {!link.availability.scope?.whole && (
+                          <div className="flex flex-wrap gap-2">
+                            <input aria-label="날짜 범위" placeholder={link.availability.status === 'unavailable' ? '품절 날짜 (쉼표로: 2026-12-24, 2026-12-25)' : '확인한 날짜 (쉼표로)'} defaultValue={(link.availability.scope?.dates || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, dates: splitList(e.target.value) } })} className="flex-1 min-w-[200px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                            <input aria-label="옵션·인원 범위" placeholder={link.availability.status === 'unavailable' ? '품절 옵션·인원 (쉼표로: 성인, 4/7)' : '확인한 옵션·인원 (쉼표로)'} defaultValue={(link.availability.scope?.options || []).join(', ')} onBlur={(e) => updateAvailability(index, { scope: { ...link.availability!.scope, options: splitList(e.target.value) } })} className="flex-1 min-w-[160px] px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                          </div>
+                        )}
+                        {link.availability.reason === 'sales_ended' && (
+                          <input aria-label="판매 종료 근거" placeholder="판매 종료 근거 (판매처 공지·안내 문구) — 없으면 '판매 중지'로" defaultValue={link.availability.evidence || ''} onBlur={(e) => updateAvailability(index, { evidence: e.target.value.trim() })} className="w-full px-2 py-1 border border-gray-300 rounded-md text-xs" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -913,15 +1038,29 @@ export default function ProductFormPage() {
             />
             <span className="text-xs text-gray-700">추천 상품</span>
           </label>
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={formData.isAvailable}
-              onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
-              className="mr-2"
-            />
-            <span className="text-xs text-gray-700">활성화</span>
-          </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-semibold text-gray-800 mb-1">공개 상태</legend>
+            {formData.publishStatus === 'needs_classification' && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                분류 필요: 예전 '비활성' 상품을 옮길 때 초안인지 숨김인지 근거가 없었어요. 손님에게는 보이지 않아요. 아래에서 골라 주세요.
+              </p>
+            )}
+            {PUBLISH_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="publishStatus"
+                  value={option.value}
+                  checked={formData.publishStatus === option.value}
+                  onChange={() => setFormData({ ...formData, publishStatus: option.value })}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-gray-700">
+                  <b>{option.label}</b> — {option.help}
+                </span>
+              </label>
+            ))}
+          </fieldset>
         </div>
 
         {/* 버튼 */}

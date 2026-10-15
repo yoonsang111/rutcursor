@@ -5,6 +5,16 @@ import { migrateProductsFromLocalStorage } from '../utils/migrateFromLocalStorag
 import { storage } from '../utils/storage';
 
 const PAGE_SIZE = 20;
+
+// 공개 상태 (이전 전 데이터: 활성 = 공개, 비활성 = 분류 필요)
+const publishStatusOf = (p: { publishStatus?: string; isAvailable?: boolean }) =>
+  (p.publishStatus || (p.isAvailable === false ? 'needs_classification' : 'published')) as 'draft' | 'published' | 'hidden' | 'needs_classification';
+const STATUS_BADGE = {
+  published: { label: '공개', tone: 'bg-green-100 text-green-700' },
+  draft: { label: '초안', tone: 'bg-blue-100 text-blue-700' },
+  hidden: { label: '숨김', tone: 'bg-gray-200 text-gray-700' },
+  needs_classification: { label: '분류 필요', tone: 'bg-amber-100 text-amber-800' },
+};
 const AUTO_REFRESH_MS = 60000;
 const FOCUS_REFRESH_MIN_GAP_MS = 5000;
 
@@ -16,7 +26,7 @@ export default function ProductListPage() {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [isMigrating, setIsMigrating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'recommended'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft' | 'hidden' | 'needs_classification' | 'no_bookable' | 'recommended'>('all');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
@@ -37,8 +47,8 @@ export default function ProductListPage() {
 
   const filteredProducts = useMemo(() => {
     let list = searchKeyword ? searchProducts(searchKeyword) : products;
-    if (statusFilter === 'active') list = list.filter((p) => p.isAvailable);
-    if (statusFilter === 'inactive') list = list.filter((p) => !p.isAvailable);
+    if (['published', 'draft', 'hidden', 'needs_classification'].includes(statusFilter)) list = list.filter((p) => publishStatusOf(p) === statusFilter);
+    if (statusFilter === 'no_bookable') list = list.filter((p) => publishStatusOf(p) === 'published' && p.bookable === 'none');
     if (statusFilter === 'recommended') list = list.filter((p) => p.isRecommended);
     if (categoryFilter) list = list.filter((p) => p.categories.includes(categoryFilter));
     if (locationFilter) list = list.filter((p) => p.locations.includes(locationFilter));
@@ -189,8 +199,11 @@ export default function ProductListPage() {
             className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
           >
             <option value="all">상태: 전체</option>
-            <option value="active">활성</option>
-            <option value="inactive">비활성</option>
+            <option value="published">공개</option>
+            <option value="draft">초안</option>
+            <option value="hidden">숨김</option>
+            <option value="needs_classification">분류 필요</option>
+            <option value="no_bookable">공개 중 · 판매처 모두 중지</option>
             <option value="recommended">추천</option>
           </select>
           <select
@@ -290,10 +303,14 @@ export default function ProductListPage() {
                       {product.isRecommended && (
                         <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">추천</span>
                       )}
-                      {product.isAvailable ? (
-                        <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">활성</span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded-full">비활성</span>
+                      <span className={`px-2 py-1 text-xs rounded-full ${STATUS_BADGE[publishStatusOf(product)].tone}`}>{STATUS_BADGE[publishStatusOf(product)].label}</span>
+                      {product.visibilitySync?.state === 'pending' && (
+                        <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full" title="서버 주소에는 바로 반영됐어요. 검색용 페이지·CDN은 메인 사이트 다시 빌드가 끝나야 반영돼요">
+                          {product.visibilitySync.to === 'published' ? '공개 반영 중' : '숨김 반영 중'}
+                        </span>
+                      )}
+                      {publishStatusOf(product) === 'published' && product.bookable === 'none' && (
+                        <span className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded-full" title="모든 판매처의 판매 중지가 확인됨 — 손님 목록에서 빠지고 상세는 안내만">판매처 모두 중지</span>
                       )}
                     </div>
                   </td>

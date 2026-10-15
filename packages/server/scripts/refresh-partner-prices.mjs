@@ -1,47 +1,31 @@
 // source: 'api'로 연동된 partnerLinks의 가격을 주기적으로 갱신하는 배치 스크립트.
 // 사용법: cd packages/server && node --env-file=.env.local scripts/refresh-partner-prices.mjs
-// (운영 서버에서는 DATA_DIR=./data/production 등을 지정해서 cron/PM2로 주기 실행)
+// (운영 서버에서는 ADMIN_API_KEY와 API_BASE_URL을 지정해서 cron/PM2로 주기 실행 — 상품 파일은 API 서버만 씀)
 
-import fs from 'fs';
-import path from 'path';
 import { getPartnerIntegration, pickRepresentativePrice, detectSentinelPrices } from '../src/integrations/index.js';
 
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.cwd(), process.env.DATA_DIR)
-  : path.resolve(process.cwd(), 'data');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+// 상품 파일을 직접 쓰지 않고 운영 API 서버를 거친다 (상품 파일은 서버 한 프로세스만 씀 — 서로 덮어쓰지 않게)
+//   API_BASE_URL (기본 http://127.0.0.1:3002/api — 같은 EC2의 API 서버), ADMIN_API_KEY 필요
+const API_BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:3002/api').replace(/\/$/, '');
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+if (!ADMIN_API_KEY) {
+  console.error('ADMIN_API_KEY 환경변수가 필요합니다 (상품 파일은 API 서버를 거쳐서만 바꿔요).');
+  process.exit(1);
+}
+const api = async (method, p, body) => {
+  const res = await fetch(`${API_BASE_URL}${p}`, { method, headers: { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_API_KEY }, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(`${method} ${p} 실패 (${res.status}) ${json?.error || ''}`);
+  return json;
+};
 
 // 파트너 API 호출 간 최소 간격(ms). 마이리얼트립 옵션 조회 제한(분당 50건)보다 여유있게 설정.
 const CALL_INTERVAL_MS = 1500;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-if (!fs.existsSync(PRODUCTS_FILE)) {
-  console.error(`[refresh-partner-prices] 상품 파일을 찾을 수 없습니다: ${PRODUCTS_FILE}`);
-  process.exit(1);
-}
-
-const products = JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8'));
-if (!Array.isArray(products)) {
-  throw new Error('products.json 형식이 배열이 아닙니다.');
-}
-
-// 조회 전용(복구) 확인 — 서버와 같은 조건: 복구 표시 파일, 새 버전 데이터(schema.json 또는 상품 공개 상태 칸)면 쓰지 않음.
-// 시작 때와 저장 직전 두 번 본다. (그래도 저장 직전 확인과 쓰기 사이의 틈은 남아서, 복구 전환 때 cron을 멈추고 실행 중인 스크립트가 끝난 것을 확인함 — 복구절차.md)
-const readOnlyReason = () => {
-  if (fs.existsSync(path.join(DATA_DIR, 'RECOVERY_READ_ONLY'))) return '복구 표시 파일이 있어요';
-  if (fs.existsSync(path.join(DATA_DIR, 'schema.json'))) return '새 버전 데이터예요 (schema.json)';
-  try {
-    const latest = JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8'));
-    if (Array.isArray(latest) && latest.some((p) => p && p.publishStatus !== undefined)) return '새 버전 데이터예요 (상품 공개 상태)';
-  } catch {
-    return '상품 파일을 읽을 수 없어요';
-  }
-  return null;
-};
-if (readOnlyReason()) {
-  console.log(`[refresh-partner-prices] 읽기 전용(복구)이라 아무것도 바꾸지 않고 끝내요: ${readOnlyReason()}`);
-  process.exit(0);
-}
+// 관리자 조회로 전체 상품(초안·숨김 포함)을 읽음. 판매처 조회에 몇 분이 걸리므로, 저장은 바뀐 가격만 서버에 보냄
+const products = await api('GET', '/products');
+const priceUpdates = new Map(); // `${상품 id}::${externalId}` → { price, priceDisplay, priceCurrency, priceCheckedAt }
 
 const PARTNER_KEY_BY_NAME = { 마이리얼트립: 'myrealtrip' };
 
@@ -136,19 +120,24 @@ for (const { product, link } of targets) {
     }
   }
 
-  link.price = result.price;
-  link.priceDisplay = result.priceDisplay;
-  link.updatedAt = new Date().toISOString();
+  // 마이리얼트립 가격은 원화. 확인 시각 = 지금 조회한 시각
+  priceUpdates.set(`${product.id}::${link.externalId}`, { productId: product.id, externalId: link.externalId, price: result.price, priceDisplay: result.priceDisplay, priceCurrency: 'KRW', priceConditions: displayed ? '판매처 표시 가격' : '옵션 가격에서 계산한 대표 가격', priceCheckedAt: new Date().toISOString() });
   refreshed += 1;
   console.log(
     `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${displayed ? '파트너 노출가' : '옵션 역산'})`
   );
 }
 
-if (readOnlyReason()) {
-  console.log(`[refresh-partner-prices] 저장 직전에 읽기 전용(복구)으로 바뀌어서 저장하지 않아요: ${readOnlyReason()}`);
-  process.exit(0);
+// 상품마다 바뀐 가격만 서버로 보냄 (서버가 최신 상품에 반영 — 그사이 어드민에서 고친 내용을 덮어쓰지 않음)
+const byProduct = new Map();
+for (const u of priceUpdates.values()) byProduct.set(u.productId, [...(byProduct.get(u.productId) || []), u]);
+for (const [productId, updates] of byProduct) {
+  try {
+    await api('PUT', `/products/${encodeURIComponent(productId)}/partner-prices`, { updates: updates.map(({ productId: _p, ...u }) => u) });
+  } catch (error) {
+    failed += 1;
+    console.error(`[refresh-partner-prices] 저장 실패 (상품 ${productId}):`, error.message);
+  }
 }
-fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
 
 console.log(`[refresh-partner-prices] 완료 - 갱신: ${refreshed}, 건너뜀: ${skipped}, 보류(의심 변동): ${flagged}, 실패: ${failed}`);

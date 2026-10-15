@@ -69,6 +69,18 @@ export const api = {
     }
   },
 
+  // 지금도 공개 상품인지 서버에 바로 확인 (화면에 남은 예전 목록이 숨긴 상품을 보여 주지 않게). 조회수는 올리지 않음
+  // true = 공개 / false = 없음·숨김(404) / null = 확인 못 함(연결 문제 — 예전 목록대로 보여 줌)
+  isStillPublic: async (id: string): Promise<boolean | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(id)}?check=1`, { cache: 'no-store', mode: 'cors' });
+      if (response.status === 404) return false;
+      return response.ok ? true : null;
+    } catch {
+      return null;
+    }
+  },
+
   incrementProductView: async (id: string) => {
     try {
       const response = await fetch(`${API_BASE_URL}/products/${id}/view`, { method: 'POST' });
