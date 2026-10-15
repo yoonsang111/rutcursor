@@ -176,6 +176,16 @@ test('상태만 되돌리기: 백업 값이 이전 기록과 다르거나 빠졌
     assert.equal(again.status, 0, again.stderr);
     assert.equal(s.read().find(p => p.id === '2').isAvailable, false, '2: 둘 다 손상돼도 비공개 유지');
     assert.equal((await fetch(`${s.base}/products/2`)).status, 404);
+    // Codex 22차: 정상 백업·온전한 기록이어도, 지금 '공개'인데 활성만 꺼진(= 서버 판정상 숨김) 상품은 되돌려서 공개되면 안 됨
+    const cur1 = JSON.parse(fs.readFileSync(s.file, 'utf8'));
+    fs.writeFileSync(s.file, JSON.stringify(cur1.map(p => p.id === '1' ? { ...p, publishStatus: 'published', isAvailable: false, publishMigration: { at: 'x', from: { isAvailable: true }, to: 'published', rule: 't' } } : p)));
+    fs.writeFileSync(path.join(s.dir, bad), JSON.stringify(orig));
+    await s.stop(); Object.assign(s, await restart(s));
+    assert.equal((await fetch(`${s.base}/products/1`)).status, 404, '1: 지금 손님에게 안 보임');
+    const third = await s.run('--rollback', bad, '--apply');
+    assert.equal(third.status, 0, third.stderr);
+    assert.equal((await fetch(`${s.base}/products/1`)).status, 404, '1: 되돌린 뒤에도 안 보임');
+    assert.match(third.stdout, /\| 1 \|.*공개 여부가 바뀜/);
     assert.equal(byId('1').publishStatus, undefined, '1: 정상 상품은 되돌림');
     assert.equal(byId('1').isAvailable, true);
   } finally { await s.stop(); }

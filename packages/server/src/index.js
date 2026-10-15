@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { getPartnerIntegration } from './integrations/index.js';
 import { readJsonArray, writeJsonAtomic, writeFileAtomic } from './productStore.js';
 import { acquireWriterLock } from './writerLock.js';
-import { migrate as migratePublishStatus, normalizeEvidence, changeTable, rollback as rollbackPublishStatus, rollbackTable } from './publishMigration.js';
+import { migrate as migratePublishStatus, normalizeEvidence, changeTable, rollback as rollbackPublishStatus, rollbackTable, PUBLISH_STATUSES, publishStatusOf, isPublicProduct } from './publishMigration.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -632,20 +632,8 @@ const normalizeProductPayload = async (input = {}) => {
 //   needs_classification 분류 필요(예전 '비활성'을 옮길 때 근거가 부족한 상품. 비공개, 관리자가 정함)
 // 판매처 예약 가능 여부(partnerLinks[].availability)는 공개 상태와 따로 관리하고, 서로를 자동으로 바꾸지 않는다.
 // (이 구역의 함수는 상품 등록·수정 처리에서 쓰므로 normalizeProductPayload 바로 뒤에 둔다)
-const PUBLISH_STATUSES = ['draft', 'published', 'hidden', 'needs_classification'];
+// 공개 판정(publishStatusOf·isPublicProduct)은 publishMigration.js 한 곳에 있음 (되돌리기도 같은 판정을 써야 해서 — Codex 22차)
 const SETTABLE_PUBLISH_STATUSES = ['draft', 'published', 'hidden'];
-const publishStatusOf = (product) => {
-  if (PUBLISH_STATUSES.includes(product?.publishStatus)) {
-    // 이 서버는 공개 상태와 isAvailable을 늘 같이 맞춰 저장한다. 둘이 다르면 예전 버전(복구 기간)이 isAvailable만 바꾼 것 →
-    // 공개였는데 비활성으로 바뀜 = 숨김 (다시 공개되지 않게), 비공개였는데 활성으로 바뀜 = 분류 필요 (관리자가 확인 후 공개)
-    if (product.publishStatus === 'published' && product.isAvailable === false) return 'hidden';
-    if (product.publishStatus !== 'published' && product.isAvailable === true) return 'needs_classification';
-    return product.publishStatus;
-  }
-  // 이전 전 데이터: 활성은 지금 노출 유지(공개), 비활성은 근거 없이 정하지 않음(분류 필요)
-  return product?.isAvailable === false ? 'needs_classification' : 'published';
-};
-const isPublicProduct = (product) => publishStatusOf(product) === 'published';
 
 const productInputError = (message, status = 400) => Object.assign(new Error(message), { status });
 const sendProductError = (res, error) => {

@@ -53,6 +53,21 @@ export function migrate(products, evidence, at = new Date().toISOString()) {
   return { products: next, changes };
 }
 
+// 손님 공개 판정 — 서버(index.js)와 되돌리기가 함께 쓰는 단 하나의 판정
+export const PUBLISH_STATUSES = ['draft', 'published', 'hidden', 'needs_classification'];
+export const publishStatusOf = (product) => {
+  if (PUBLISH_STATUSES.includes(product?.publishStatus)) {
+    // 이 서버는 공개 상태와 isAvailable을 늘 같이 맞춰 저장한다. 둘이 다르면 예전 버전(복구 기간)이 isAvailable만 바꾼 것 →
+    // 공개였는데 비활성으로 바뀜 = 숨김 (다시 공개되지 않게), 비공개였는데 활성으로 바뀜 = 분류 필요 (관리자가 확인 후 공개)
+    if (product.publishStatus === 'published' && product.isAvailable === false) return 'hidden';
+    if (product.publishStatus !== 'published' && product.isAvailable === true) return 'needs_classification';
+    return product.publishStatus;
+  }
+  // 이전 전 데이터: 활성은 지금 노출 유지(공개), 비활성은 근거 없이 정하지 않음(분류 필요)
+  return product?.isAvailable === false ? 'needs_classification' : 'published';
+};
+export const isPublicProduct = (product) => publishStatusOf(product) === 'published';
+
 // 상태만 되돌리기 (2026-10-15): 이전이 바꾼 칸(공개 상태·활성·이전 표시)만 이전 전 백업 값으로. 그 밖의 칸·새 상품·지운 상품은 지금 그대로
 // 이전 뒤 누군가 공개 상태를 바꾼 상품(지금 상태 ≠ 이전 결과)은 더 새로운 결정이라 건드리지 않고 알려 줌
 export function rollback(products, backupProducts) {
@@ -67,12 +82,11 @@ export function rollback(products, backupProducts) {
     if (!m.to || p.publishStatus !== m.to) { changes.push({ ...row, restored: false, why: '이전 뒤 공개 상태가 바뀜 — 그대로' }); return p; }
     // 백업이 이 이전의 '이전 전' 모습인지 확인: 공개 상태가 없고, 활성 값(칸 없음 포함)이 이전 때 남긴 기록과 같아야 함 (Codex 20차 — 칸이 빠진 백업으로 공개되면 안 됨)
     if (b.publishStatus !== undefined || !m.from || !Object.is(b.isAvailable, m.from.isAvailable)) { changes.push({ ...row, restored: false, why: '백업이 이전 기록과 다름 — 그대로' }); return p; }
-    // 손님 공개 여부는 절대 바꾸지 않음 (Codex 21차): 이전은 '보이던 상품 → 공개', '안 보이던 상품 → 초안·숨김·분류 필요'로만 옮겼으므로
-    // 되돌린 뒤 보임 여부(활성 값이 false가 아님)가 지금 상태(공개인지)와 같을 때만 되돌림. 백업과 기록이 함께 손상돼도 비공개 상품이 공개되지 않음
-    if ((m.from.isAvailable !== false) !== (m.to === 'published')) { changes.push({ ...row, restored: false, why: '이전 기록이 앞뒤가 안 맞음 — 그대로' }); return p; }
     const { publishStatus, publishMigration, ...rest } = p;
     const restored = { ...rest, rev: (Number(p.rev) || 0) + 1 };
     if (m.from.isAvailable === undefined) delete restored.isAvailable; else restored.isAvailable = m.from.isAvailable;
+    // 손님 공개 여부는 절대 바꾸지 않음 (Codex 21·22차): 서버와 같은 판정(isPublicProduct)으로 지금과 되돌린 뒤를 비교해 다르면 그대로
+    if (isPublicProduct(p) !== isPublicProduct(restored)) { changes.push({ ...row, restored: false, why: '되돌리면 손님 공개 여부가 바뀜 — 그대로' }); return p; }
     changes.push({ ...row, restored: true, why: `이전 전으로 (${m.from.isAvailable === false ? '비활성' : '활성'})` });
     return restored;
   });
