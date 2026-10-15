@@ -136,9 +136,15 @@ const isAdminRequest = (req) =>
 // 손님에게 보이는 상품: 활성이고, (새 버전이 쓴 데이터라면) 공개 상태가 '공개'인 것만.
 // 새 버전에서 이 버전으로 되돌린 기간에 예전 어드민이 초안·숨김을 '활성'으로 바꿔도 손님에게 나가지 않게
 const isGuestVisible = (p) => p.isAvailable !== false && (!p.publishStatus || p.publishStatus === 'published');
-// 손님 응답에서 빼는 내부 칸 (새 버전이 쓴 데이터의 관리용 기록)
-const INTERNAL_FIELDS = ['clientRequestId', 'publishStatus', 'publishMigration', 'visibilitySync', 'approvals', 'internalNote'];
-const withoutInternal = (p) => Object.fromEntries(Object.entries(p).filter(([key]) => !INTERNAL_FIELDS.includes(key)));
+// 손님 응답은 손님에게 필요한 칸만 (허용 목록). 새 내부 칸이 생겨도 저절로 빠짐 (판매처 칸·SEO 칸도 같은 방식)
+const PUBLIC_FIELDS = ['id', 'name', 'description', 'categories', 'locations', 'tags', 'price', 'minPrice', 'salePrice', 'rating', 'reviewCount', 'isRecommended', 'isAvailable', 'views', 'image', 'images', 'recentViews7d', 'recentViews30d'];
+const PUBLIC_LINK_FIELDS = ['partner', 'url', 'price', 'priceDisplay', 'priceCurrency', 'priceConditions', 'priceCheckedAt'];
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj && obj[k] !== undefined).map((k) => [k, obj[k]]));
+const withoutInternal = (p) => ({
+  ...pick(p, PUBLIC_FIELDS),
+  ...(p.seo && typeof p.seo === 'object' ? { seo: pick(p.seo, ['title', 'description', 'keywords']) } : {}),
+  partnerLinks: (Array.isArray(p.partnerLinks) ? p.partnerLinks : []).map((l) => pick(l, PUBLIC_LINK_FIELDS)),
+});
 // 관리자 응답(비활성 포함)은 어디에도 저장되지 않게, 손님 응답과 섞이지 않게
 const visibleTo = (req, res, products) => {
   res.set('Vary', 'Origin, Cookie, X-Admin-Key');
@@ -232,7 +238,28 @@ const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://api.tourstream.kr
 const COUNTER_FILE = path.join(DATA_DIR, 'counter.json');
 const VIEW_EVENTS_FILE = path.join(DATA_DIR, 'view-events.json');
 
-// 데이터 디렉토리 생성
+// 조회 전용(복구) 모드: 아래 중 하나면 이 서버는 데이터 폴더에 아무것도 쓰지 않는다 (요청마다 다시 확인)
+//  - 복구 표시 파일 RECOVERY_READ_ONLY가 있음 (복구 실행자가 만들고 지움)
+//  - 새 버전(상품 공개 상태 기능)이 쓴 데이터: schema.json이 있거나 읽을 수 없음, 또는 상품에 publishStatus가 있음
+//    → 이 버전은 새 칸(가격 통화·확인 시각·판매처 예약 상태 등)을 모르고 저장하면 지워서, 표시 파일을 잊어도 쓰지 않음
+const RECOVERY_MARK = path.join(DATA_DIR, 'RECOVERY_READ_ONLY');
+const SCHEMA_FILE = path.join(DATA_DIR, 'schema.json');
+let newDataSeen = false; // 상품 파일에서 새 버전 칸을 한 번이라도 보면 이 프로세스가 끝날 때까지 조회 전용
+const readOnlyReason = () => {
+  if (fs.existsSync(RECOVERY_MARK)) return '복구 표시 파일이 있어요';
+  if (fs.existsSync(SCHEMA_FILE)) return '새 버전 데이터예요 (schema.json)';
+  if (newDataSeen) return '새 버전 데이터예요 (상품 공개 상태)';
+  return null;
+};
+const RO_ALLOWED = new Set(['/api/admin/login', '/api/admin/logout', '/api/admin/session']);
+app.use((req, res, next) => {
+  const reason = readOnlyReason();
+  if (reason) res.set('X-Read-Only', '1');
+  if (!reason || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || RO_ALLOWED.has(req.path)) return next();
+  return res.status(503).json({ error: `복구 중 읽기 전용이라 저장할 수 없어요: ${reason}` });
+});
+
+// 데이터 디렉토리 생성 (없을 때만 — 있는 폴더는 건드리지 않음)
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -258,7 +285,7 @@ const externalizeImage = (value) => {
     if (buf.length === 0) return '';
     const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
     const file = path.join(IMAGES_DIR, name);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    if (!fs.existsSync(file) && !readOnlyReason()) fs.writeFileSync(file, buf);
     return `${PUBLIC_API_URL}/images/${name}`;
   } catch (error) {
     console.error('[이미지] 파일 저장 실패:', error.message);
@@ -266,8 +293,8 @@ const externalizeImage = (value) => {
   }
 };
 
-// 레거시 경로에만 데이터가 있는 경우 자동 이관
-if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR) {
+// 레거시 경로에만 데이터가 있는 경우 자동 이관 (조회 전용이면 하지 않음)
+if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR && !readOnlyReason()) {
   ['products.json', 'counter.json', 'categories.json', 'locations.json', 'view-events.json'].forEach((fileName) => {
     const legacyFile = path.join(LEGACY_DATA_DIR, fileName);
     const currentFile = path.join(DATA_DIR, fileName);
@@ -300,11 +327,12 @@ const readProducts = () => {
     if (fs.existsSync(PRODUCTS_FILE)) {
       const data = fs.readFileSync(PRODUCTS_FILE, 'utf8');
       const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.some((p) => p && p.publishStatus !== undefined)) newDataSeen = true;
       const hasLegacyData = Array.isArray(parsed) && parsed.some((p) => !Array.isArray(p.partnerLinks));
       if (hasLegacyData) {
         console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
         const migrated = parsed.map(migrateLegacyPartnerLinks);
-        writeProducts(migrated);
+        writeProducts(migrated); // 조회 전용이면 메모리에서만 바꿈 (writeProducts가 쓰지 않음)
         console.log(`[API] partnerLinks 마이그레이션 완료: ${migrated.length}개 상품`);
         return migrated;
       }
@@ -343,6 +371,7 @@ const readViewEvents = () => {
 
 // 파일에 데이터 쓰기
 const writeProducts = (products) => {
+  if (readOnlyReason()) return; // 조회 전용: 쓰지 않음 (쓰기 요청은 앞에서 503)
   try {
     fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
   } catch (error) {
@@ -351,6 +380,7 @@ const writeProducts = (products) => {
 };
 
 const writeCounter = (counter) => {
+  if (readOnlyReason()) return;
   try {
     fs.writeFileSync(COUNTER_FILE, counter.toString(), 'utf8');
   } catch (error) {
@@ -359,6 +389,7 @@ const writeCounter = (counter) => {
 };
 
 const writeViewEvents = (viewEvents) => {
+  if (readOnlyReason()) return; // 조회수·조회 기록 정리도 하지 않음
   try {
     fs.writeFileSync(VIEW_EVENTS_FILE, JSON.stringify(viewEvents, null, 2), 'utf8');
   } catch (error) {
@@ -931,7 +962,8 @@ app.post('/api/admin/logout', (req, res) => {
 
 // 현재 세션이 살아있는지 확인 (새로고침 시 로그인 상태 복원용)
 app.get('/api/admin/session', (req, res) => {
-  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)) });
+  // readOnly: 복구 중 읽기 전용이면 그 이유 (어드민 화면이 '저장할 수 없음'을 미리 보여 주게)
+  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)), readOnly: readOnlyReason() });
 });
 
 // 예전 어드민 빌드가 호출하던 경로. 키 확인만 하고 쿠키는 주지 않는다.
@@ -1094,7 +1126,7 @@ app.get('/api/categories', (req, res) => {
       if (hasStringData) {
         console.log('[API] categories.json 레거시 데이터 감지, 자동 정규화 실행...');
         const normalized = normalizeCategoriesPayload(parsed);
-        fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
         console.log(`[API] categories.json 정규화 완료: 메인 ${normalized.mainCategories.length}개, 서브 ${normalized.subCategories.length}개`);
         return res.json(normalized);
       }
@@ -1257,7 +1289,7 @@ app.get('/api/locations', (req, res) => {
         // 레거시 string 배열 → 자동 수정 후 저장
         console.log('[API] locations.json 레거시 데이터 감지, 자동 정규화 실행...');
         const fixed = fixLegacyLocationsData(parsed, readProducts());
-        fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
         console.log(`[API] locations.json 정규화 완료: 국가 ${fixed.countries.length}개, 지역 ${fixed.regions.length}개`);
         return res.json(fixed);
       }
@@ -1315,6 +1347,8 @@ app.use((req, res) => {
   });
 });
 
+// 시작 때 한 번 상품을 읽어 새 버전 데이터인지 먼저 알아 둠 (첫 쓰기 요청이 조회 전용 확인을 지나치지 않게)
+readProducts();
 app.listen(PORT, () => {
   console.log(`✅ 서버가 http://localhost:${PORT}에서 실행 중입니다`);
   console.log(`📚 API 문서: packages/server/API.md`);
