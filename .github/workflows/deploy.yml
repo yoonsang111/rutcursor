@@ -9,6 +9,12 @@ on:
         description: '배포할 커밋 (비우면 main 최신). OFFICE는 대표가 승인한 커밋을 넣는다'
         required: false
         type: string
+      mode:
+        description: 'deploy = 배포 / check = 비밀값 확인만 (배포·데이터 변경 없음)'
+        required: false
+        type: choice
+        options: [deploy, check]
+        default: deploy
   # 매일 00:30 KST(15:30 UTC) - 가격/평점 배치가 끝난 직후 메인 사이트만 다시 빌드해서
   # 정적 셸의 가격·JSON-LD가 실제 가격과 하루 이상 벌어지지 않게 한다.
   schedule:
@@ -23,6 +29,8 @@ env:
 jobs:
   deploy-main:
     name: Deploy main site (S3 + CloudFront)
+    if: inputs.mode != 'check'
+    environment: production # 운영 비밀값은 main 전용 금고에서만
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +63,8 @@ jobs:
   deploy-admin:
     name: Deploy admin site (EC2 static)
     # 예약 실행은 가격 최신화가 목적이라 메인 사이트만 배포한다 (admin/API 코드는 안 바뀜)
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.mode != 'check'
+    environment: production # 운영 비밀값은 main 전용 금고에서만
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +94,8 @@ jobs:
 
   deploy-api:
     name: Deploy API (EC2 + PM2)
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && inputs.mode != 'check'
+    environment: production # 운영 비밀값은 main 전용 금고에서만
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,3 +126,43 @@ jobs:
         run: |
           # ecosystem.config.cjs를 넘겨야 서버에서 새로 추가한 환경변수가 반영됨 (앱 이름으로만 reload하면 무시됨)
           ssh -i ~/.ssh/deploy_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} "cd /var/www/api && npm install --omit=dev && pm2 reload ecosystem.config.cjs --update-env"
+
+  # 비밀값 확인만 (2026-10-16): 각 비밀값을 실제 용도로 한 번씩 써 보되 배포·상품 데이터는 바꾸지 않는다
+  check-access:
+    name: Check production secrets (no deploy)
+    if: inputs.mode == 'check'
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: AWS key — 손님 사이트 버킷 쓰기·지우기, CloudFront 무효화 권한
+        run: |
+          echo "사용자: $(aws sts get-caller-identity --query Arn --output text | sed -E 's/[0-9]{12}/<계정>/')"
+          aws s3api list-objects-v2 --bucket "$S3_BUCKET" --max-items 1 --query 'KeyCount' --output text > /dev/null
+          echo "check ${{ github.run_id }}" | aws s3 cp - "s3://$S3_BUCKET/_deploy-check/${{ github.run_id }}.txt"
+          aws s3 rm "s3://$S3_BUCKET/_deploy-check/${{ github.run_id }}.txt"
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/_deploy-check/*" --query 'Invalidation.Status' --output text
+          echo "AWS 확인 끝"
+
+      - name: SSH key — 운영 서버 접속만 (명령은 echo 하나)
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -o BatchMode=yes -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" 'echo ssh-ok'
+          rm -f ~/.ssh/deploy_key
+
+      - name: Admin key — 관리자 로그인만 (상품 등록 없음)
+        env:
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+        run: |
+          ok=$(curl -s -o /dev/null -w '%{http_code}' -X POST https://api.tourstream.kr/api/admin/login -H "X-Admin-Key: $ADMIN_API_KEY")
+          bad=$(curl -s -o /dev/null -w '%{http_code}' -X POST https://api.tourstream.kr/api/admin/login -H "X-Admin-Key: wrong-key-for-check")
+          echo "맞는 키: $ok / 틀린 키: $bad"
+          [ "$ok" = 200 ] && [ "$bad" = 401 ]

@@ -19,6 +19,7 @@ on:
 jobs:
   register:
     name: Register picks to production API
+    environment: production # 운영 비밀값은 main 전용 금고에서만
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
