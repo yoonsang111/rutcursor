@@ -33,6 +33,9 @@ test('손상 → 1: 상품 JSON 오류·배열 아님·id 중복·id 없음·카
     ['카운터 손상', { 'products.json': JSON.stringify(good), 'counter.json': '{broken' }],
     ['카운터 너무 큼', { 'products.json': JSON.stringify(good), 'counter.json': '9007199254740993' }],
     ['상품 파일 없음', { 'counter.json': '100005' }],
+    ['사진 칸이 객체 (Codex R16-P01 — A 조회 500)', { 'products.json': JSON.stringify([{ id: '1', name: 'x', images: { bad: true } }]) }],
+    ['사진 칸 안에 숫자', { 'products.json': JSON.stringify([{ id: '1', name: 'x', images: ['a.jpg', 3] }]) }],
+    ['판매처 링크가 객체', { 'products.json': JSON.stringify([{ id: '1', name: 'x', partnerLinks: { url: 'https://e.test' } }]) }],
   ]) {
     const r = check(files);
     assert.equal(r.status, 1, `${why}: ${r.stdout}`);

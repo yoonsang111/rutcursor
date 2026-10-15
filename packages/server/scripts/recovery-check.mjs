@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 복구 전 데이터 검사 (읽기만 — 아무 파일도 만들거나 고치지 않음). 복구절차.md 4번 단계에서 백업 뒤에 실행.
 // 사용: node recovery-check.mjs <데이터 폴더>   → 끝 줄 "결과: 정상"(종료 코드 0) / "결과: 손상"(1) / 사용법 오류(2)
-// 필수: products.json(배열, 각 상품 id 문자열·중복 없음·name 있음), counter.json(있으면 정확히 셀 수 있는 정수)
+// 필수: products.json(배열, 각 상품 id 문자열·중복 없음·name 있음·사진/판매처 링크 칸 모양), counter.json(있으면 정확히 셀 수 있는 정수)
 // 선택: categories.json·locations.json·coupons.json·view-events.json·schema.json — 없어도 정상, 있는데 깨졌으면 경고(A는 덮어쓰지 않고 대체 응답)
 import fs from 'fs';
 import path from 'path';
@@ -35,7 +35,9 @@ else {
         if (seen.has(p.id)) problems.push(`상품 id 중복: ${p.id} (${seen.get(p.id) + 1}번째와 ${i + 1}번째)`);
         seen.set(p.id, i);
         if (typeof p.name !== 'string' || !p.name.trim()) problems.push(`상품 ${p.id}의 이름이 없어요`);
-        if (p.partnerLinks !== undefined && !Array.isArray(p.partnerLinks)) problems.push(`상품 ${p.id}의 판매처 링크가 목록이 아니에요`);
+        // 조회 화면이 목록으로 읽는 칸 (A·C 서버 코드 기준: images는 글자마다 trim, partnerLinks는 목록 처리) — 모양이 다르면 조회가 실패함
+        if (p.partnerLinks != null && !Array.isArray(p.partnerLinks)) problems.push(`상품 ${p.id}의 판매처 링크가 목록이 아니에요`);
+        if (p.images != null && (!Array.isArray(p.images) || p.images.some((img) => img && typeof img !== 'string'))) problems.push(`상품 ${p.id}의 사진 칸이 글자 목록이 아니에요`);
         if (/^\d+$/.test(p.id)) { const n = Number(p.id); if (!Number.isSafeInteger(n)) problems.push(`상품 id ${p.id}가 너무 큰 숫자예요`); else maxId = Math.max(maxId, n); }
       });
       ok.push(`상품 ${list.length}개, id 중복 없음${problems.some((x) => x.startsWith('상품 id 중복')) ? ' — 아님' : ''}, 가장 큰 번호 ${maxId || '(숫자 id 없음)'}`);
