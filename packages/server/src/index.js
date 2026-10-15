@@ -800,6 +800,7 @@ const pageOf = (url) => { try { const u = new URL(url); return `${u.hostname.toL
 const linkLabel = (link) => `${String(link?.partner || '').trim() || '판매처'} ${String(link?.url || '').slice(0, 80)}`.trim();
 const ISO_CURRENCIES = new Set(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['KRW', 'USD', 'JPY', 'EUR', 'CNY', 'TWD', 'THB', 'VND', 'HKD', 'SGD']);
 const FUTURE_SLACK_MS = 5 * 60 * 1000;
+const MAX_PRICE = 1e10; // 가격 상한 (어느 통화든 상품 가격으로 이보다 크면 입력 오류)
 
 // 요청의 판매처 하나 검사 (빈 줄만 무시, 그 밖의 잘못된 값은 400)
 const parseSentLink = (raw, nowMs) => {
@@ -816,10 +817,11 @@ const parseSentLink = (raw, nowMs) => {
   if (hasKey(raw, 'externalId')) out.externalId = externalIdOf(raw); // 빈 글자 = 외부 번호 없음을 명시
   if (hasKey(raw, 'price')) {
     const v = raw.price;
+    // 숫자로 바꾼 뒤 유한하고 상식적인 범위인지 확인 (아주 긴 숫자 글자가 무한대가 되어 저장되지 않게)
+    const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN;
     if (v === null || v === 0) out.price = null; // 가격 삭제
-    else if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.price = v;
-    else if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0) out.price = Number(v);
-    else throw productInputError(`가격이 올바른 숫자가 아니에요 (삭제는 null 또는 0): ${label}`);
+    else if (Number.isFinite(n) && n > 0 && n <= MAX_PRICE) out.price = n;
+    else throw productInputError(`가격이 올바른 숫자가 아니에요 (0보다 크고 ${MAX_PRICE.toLocaleString()} 이하, 삭제는 null 또는 0): ${label}`);
   }
   if (hasKey(raw, 'priceCurrency')) {
     const c = String(raw.priceCurrency ?? '').trim().toUpperCase();
@@ -944,7 +946,8 @@ const validateProductBody = (body) => {
     if (!hasKey(body, key) || body[key] === null) continue;
     const v = body[key];
     const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
-    if (!Number.isFinite(n) || n < rule.min || (rule.max !== undefined && n > rule.max) || (rule.integer && !Number.isInteger(n))) {
+    const max = rule.max !== undefined ? rule.max : MAX_PRICE;
+    if (!Number.isFinite(n) || n < rule.min || n > max || (rule.integer && !Number.isInteger(n))) {
       throw productInputError(`${key} 값이 올바르지 않아요 (지우려면 null)`);
     }
   }

@@ -169,10 +169,11 @@ test('C-4 가격 삭제는 null·0만 (묶음·표시 문구 함께 삭제), 빈
     const full = { priceCurrency: 'KRW', priceConditions: '', priceCheckedAt: T1 };
     for (const bad of [{ price: '' }, { price: 'abc', ...full }, { price: -1, ...full }, { price: true, ...full }, { price: [1], ...full }, { price: 'NaN', ...full },
       { price: 1000, priceCurrency: 'won', priceConditions: '', priceCheckedAt: T1 }, { price: 1000, priceCurrency: 'KRW', priceConditions: '', priceCheckedAt: '2099-01-01T00:00:00Z' },
-      { price: 1000, priceCurrency: 'KRW', priceConditions: 'x'.repeat(201), priceCheckedAt: T1 }, { price: 1000, priceCurrency: 'KRW', priceConditions: '', priceCheckedAt: 'yesterday' }]) {
+      { price: 1000, priceCurrency: 'KRW', priceConditions: 'x'.repeat(201), priceCheckedAt: T1 }, { price: 1000, priceCurrency: 'KRW', priceConditions: '', priceCheckedAt: 'yesterday' },
+      { price: '9'.repeat(400), ...full }, { price: 1e11, ...full }]) { // Codex R12-C01: 아주 긴 숫자 글자·무한대·상한 초과
       assert.equal((await put(s, '1', { partnerLinks: [{ ...u, ...bad }] })).status, 400, JSON.stringify(bad));
     }
-    for (const bad of [{ rating: 6 }, { rating: 'x' }, { reviewCount: -1 }, { price: 'abc' }, { price: '' }, { images: ['https://via.placeholder.com/1'] }, { images: ['data:image/png;base64,'] }]) {
+    for (const bad of [{ rating: 6 }, { rating: 'x' }, { reviewCount: -1 }, { price: 'abc' }, { price: '' }, { price: '9'.repeat(400) }, { minPrice: 1e11 }, { images: ['https://via.placeholder.com/1'] }, { images: ['data:image/png;base64,'] }]) {
       assert.equal((await put(s, '1', bad)).status, 400, JSON.stringify(bad));
     }
     assert.deepEqual(link0(s), klook(), '거절되면 그대로');
