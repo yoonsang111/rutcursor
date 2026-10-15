@@ -292,3 +292,18 @@ test('C-10 숨김 → 재공개 → 숨김 뒤 늦게 온 첫 번째 빌드 완�
     assert.equal(s.stored()[0].visibilitySync.state, 'pending');
   } finally { await s.stop(); }
 });
+
+// Codex R6 '부분 PUT id·views 보호 및 같은 칸 최종 완료 요청 유지'의 대체: 잘못된 가격 'bad'는 이제 400(대표 결정 2026-10-15), 나머지 보호는 그대로
+test('R6 대체: 일반 수정으로 id·조회수를 바꿀 수 없고, 같은 칸을 차례로 고치면 나중 요청이 남음 / 잘못된 가격은 400이고 그 요청의 다른 칸도 저장 안 됨', async () => {
+  const s = await startServer();
+  try {
+    const views = s.stored()[0].views;
+    assert.equal((await put(s, '1', { name: '첫째', id: '다름', views: 99 })).status, 200);
+    assert.equal(s.stored()[0].id, '1');
+    assert.equal(s.stored()[0].views, views);
+    assert.equal((await put(s, '1', { name: '둘째', price: 'bad' })).status, 400);
+    assert.equal(s.stored()[0].name, '첫째', '거절된 요청의 이름은 저장 안 됨');
+    assert.equal((await put(s, '1', { name: '셋째' })).status, 200);
+    assert.equal(s.stored()[0].name, '셋째');
+  } finally { await s.stop(); }
+});
