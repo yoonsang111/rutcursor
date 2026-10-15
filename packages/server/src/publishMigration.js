@@ -65,9 +65,12 @@ export function rollback(products, backupProducts) {
     const row = { id: String(p.id), name: p.name, now: p.publishStatus };
     if (!b) { changes.push({ ...row, restored: false, why: '이전 전 백업에 없는 상품 — 그대로' }); return p; }
     if (!m.to || p.publishStatus !== m.to) { changes.push({ ...row, restored: false, why: '이전 뒤 공개 상태가 바뀜 — 그대로' }); return p; }
+    // 백업이 이 이전의 '이전 전' 모습인지 확인: 공개 상태가 없고, 활성 값(칸 없음 포함)이 이전 때 남긴 기록과 같아야 함 (Codex 20차 — 칸이 빠진 백업으로 공개되면 안 됨)
+    if (b.publishStatus !== undefined || !m.from || !Object.is(b.isAvailable, m.from.isAvailable)) { changes.push({ ...row, restored: false, why: '백업이 이전 기록과 다름 — 그대로' }); return p; }
     const { publishStatus, publishMigration, ...rest } = p;
-    const restored = { ...rest, isAvailable: b.isAvailable, ...(b.publishStatus !== undefined ? { publishStatus: b.publishStatus } : {}), rev: (Number(p.rev) || 0) + 1 };
-    changes.push({ ...row, restored: true, why: `이전 전으로 (${b.isAvailable === false ? '비활성' : '활성'})` });
+    const restored = { ...rest, rev: (Number(p.rev) || 0) + 1 };
+    if (m.from.isAvailable === undefined) delete restored.isAvailable; else restored.isAvailable = m.from.isAvailable;
+    changes.push({ ...row, restored: true, why: `이전 전으로 (${m.from.isAvailable === false ? '비활성' : '활성'})` });
     return restored;
   });
   return { products: next, changes };

@@ -138,3 +138,28 @@ test('상태만 되돌리기: 이전 뒤의 이름 수정·가격·새 상품은
     assert.match(again.stdout, /되돌릴 상품이 없어요/);
   } finally { await s.stop(); }
 });
+
+// Codex 20차: 백업 값이 이전 때 남긴 기록(이전 전 활성 여부)과 다르면 되돌리지 않음 — 칸이 빠진 백업으로 비공개 상품이 공개되면 안 됨
+test('상태만 되돌리기: 백업 값이 이전 기록과 다르거나 빠졌으면 그 상품은 그대로(비공개 유지), 맞는 상품만 되돌림', async () => {
+  const s = await setup();
+  try {
+    const r = await s.run('--evidence', s.evidence, '--apply');
+    const backup = r.stdout.match(/백업: (\S+)/)[1];
+    const bad = 'products.before-publish-status-bad-copy.json';
+    const orig = JSON.parse(fs.readFileSync(path.join(s.dir, backup), 'utf8'));
+    // 2: 활성 칸이 빠짐, 3: 활성 값이 기록과 반대, 4: 백업에 이미 공개 상태가 있음(이전 전 백업이 아님), 1: 정상
+    const tampered = orig.map(p => p.id === '2' ? { id: '2' } : p.id === '3' ? { ...p, isAvailable: true } : p.id === '4' ? { ...p, publishStatus: 'published' } : p);
+    fs.writeFileSync(path.join(s.dir, bad), JSON.stringify(tampered));
+    const applied = await s.run('--rollback', bad, '--apply');
+    assert.equal(applied.status, 0, applied.stderr);
+    const now = s.read(); const byId = id => now.find(p => p.id === id);
+    for (const id of ['2', '3', '4']) {
+      assert.ok(byId(id).publishStatus, `${id}: 그대로 (공개 상태 유지)`);
+      assert.equal(byId(id).isAvailable, false, `${id}: 비공개 유지`);
+      assert.equal((await fetch(`${s.base}/products/${id}`)).status, 404, `${id}: 손님에게 안 보임`);
+    }
+    assert.match(applied.stdout, /\| 2 \|.*기록과 다름/);
+    assert.equal(byId('1').publishStatus, undefined, '1: 정상 상품은 되돌림');
+    assert.equal(byId('1').isAvailable, true);
+  } finally { await s.stop(); }
+});
