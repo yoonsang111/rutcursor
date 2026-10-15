@@ -76,6 +76,7 @@ function buildFormStateFromProduct(product: Product) {
     partnerLinks: Array.isArray(product.partnerLinks) && product.partnerLinks.length > 0
       ? product.partnerLinks
       : [emptyPartnerLink()],
+    baseRev: Number(product.rev) || 0, // 불러온 저장 번호 — 저장할 때 보내서, 그사이 바뀌었으면 서버가 거절(409)
   };
 }
 
@@ -103,6 +104,7 @@ export default function ProductFormPage() {
     isAvailable: false,
     publishStatus: 'draft' as PublishStatus, // 새 상품은 초안으로 시작 (검수 후 공개)
     partnerLinks: [emptyPartnerLink()] as PartnerLink[],
+    baseRev: 0,
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -168,9 +170,10 @@ export default function ProductFormPage() {
     const productData: Omit<Product, 'id' | 'views'> = {
       name: formData.name,
       description: formData.description,
-      price: parseOptionalNumber(formData.price),
-      rating: parseOptionalNumber(formData.rating),
-      reviewCount: parseOptionalNumber(formData.reviewCount),
+      // 빈 칸 = 지우기(null). 서버는 칸을 안 보내면 그대로 두기 때문에 지울 때는 null을 보냄
+      price: formData.price.trim() === '' ? null : parseOptionalNumber(formData.price),
+      rating: formData.rating.trim() === '' ? null : parseOptionalNumber(formData.rating),
+      reviewCount: formData.reviewCount.trim() === '' ? null : parseOptionalNumber(formData.reviewCount),
       images: formData.images.filter(img => img.trim() !== ''),
       categories: formData.categories,
       locations: formData.locations,
@@ -180,11 +183,11 @@ export default function ProductFormPage() {
       // '분류 필요'는 관리자가 정하기 전까지 그대로 둔다 (서버가 받는 값은 초안·공개·숨김)
       ...(formData.publishStatus !== 'needs_classification' ? { publishStatus: formData.publishStatus } : {}),
       partnerLinks,
-    };
+    } as any;
 
     try {
       if (isEdit && id) {
-        await updateProduct(id, productData);
+        await updateProduct(id, { ...productData, baseRev: formData.baseRev } as any);
       } else {
         await addProduct(productData);
       }
@@ -249,13 +252,16 @@ export default function ProductFormPage() {
       if (field === 'price') {
         const parsed = parseOptionalNumber(value);
         if (parsed === undefined || parsed <= 0) {
-          const { price, priceCurrency, priceConditions, priceCheckedAt, ...rest } = link;
-          return rest;
+          // 가격을 비우면 '삭제'를 서버에 알림 (null) — 칸을 빼면 서버는 예전 가격을 그대로 둠
+          const { priceCurrency, priceConditions, priceCheckedAt, priceDisplay, ...rest } = link;
+          return { ...rest, price: null };
         }
-        return { ...link, price: parsed, priceCurrency: link.priceCurrency || 'KRW', priceCheckedAt: new Date().toISOString() };
+        // 새 가격 = 새 확인: 통화·조건(없으면 빈 글자)·확인 시각을 함께
+        return { ...link, price: parsed, priceCurrency: link.priceCurrency || 'KRW', priceConditions: link.priceConditions ?? '', priceCheckedAt: new Date().toISOString() };
       }
-      if (field === 'priceCurrency') return { ...link, priceCurrency: value.trim().toUpperCase() };
-      if (field === 'priceConditions') return { ...link, priceConditions: value };
+      // 통화·조건을 바꾸는 것도 새 확인 (지금 확인한 것으로)
+      if (field === 'priceCurrency') return { ...link, priceCurrency: value.trim().toUpperCase(), priceConditions: link.priceConditions ?? '', priceCheckedAt: new Date().toISOString() };
+      if (field === 'priceConditions') return { ...link, priceConditions: value, priceCheckedAt: new Date().toISOString() };
       return { ...link, [field]: value };
     });
     setFormData({ ...formData, partnerLinks });
@@ -297,8 +303,10 @@ export default function ProductFormPage() {
             url: trackedUrl,
             source: 'api' as const,
             externalId: result.externalId,
-            price: result.price,
-            priceDisplay: result.priceDisplay,
+            // 판매처 검색으로 찾은 가격 = 지금 확인한 가격 묶음 (원화, 판매처 표시 가격)
+            ...(result.price !== undefined && result.price !== null && result.price > 0
+              ? { price: result.price, priceCurrency: 'KRW', priceConditions: '판매처 표시 가격', priceCheckedAt: new Date().toISOString(), priceDisplay: result.priceDisplay }
+              : { price: null }),
             updatedAt: new Date().toISOString(),
           }
         : link,
@@ -315,8 +323,9 @@ export default function ProductFormPage() {
   const disconnectPartnerApi = (index: number) => {
     const partnerLinks = formData.partnerLinks.map((link, i) => {
       if (i !== index) return link;
-      const { source, externalId, price, priceDisplay, updatedAt, ...rest } = link;
-      return { ...rest, source: 'manual' as const };
+      // 연동 해제 = 외부 번호·가격을 지운다고 서버에 명시 (칸을 빼면 서버는 같은 판매처의 예전 값을 그대로 둠)
+      const { source, externalId, price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt, updatedAt, ...rest } = link;
+      return { ...rest, source: 'manual' as const, externalId: '', price: null };
     });
     setFormData({ ...formData, partnerLinks });
   };
@@ -820,7 +829,7 @@ export default function ProductFormPage() {
                         <span className="text-[10px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-sm font-bold">API 연동됨</span>
                       </div>
                       <div className="text-xs text-gray-500 mt-0.5">
-                        {link.priceDisplay || (link.price !== undefined ? `${link.price.toLocaleString()}원` : '가격 정보 없음')}
+                        {link.priceDisplay || (link.price != null ? `${link.price.toLocaleString()}원` : '가격 정보 없음')}
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
@@ -870,12 +879,12 @@ export default function ProductFormPage() {
                       type="number"
                       min="0"
                       step="1"
-                      value={link.price !== undefined ? String(link.price) : ''}
+                      value={link.price != null ? String(link.price) : ''}
                       onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                       placeholder="가격(선택) - 모르면 비워 두기"
                     />
-                    {link.price !== undefined && link.price > 0 && (
+                    {(link.price ?? 0) > 0 && (
                       <div className="flex gap-2 flex-wrap items-center">
                         <select aria-label="통화" value={link.priceCurrency || 'KRW'} onChange={(e) => updatePartnerLink(index, 'priceCurrency', e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
                           {['KRW', 'JPY', 'USD', 'TWD', 'THB', 'VND', 'EUR', 'CNY'].map((c) => <option key={c} value={c}>{c}</option>)}

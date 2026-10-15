@@ -75,8 +75,10 @@ test('비활성 → 활성: 사진·가격·판매 링크가 없으면 거절하
       assert.equal(r.status, 400, `잘못된 값으로 활성화 거절: ${JSON.stringify(body)}`);
     }
     const badPrice = await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ price: 'not-a-price' }) });
-    assert.equal(badPrice.status, 200);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1').price, undefined, '숫자로 못 바꾸는 가격은 저장하지 않음');
+    // 2026-10-15 대표 결정(잘못된 입력을 조용히 지우지 않기): 예전 기대 200 + 가격 삭제 → 이제 400 + 기존 가격 그대로
+    const beforePrice = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1').price;
+    assert.equal(badPrice.status, 400);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '1').price, beforePrice, '거절되면 기존 가격 그대로');
     const stillHidden = JSON.parse(fs.readFileSync(path.join(s.dir, 'products.json'), 'utf8')).find(p => p.id === '2');
     assert.equal(stillHidden.isAvailable, false, '거절되면 비활성 그대로');
     const bad = await fetch(`${s.base}/products/2`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) });

@@ -295,11 +295,47 @@ const lockProducts = (req, res, next) => {
   });
 };
 
-// 데이터 디렉토리 생성
+// 데이터 폴더가 없으면 만들기 (잠금 열쇠가 폴더 정체성이라 이것만 잠금 전에 함). 그 밖의 쓰기는 모두 잠금 뒤
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
-if (!fs.existsSync(IMAGES_DIR)) {
+
+// 서버 시작: 작성자 잠금을 얻고 끝날 때까지 쥔다 (상품 데이터는 이 서버 한 프로세스만 씀 — 설계서 v2 C-1).
+// 이전 서버가 끝나는 중이면 잠깐(최대 15초) 기다리고, 그래도 다른 서버·프로그램이 포트를 쓰고 있으면 시작하지 않는다.
+let writerLock;
+try {
+  // 폴더 잠금으로 지킬 수 없는 구성은 시작 거절: 상품 파일이 심볼릭 링크이거나 다른 이름으로도 연결된 하드 링크
+  if (fs.existsSync(PRODUCTS_FILE)) {
+    const st = fs.lstatSync(PRODUCTS_FILE);
+    if (st.isSymbolicLink()) throw new Error('상품 파일이 심볼릭 링크예요 (다른 폴더의 파일을 가리키면 폴더 잠금으로 지킬 수 없어요)');
+    if (st.nlink > 1) throw new Error('상품 파일이 하드 링크로 다른 곳과 연결돼 있어요 (폴더 잠금으로 지킬 수 없어요)');
+  }
+  writerLock = await acquireWriterLock(DATA_DIR);
+} catch (error) {
+  console.error(`[서버] 시작하지 않아요: ${error.message}`);
+  process.exit(1);
+}
+const releaseWriterLock = () => { try { writerLock.release(); } catch { /* 이미 없음 */ } };
+process.once('exit', releaseWriterLock);
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { releaseWriterLock(); process.exit(0); });
+
+// 조회 전용(복구) 모드: 데이터 폴더에 RECOVERY_READ_ONLY가 있으면 아무것도 쓰지 않는다 (요청마다 확인, 복구 실행자가 만들고 지움 — 복구절차.md)
+const RECOVERY_MARK = path.join(DATA_DIR, 'RECOVERY_READ_ONLY');
+const readOnlyReason = () => (fs.existsSync(RECOVERY_MARK) ? '복구 표시 파일이 있어요' : null);
+const assertWritable = () => {
+  const reason = readOnlyReason();
+  if (reason) throw Object.assign(new Error(`복구 중 읽기 전용이라 저장할 수 없어요: ${reason}`), { status: 503 });
+};
+const RO_ALLOWED = new Set(['/api/admin/login', '/api/admin/logout', '/api/admin/session']);
+app.use((req, res, next) => {
+  const reason = readOnlyReason();
+  if (!reason || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || RO_ALLOWED.has(req.path)) return next();
+  return res.status(503).json({ error: `복구 중 읽기 전용이라 저장할 수 없어요: ${reason}` });
+});
+
+// 이 데이터는 새 버전(공개 상태·가격 묶음) 형식이라는 표시 — 예전 버전 서버(A)는 이 파일을 보면 조회 전용으로 동작
+if (!readOnlyReason()) writeJsonAtomic(path.join(DATA_DIR, 'schema.json'), { schemaVersion: 2, writer: 'tourstream-api', at: new Date().toISOString() });
+if (!fs.existsSync(IMAGES_DIR) && !readOnlyReason()) {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
@@ -321,7 +357,7 @@ const externalizeImage = (value) => {
     if (buf.length === 0) return '';
     const name = `${crypto.createHash('sha1').update(buf).digest('hex')}.${ext}`;
     const file = path.join(IMAGES_DIR, name);
-    if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+    if (!fs.existsSync(file)) { assertWritable(); fs.writeFileSync(file, buf); }
     return `${PUBLIC_API_URL}/images/${name}`;
   } catch (error) {
     console.error('[이미지] 파일 저장 실패:', error.message);
@@ -329,8 +365,8 @@ const externalizeImage = (value) => {
   }
 };
 
-// 레거시 경로에만 데이터가 있는 경우 자동 이관
-if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR) {
+// 레거시 경로에만 데이터가 있는 경우 자동 이관 (잠금 뒤, 조회 전용이면 안 함)
+if (LEGACY_DATA_DIR && LEGACY_DATA_DIR !== DATA_DIR && !readOnlyReason()) {
   ['products.json', 'counter.json', 'categories.json', 'locations.json', 'view-events.json'].forEach((fileName) => {
     const legacyFile = path.join(LEGACY_DATA_DIR, fileName);
     const currentFile = path.join(DATA_DIR, fileName);
@@ -360,23 +396,10 @@ const migrateLegacyPartnerLinks = (product) => {
 // 파일에서 데이터 읽기 — 깨졌으면 오류 (빈 목록으로 읽은 뒤 저장해서 상품을 전부 지우는 사고 방지)
 const readProducts = () => readJsonArray(PRODUCTS_FILE);
 
-// 서버 시작: 작성자 잠금을 얻고 끝날 때까지 쥔다 (서버는 하나만, 상품 파일은 이 서버만 씀).
-// 이전 서버가 끝나는 중이면 잠깐(최대 15초) 기다리고, 그래도 다른 서버가 쓰고 있으면 시작하지 않는다 (죽은 서버의 잠금은 운영체제가 이미 풀어 줌).
-let writerLock;
-try {
-  writerLock = await acquireWriterLock(path.resolve(PRODUCTS_FILE), process.env.WRITER_LOCK_PORT ? { port: Number(process.env.WRITER_LOCK_PORT) } : {});
-} catch (error) {
-  console.error(`[서버] 시작하지 않아요: ${error.message}`);
-  process.exit(1);
-}
-const releaseWriterLock = () => { try { writerLock.release(); } catch { /* 이미 없음 */ } };
-process.once('exit', releaseWriterLock);
-for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { releaseWriterLock(); process.exit(0); });
-
-// 서버 시작 때 한 번: 예전 externalUrl 필드를 partnerLinks로 바꿔 저장
+// 서버 시작 때 한 번: 예전 externalUrl 필드를 partnerLinks로 바꿔 저장 (조회 전용이면 안 함)
 try {
   const parsed = readJsonArray(PRODUCTS_FILE);
-  if (parsed.some((p) => !Array.isArray(p.partnerLinks))) {
+  if (parsed.some((p) => !Array.isArray(p.partnerLinks)) && !readOnlyReason()) {
     console.log('[API] products.json 레거시 externalUrl 필드 감지, partnerLinks로 자동 마이그레이션...');
     writeJsonAtomic(PRODUCTS_FILE, parsed.map(migrateLegacyPartnerLinks));
   }
@@ -410,11 +433,14 @@ const readViewEvents = () => {
 };
 
 // 파일에 데이터 쓰기 — 임시 파일에 다 쓴 뒤 교체. 실패하면 오류를 던져서 요청에 실패로 응답 (성공처럼 보이지 않게)
-const writeProducts = (products) => writeJsonAtomic(PRODUCTS_FILE, products);
+// 조회 전용(복구)이면 상품·번호 저장은 503 오류 (요청은 앞에서 막히지만, 막힌 뒤에 표시가 생긴 경우도 성공처럼 보이지 않게)
+const writeProducts = (products) => { assertWritable(); writeJsonAtomic(PRODUCTS_FILE, products); };
 
-const writeCounter = (counter) => writeFileAtomic(COUNTER_FILE, counter.toString());
+const writeCounter = (counter) => { assertWritable(); writeFileAtomic(COUNTER_FILE, counter.toString()); };
 
+// 조회 기록 정리는 화면을 볼 때 따라오는 쓰기라 조회 전용이면 조용히 건너뜀 (사용자 입력이 아님)
 const writeViewEvents = (viewEvents) => {
+  if (readOnlyReason()) return;
   try {
     fs.writeFileSync(VIEW_EVENTS_FILE, JSON.stringify(viewEvents, null, 2), 'utf8');
   } catch (error) {
@@ -561,54 +587,6 @@ const COUNTRY_NAME_SET = new Set([
 // 이름이 일치하면 저장 시 자동으로 변환하고, 어드민에서 별도 버튼을 누를 필요가 없음.
 const AUTO_TRACKED_PARTNER_KEYS = { klook: 'klook', kkday: 'kkday' };
 
-const normalizePartnerLinks = async (rawLinks) => {
-  if (!Array.isArray(rawLinks)) return [];
-  const links = rawLinks
-    .map((link) => {
-      const url = typeof link?.url === 'string' ? link.url.trim() : '';
-      if (!url) return null;
-      const normalizedLink = {
-        partner: typeof link?.partner === 'string' ? link.partner.trim() : '',
-        url,
-        source: link?.source === 'api' ? 'api' : 'manual',
-      };
-      // 가격은 0보다 큰 실제 값만 (0원·빈 값은 '가격 없음' = 판매처에서 확인). 있으면 통화·적용 조건·확인 시각을 함께 둠
-      const price = toNumberOrUndefined(link?.price, { min: 0 });
-      if (price !== undefined && price > 0) {
-        normalizedLink.price = price;
-        const currency = String(link?.priceCurrency || '').trim().toUpperCase();
-        if (/^[A-Z]{3}$/.test(currency)) normalizedLink.priceCurrency = currency;
-        const conditions = String(link?.priceConditions || '').trim().slice(0, 200);
-        if (conditions) normalizedLink.priceConditions = conditions;
-        const checkedMs = Date.parse(link?.priceCheckedAt);
-        if (Number.isFinite(checkedMs)) normalizedLink.priceCheckedAt = new Date(checkedMs).toISOString();
-        // 표시 문구는 가격이 있을 때만 (가격을 지우면 예전 문구도 같이 지움)
-        if (typeof link?.priceDisplay === 'string' && link.priceDisplay.trim()) normalizedLink.priceDisplay = link.priceDisplay.trim();
-      }
-      if (typeof link?.externalId === 'string' && link.externalId.trim()) normalizedLink.externalId = link.externalId.trim();
-      if (typeof link?.updatedAt === 'string' && link.updatedAt.trim()) normalizedLink.updatedAt = link.updatedAt.trim();
-      const availability = normalizeAvailability(link?.availability); // 잘못된 판매처 상태면 400
-      if (availability) normalizedLink.availability = availability;
-      return normalizedLink;
-    })
-    .filter(Boolean);
-
-  await Promise.all(
-    links.map(async (link) => {
-      const partnerKey = AUTO_TRACKED_PARTNER_KEYS[link.partner.toLowerCase()];
-      if (!partnerKey) return;
-      try {
-        const integration = getPartnerIntegration(partnerKey);
-        link.url = await integration.createTrackedLink(link.url);
-      } catch (error) {
-        console.warn(`[normalizePartnerLinks] ${link.partner} 트래킹 링크 변환 실패, 원본 URL 유지:`, error.message);
-      }
-    }),
-  );
-
-  return links;
-};
-
 const normalizeProductPayload = async (input = {}) => {
   // 서버만 정하는 칸(숨김 반영 상태·이전 기록)은 요청으로 바꿀 수 없음
   const { visibilitySync: _vs, publishMigration: _pm, ...payload } = input || {};
@@ -624,10 +602,7 @@ const normalizeProductPayload = async (input = {}) => {
     tags: toTrimmedStringArray(payload.tags),
     // base64로 들어온 이미지는 파일로 떼어낸다. 안 그러면 /api/products 응답에 전부 실려
     // 방문자가 어느 페이지를 열든 수 MB를 내려받게 된다.
-    images: toTrimmedStringArray(payload.images)
-      .filter((img) => !isPlaceholderImage(img))
-      .map(externalizeImage)
-      .filter(Boolean),
+    images: toTrimmedStringArray(payload.images).filter((img) => !isPlaceholderImage(img)), // 파일 저장은 검사 뒤 externalizeImages에서
     isRecommended: Boolean(payload.isRecommended),
   };
 
@@ -643,7 +618,9 @@ const normalizeProductPayload = async (input = {}) => {
     else delete normalized[key];
   }
 
-  normalized.partnerLinks = await normalizePartnerLinks(payload.partnerLinks);
+  delete normalized.partnerLinks; // 판매처 목록은 저장된 목록과 합쳐야 해서 처리 함수(mergePartnerLinks)에서
+  delete normalized.rev; // 저장 번호는 서버만 정함
+  delete normalized.baseRev;
 
   return normalized;
 };
@@ -692,7 +669,8 @@ const isWebUrl = (value, protocols, allowLocal = false) => {
   }
 };
 // 로컬 서버가 만든 사진 주소(localhost)도 사진으로 인정
-const isRealProductImage = (src) => isWebUrl(src, ['https:', 'http:'], true) && !isPlaceholderImage(src);
+// 아직 파일로 떼어내기 전의 사진(data URI)도 저장 직전에 주소가 되므로 사진으로 인정
+const isRealProductImage = (src) => (isWebUrl(src, ['https:', 'http:'], true) && !isPlaceholderImage(src)) || /^data:image\/(png|jpe?g|webp|gif|avif);base64,./i.test(String(src || ''));
 
 // 판매처 예약 가능 여부: available 예약 가능 / unavailable 예약 불가 / unknown 확인 못 함
 const AVAILABILITY_STATUSES = ['available', 'unavailable', 'unknown'];
@@ -808,41 +786,200 @@ const assertActorMayChangeStatus = (actor, from, to) => {
   }
 };
 
-// 예전 어드민처럼 판매처 상태 없이 판매처 목록을 보내면, 같은 판매처의 기존 상태를 지우지 않고 이어 준다
-const keepPartnerAvailability = (nextLinks = [], prevLinks = [], sentLinks = []) =>
-  nextLinks.map((link) => {
-    const same = (other) => other && (other.url === link.url || (other.externalId && other.externalId === link.externalId));
-    if (sentLinks.some((sent) => same(sent) && Object.prototype.hasOwnProperty.call(sent, 'availability'))) return link;
-    const prev = (prevLinks || []).find(same);
-    return prev?.availability && !link.availability ? { ...link, availability: prev.availability } : link;
-  });
+// ── 판매처 목록 병합 규칙 (설계서 v2 C-3~C-6) ─────────────────────────────────────────
+// 판매처 정체성: (판매처 이름, 외부 번호)가 있으면 그것, 없으면 정확한 주소. 같은 판매처면 요청에 없는 칸은 그대로 두고,
+// 다른 판매처(주소가 바뀌었고 외부 번호 없음, 외부 번호가 다름)면 예전 가격·확인 정보·예약 상태를 넘기지 않는다.
+// 가격 = {값, 통화, 조건, 확인 시각} 묶음. 묶음이 바뀌면 새 확인이라 네 가지가 다 있어야 하고, 옛 확인 시각으로는 덮어쓰지 못한다.
+// 잘못된 값은 400·409로 알리고 조용히 지우지 않는다.
+const PRICE_KEYS = ['price', 'priceCurrency', 'priceConditions', 'priceCheckedAt'];
+const hasKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const partnerKeyOf = (value) => String(value ?? '').trim().toLowerCase();
+const externalIdOf = (link) => (link?.externalId === undefined || link?.externalId === null ? '' : String(link.externalId).trim());
+// 같은 상품 페이지인지 (트래킹 꼬리표 같은 쿼리는 빼고 주소·경로만)
+const pageOf = (url) => { try { const u = new URL(url); return `${u.hostname.toLowerCase()}${u.pathname.replace(/\/+$/, '')}`; } catch { return String(url || ''); } };
+const linkLabel = (link) => `${String(link?.partner || '').trim() || '판매처'} ${String(link?.url || '').slice(0, 80)}`.trim();
+const ISO_CURRENCIES = new Set(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('currency') : ['KRW', 'USD', 'JPY', 'EUR', 'CNY', 'TWD', 'THB', 'VND', 'HKD', 'SGD']);
+const FUTURE_SLACK_MS = 5 * 60 * 1000;
 
-// 새로 넣거나 바꾼 판매처 가격은 통화·확인 시각이 같이 와야 가격으로 저장 (모르는 시각을 지금으로 채우지 않음).
-// 없으면 그 가격만 저장하지 않음 → 손님 화면은 '판매처에서 확인'. 예전부터 같은 값으로 있던 가격은 그대로 (확인 시각 모름으로 남음)
-const dropUnmanagedPrices = (nextLinks = [], prevLinks = []) =>
-  (nextLinks || []).map((link) => {
-    if (!(link.price > 0) || (link.priceCurrency && link.priceCheckedAt)) return link;
-    const kept = (prevLinks || []).some((prev) => prev && prev.price === link.price && (prev.url === link.url || prev.partner === link.partner || (prev.externalId && prev.externalId === link.externalId)));
-    if (kept) return link;
-    const { price, priceCurrency, priceConditions, priceCheckedAt, priceDisplay, ...rest } = link;
-    console.warn(`[가격] 통화·확인 시각 없는 새 가격은 저장하지 않아요: ${link.partner || link.url} ${price}`);
-    return rest;
+// 요청의 판매처 하나 검사 (빈 줄만 무시, 그 밖의 잘못된 값은 400)
+const parseSentLink = (raw, nowMs) => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw productInputError('판매처 형식이 올바르지 않아요');
+  const label = linkLabel(raw);
+  const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+  const partner = typeof raw.partner === 'string' ? raw.partner.trim() : '';
+  if (!url) {
+    const blank = !partner && !PRICE_KEYS.some((key) => hasKey(raw, key) && raw[key] !== null && raw[key] !== '') && !raw.availability;
+    if (blank) return null; // 어드민 화면의 빈 줄
+    throw productInputError(`판매처 주소가 비어 있어요: ${label}`);
+  }
+  const out = { partner, url, source: raw.source === 'api' ? 'api' : 'manual' };
+  if (hasKey(raw, 'externalId')) out.externalId = externalIdOf(raw); // 빈 글자 = 외부 번호 없음을 명시
+  if (hasKey(raw, 'price')) {
+    const v = raw.price;
+    if (v === null || v === 0) out.price = null; // 가격 삭제
+    else if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.price = v;
+    else if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0) out.price = Number(v);
+    else throw productInputError(`가격이 올바른 숫자가 아니에요 (삭제는 null 또는 0): ${label}`);
+  }
+  if (hasKey(raw, 'priceCurrency')) {
+    const c = String(raw.priceCurrency ?? '').trim().toUpperCase();
+    if (!ISO_CURRENCIES.has(c)) throw productInputError(`통화가 올바르지 않아요 (예: KRW): ${label}`);
+    out.priceCurrency = c;
+  }
+  if (hasKey(raw, 'priceConditions')) {
+    if (typeof raw.priceConditions !== 'string' || raw.priceConditions.length > 200) throw productInputError(`가격 조건은 200자 이하 글자예요 (조건 없음은 빈 글자): ${label}`);
+    out.priceConditions = raw.priceConditions.trim();
+  }
+  if (hasKey(raw, 'priceCheckedAt')) {
+    const ms = Date.parse(raw.priceCheckedAt);
+    if (!Number.isFinite(ms) || ms > nowMs + FUTURE_SLACK_MS) throw productInputError(`가격 확인 시각이 올바르지 않아요: ${label}`);
+    out.priceCheckedAt = new Date(ms).toISOString();
+  }
+  if (hasKey(raw, 'priceDisplay')) {
+    if (raw.priceDisplay === null || raw.priceDisplay === '') out.priceDisplay = null;
+    else if (typeof raw.priceDisplay !== 'string' || raw.priceDisplay.length > 100) throw productInputError(`가격 표시 문구가 올바르지 않아요: ${label}`);
+    else out.priceDisplay = raw.priceDisplay.trim();
+  }
+  if (hasKey(raw, 'availability')) out.availability = raw.availability === null ? null : normalizeAvailability(raw.availability, nowMs);
+  if (hasKey(raw, 'updatedAt') && raw.updatedAt) {
+    const ms = Date.parse(raw.updatedAt);
+    if (!Number.isFinite(ms)) throw productInputError(`수정 시각이 올바르지 않아요: ${label}`);
+    out.updatedAt = new Date(ms).toISOString();
+  }
+  return out;
+};
+
+// 같은 판매처인지: 외부 번호를 보냈으면 (이름, 외부 번호)로, 빈 외부 번호면 '외부 번호 없는 같은 주소'로, 안 보냈으면 정확한 주소로
+const sameIdentity = (sent, cur) => {
+  if (!cur) return false;
+  if (hasKey(sent, 'externalId')) {
+    if (!sent.externalId) return !externalIdOf(cur) && cur.url === sent.url;
+    return externalIdOf(cur) === sent.externalId && partnerKeyOf(cur.partner) === partnerKeyOf(sent.partner);
+  }
+  return cur.url === sent.url;
+};
+
+const mergeLink = (sent, cur) => {
+  const label = linkLabel(sent);
+  const out = cur ? { ...cur } : {};
+  out.partner = sent.partner;
+  out.url = sent.url;
+  out.source = sent.source;
+  if (hasKey(sent, 'externalId')) { if (sent.externalId) out.externalId = sent.externalId; else delete out.externalId; }
+  if (hasKey(sent, 'availability')) { if (sent.availability) out.availability = sent.availability; else delete out.availability; }
+  if (hasKey(sent, 'updatedAt')) out.updatedAt = sent.updatedAt;
+  const older = (a, b) => a && b && Date.parse(a) < Date.parse(b);
+  const sentPrice = PRICE_KEYS.filter((key) => hasKey(sent, key));
+  if (hasKey(sent, 'price') && sent.price === null) {
+    for (const key of [...PRICE_KEYS, 'priceDisplay']) delete out[key];
+  } else if (sentPrice.length) {
+    const curHas = Boolean(cur && cur.price > 0);
+    const nextPrice = hasKey(sent, 'price') ? sent.price : cur?.price;
+    const nextCurrency = hasKey(sent, 'priceCurrency') ? sent.priceCurrency : cur?.priceCurrency;
+    const nextConditions = hasKey(sent, 'priceConditions') ? sent.priceConditions : cur?.priceConditions;
+    const changed = !curHas || nextPrice !== cur.price || nextCurrency !== cur.priceCurrency || nextConditions !== cur.priceConditions;
+    if (changed) {
+      const missing = [!(sent.price > 0) && '가격', !hasKey(sent, 'priceCurrency') && '통화', !hasKey(sent, 'priceConditions') && '조건(없으면 빈 글자)', !hasKey(sent, 'priceCheckedAt') && '확인 시각'].filter(Boolean);
+      if (missing.length) throw productInputError(`새 가격(값·통화·조건 중 바뀜)에는 ${missing.join('·')}이 필요해요: ${label}`);
+      if (curHas && older(sent.priceCheckedAt, cur.priceCheckedAt)) throw productInputError(`저장된 가격보다 옛날에 확인한 가격이에요 (그사이 다른 곳에서 바뀜 — 새로 불러와 주세요): ${label}`, 409);
+      Object.assign(out, { price: sent.price, priceCurrency: sent.priceCurrency, priceConditions: sent.priceConditions, priceCheckedAt: sent.priceCheckedAt });
+      if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay; // 새 확인이면 옛 표시 문구는 버림
+    } else {
+      if (hasKey(sent, 'priceCheckedAt')) {
+        if (older(sent.priceCheckedAt, cur.priceCheckedAt)) throw productInputError(`저장된 가격보다 옛날에 확인한 가격이에요 (새로 불러와 주세요): ${label}`, 409);
+        out.priceCheckedAt = sent.priceCheckedAt;
+      }
+      if (hasKey(sent, 'priceDisplay')) { if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay; }
+    }
+  } else if (hasKey(sent, 'priceDisplay')) {
+    if (sent.priceDisplay && !(out.price > 0)) throw productInputError(`가격 없이 가격 표시 문구만 있어요: ${label}`);
+    if (sent.priceDisplay) out.priceDisplay = sent.priceDisplay; else delete out.priceDisplay;
+  }
+  return out;
+};
+
+// 요청의 판매처 목록(= 원하는 전체 목록)을 저장된 목록과 합침. 목록에 없는 판매처는 지워짐(명시적 교체), partnerLinks를 안 보내면 그대로
+const mergePartnerLinks = async (sentRaw, currentLinks = [], nowMs = Date.now()) => {
+  if (!Array.isArray(sentRaw)) throw productInputError('판매처 목록(partnerLinks)은 배열이어야 해요');
+  const current = Array.isArray(currentLinks) ? currentLinks : [];
+  const sent = sentRaw.map((raw) => parseSentLink(raw, nowMs)).filter(Boolean);
+  // 트래킹 링크로 바꾸는 판매처(KLOOK·KKday)는 양쪽 다 바꾼 주소로 비교 (변환은 여러 번 해도 같음 — 저장된 예전 주소가 변환 전이어도 맞춰짐)
+  const tracked = async (partner, url) => {
+    const partnerKey = AUTO_TRACKED_PARTNER_KEYS[partnerKeyOf(partner)];
+    if (!partnerKey) return url;
+    try {
+      return await getPartnerIntegration(partnerKey).createTrackedLink(url);
+    } catch (error) {
+      console.warn(`[판매처] ${partner} 트래킹 링크 변환 실패, 원본 URL 유지:`, error.message);
+      return url;
+    }
+  };
+  for (const link of sent) link.url = await tracked(link.partner, link.url);
+  const currentUrls = new Map();
+  for (const cur of current) currentUrls.set(cur, await tracked(cur.partner, cur.url));
+  const used = new Set();
+  const seen = new Set();
+  const merged = sent.map((link) => {
+    const label = linkLabel(link);
+    const key = hasKey(link, 'externalId') && link.externalId ? `x:${partnerKeyOf(link.partner)}:${link.externalId}` : `u:${link.url}`;
+    if (seen.has(key)) throw productInputError(`같은 판매처가 두 번 있어요: ${label}`);
+    seen.add(key);
+    const matches = current.filter((cur) => sameIdentity(link, { ...cur, url: currentUrls.get(cur) }));
+    if (matches.length > 1) throw productInputError(`어느 판매처인지 정할 수 없어요 (같은 판매처가 둘): ${label}`);
+    const cur = matches[0] || null;
+    // 외부 번호로 찾은 판매처와 주소가 같은 다른 판매처가 따로 있으면 모호함
+    if (cur && current.some((other) => other !== cur && pageOf(currentUrls.get(other)) === pageOf(link.url))) throw productInputError(`외부 번호와 주소가 서로 다른 판매처를 가리켜요: ${label}`);
+    if (cur && used.has(cur)) throw productInputError(`같은 판매처가 두 번 있어요: ${label}`);
+    if (cur) used.add(cur);
+    return mergeLink(link, cur);
   });
+  return merged;
+};
+
+// 요청의 상품 칸 검사 (보낸 칸만): 숫자 칸·사진. 잘못되면 400 (조용히 지우지 않음). null은 '지우기'
+const PRODUCT_NUMBER_RULES = { price: { min: 0, zeroRemoves: true }, minPrice: { min: 0, zeroRemoves: true }, salePrice: { min: 0, zeroRemoves: true }, rating: { min: 0, max: 5 }, reviewCount: { min: 0, integer: true } };
+const VALID_DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif|avif);base64,[A-Za-z0-9+/=\s]+$/i;
+const validateProductBody = (body) => {
+  for (const [key, rule] of Object.entries(PRODUCT_NUMBER_RULES)) {
+    if (!hasKey(body, key) || body[key] === null) continue;
+    const v = body[key];
+    const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+    if (!Number.isFinite(n) || n < rule.min || (rule.max !== undefined && n > rule.max) || (rule.integer && !Number.isInteger(n))) {
+      throw productInputError(`${key} 값이 올바르지 않아요 (지우려면 null)`);
+    }
+  }
+  if (hasKey(body, 'images')) {
+    if (!Array.isArray(body.images)) throw productInputError('사진(images)은 배열이어야 해요');
+    for (const img of body.images) {
+      const src = String(img ?? '').trim();
+      if (!src) continue; // 어드민 화면의 빈 사진 칸
+      if (isPlaceholderImage(src)) throw productInputError(`placeholder 사진은 저장할 수 없어요: ${src.slice(0, 80)}`);
+      if (src.startsWith('data:') ? !VALID_DATA_IMAGE.test(src) : !isWebUrl(src, ['https:', 'http:'], true)) throw productInputError(`사진 주소·형식이 올바르지 않아요: ${src.slice(0, 80)}`);
+    }
+  }
+};
+// 사진 파일 저장은 모든 검사가 끝난 뒤에만 (검사 실패면 아무것도 쓰지 않게)
+const externalizeImages = (product) => ({ ...product, images: (product.images || []).map(externalizeImage).filter(Boolean) });
 
 const NUMERIC_PRODUCT_FIELDS = { price: { min: 0, positive: true }, minPrice: { min: 0, positive: true }, salePrice: { min: 0, positive: true }, rating: { min: 0, max: 5 }, reviewCount: { min: 0 } };
 // 최종 저장될 상품 전체에 같은 정리·검사를 한다 (일부 칸만 고쳐도, 공개 상태만 바꿔도 같은 규칙)
 const finalizeProduct = (product, { status, checkPublish }) => {
   const next = { ...product };
-  next.images = toTrimmedStringArray(next.images).filter((img) => !isPlaceholderImage(img));
+  const warnings = [];
+  const images = toTrimmedStringArray(next.images);
+  next.images = images.filter((img) => !isPlaceholderImage(img));
+  if (next.images.length !== images.length) warnings.push(`저장돼 있던 placeholder 사진 ${images.length - next.images.length}장을 정리했어요`);
   for (const [key, range] of Object.entries(NUMERIC_PRODUCT_FIELDS)) {
     if (next[key] === undefined) continue;
     const value = toNumberOrUndefined(next[key], range);
-    if (value === undefined || (range.positive && !(value > 0))) delete next[key]; // 0원은 가격이 아님 (판매처에서 확인)
-    else next[key] = value;
+    if (value === undefined || (range.positive && !(value > 0))) {
+      if (value === undefined) warnings.push(`저장돼 있던 ${key} 값이 숫자가 아니어서 정리했어요`);
+      delete next[key]; // 0원은 가격이 아님 (판매처에서 확인)
+    } else next[key] = value;
   }
   next.publishStatus = status;
   next.isAvailable = status === 'published'; // 예전 화면·스크립트 호환: 공개일 때만 true
-  return { product: next, problems: checkPublish ? publishProblems(next) : [] };
+  return { product: next, problems: checkPublish ? publishProblems(next) : [], warnings };
 };
 
 // 손님(공개 API)에게 보내는 상품: 필요한 칸만. 내부 메모·요청 번호·승인 이력·출처 같은 칸은 빼고,
@@ -1086,7 +1223,7 @@ app.get('/api/products/:id', (req, res) => {
     if (index === -1 || (!admin && !isPublicProduct(products[index]))) {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
-    if (!admin && !isBotUserAgent(req.get('user-agent') || '') && req.query.check !== '1') {
+    if (!admin && !isBotUserAgent(req.get('user-agent') || '') && req.query.check !== '1' && !readOnlyReason()) {
       // 상세 조회 시 조회수 증가 (어드민이 보는 건, 화면의 '아직 공개인지' 확인(check=1)은 세지 않음)
       products[index] = { ...products[index], views: (Number(products[index].views) || 0) + 1 };
       writeProducts(products);
@@ -1155,7 +1292,9 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
     const clientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.trim().slice(0, 80) : '';
     const status = requestedPublishStatus(body, null); // 기본은 초안
     assertActorMayChangeStatus(actorOf(req), 'draft', status);
+    validateProductBody(body);
     const normalizedPayload = await normalizeProductPayload(body);
+    const partnerLinks = await mergePartnerLinks(Array.isArray(body.partnerLinks) ? body.partnerLinks : [], []);
 
     // 기다리는 작업(정리)이 끝난 뒤에 읽고, 기다림 없이 바로 저장한다 (상품 파일 잠금 안 → 동시 등록이 서로 덮어쓰지 않음)
     const products = readProducts();
@@ -1168,16 +1307,17 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
     const counter = Math.max(readCounter(), maxProductNumber(products)) + 1;
     const { clientRequestId: _rid, publishStatus: _ps, isAvailable: _ia, ...payloadRest } = normalizedPayload;
     const { product, problems } = finalizeProduct(
-      { ...payloadRest, partnerLinks: dropUnmanagedPrices(payloadRest.partnerLinks, []), id: counter.toString(), views: 0, ...(clientRequestId ? { clientRequestId } : {}) },
+      { ...payloadRest, partnerLinks, id: counter.toString(), views: 0, rev: 1, ...(clientRequestId ? { clientRequestId } : {}) },
       { status, checkPublish: status === 'published' },
     );
     if (problems.length) return res.status(400).json({ error: `공개 전에 채워 주세요: ${problems.join(', ')}`, missing: problems });
 
     writeCounter(counter); // 번호를 먼저 저장 (상품 저장 전에 꺼져도 같은 번호를 다시 쓰지 않게)
-    products.push(product);
+    const saved = externalizeImages(product); // 사진 파일은 검사가 다 끝난 뒤에만 저장
+    products.push(saved);
     writeProducts(products);
-    console.log(`[API] POST /api/products - 상품 등록 성공: ${product.id} ${product.name} (${status})`);
-    res.status(201).json(product);
+    console.log(`[API] POST /api/products - 상품 등록 성공: ${saved.id} ${saved.name} (${status})`);
+    res.status(201).json(saved);
   } catch (error) {
     sendProductError(res, error);
   }
@@ -1187,6 +1327,7 @@ app.post('/api/products', requireAdminKey, async (req, res) => {
 app.put('/api/products/:id', requireAdminKey, async (req, res) => {
   try {
     const body = req.body || {};
+    validateProductBody(body); // 보낸 칸만 검사 (저장된 예전 값 때문에 관계없는 수정이 막히지 않게)
     const products = readProducts();
     const index = findProductIndex(products, req.params.id);
     if (index === -1) {
@@ -1206,32 +1347,38 @@ app.put('/api/products/:id', requireAdminKey, async (req, res) => {
       return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
     }
     const current = latest[latestIndex];
+    // 어드민은 불러온 저장 번호(baseRev)를 보냄 — 그사이 다른 저장이 있었으면 옛 화면으로 덮어쓰지 않게 409
+    if (hasKey(body, 'baseRev') && Number(body.baseRev) !== (Number(current.rev) || 0)) {
+      return res.status(409).json({ error: '그사이 다른 곳에서 이 상품이 바뀌었어요. 새로 불러온 뒤 다시 저장해 주세요', rev: Number(current.rev) || 0 });
+    }
     const from = publishStatusOf(current);
     const to = requestedPublishStatus(body, from);
     assertActorMayChangeStatus(actorOf(req), from, to);
     const next = { ...current };
     for (const key of Object.keys(body)) {
-      if (['id', 'views', 'clientRequestId', 'publishStatus', 'isAvailable', 'visibilitySync', 'publishMigration'].includes(key)) continue; // 서버만 정하는 칸은 요청으로 바꾸거나 지우지 못함
-      if (key in normalizedPayload) next[key] = normalizedPayload[key];
-      else delete next[key]; // 정리에서 지운 값(숫자로 못 바꾼 가격 등)은 저장하지 않음
+      // 서버만 정하는 칸은 요청으로 바꾸거나 지우지 못함. 판매처 목록은 아래에서 저장된 목록과 합침
+      if (['id', 'views', 'clientRequestId', 'publishStatus', 'isAvailable', 'visibilitySync', 'publishMigration', 'rev', 'baseRev', 'warnings', 'partnerLinks'].includes(key)) continue;
+      if (key in normalizedPayload && normalizedPayload[key] !== null) next[key] = normalizedPayload[key];
+      else delete next[key]; // null = 지우기 (잘못된 값은 위 검사에서 400)
     }
-    if (Array.isArray(body.partnerLinks)) next.partnerLinks = dropUnmanagedPrices(keepPartnerAvailability(next.partnerLinks, current.partnerLinks, body.partnerLinks), current.partnerLinks);
+    if (hasKey(body, 'partnerLinks')) next.partnerLinks = await mergePartnerLinks(body.partnerLinks, current.partnerLinks);
+    next.rev = (Number(current.rev) || 0) + 1;
 
     // 공개로 바꾸는 경우, 공개를 다시 요청한 경우(이미 공개여도), 공개 상품의 이름·사진·판매처를 고치는 경우 공개 필수 항목 검사
     const touched = ['name', 'images', 'partnerLinks'].some((key) => key in body);
     const askedPublish = body.publishStatus === 'published' || body.isAvailable === true;
-    const { product, problems } = finalizeProduct(next, { status: to, checkPublish: to === 'published' && (from !== 'published' || touched || askedPublish) });
+    const { product, problems, warnings } = finalizeProduct(next, { status: to, checkPublish: to === 'published' && (from !== 'published' || touched || askedPublish) });
     if (problems.length) {
       return res.status(400).json({ error: `공개 전에 채워 주세요: ${problems.join(', ')}`, missing: problems });
     }
 
-    latest[latestIndex] = { ...product, id: req.params.id }; // ID는 변경 불가
+    latest[latestIndex] = { ...externalizeImages(product), id: req.params.id }; // ID는 변경 불가, 사진 파일은 검사 뒤에만 저장
     const visibilityChanged = (from === 'published') !== (to === 'published');
     // 공개 여부가 바뀜: API는 바로 반영, 정적 페이지·사이트맵·CDN은 메인 사이트 다시 빌드가 끝나야 반영 → 그때까지 '반영 중' (상품과 한 번에 저장)
     if (visibilityChanged) latest[latestIndex].visibilitySync = { state: 'pending', since: new Date().toISOString(), from, to };
     writeProducts(latest);
     if (visibilityChanged) res.visibilityChanged = `상품 ${req.params.id} ${from}→${to}`; // 응답 뒤 메인 사이트 다시 빌드 요청
-    res.json(latest[latestIndex]);
+    res.json(warnings.length ? { ...latest[latestIndex], warnings } : latest[latestIndex]); // 저장된 예전 데이터를 정리했으면 알림
   } catch (error) {
     sendProductError(res, error);
   }
@@ -1273,7 +1420,7 @@ app.put('/api/products/:id/partner-availability', requireAdminKey, (req, res) =>
       if (availability) links[at].availability = availability;
       else delete links[at].availability;
     }
-    products[index] = { ...products[index], partnerLinks: links };
+    products[index] = { ...products[index], partnerLinks: links, rev: (Number(products[index].rev) || 0) + 1 };
     writeProducts(products);
     res.json(toAdminProduct(products[index]));
   } catch (error) {
@@ -1282,35 +1429,26 @@ app.put('/api/products/:id/partner-availability', requireAdminKey, (req, res) =>
 });
 
 // 판매처 가격만 갱신 (가격 갱신 스크립트용 — 파일을 직접 쓰지 않고 이 서버를 거침). 공개 상태·판매처 예약 상태는 바꾸지 않음
-// body: { updates: [{ url | externalId | index, price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt }] }
-// price가 0·빈 값이면 가격을 지움 (0원으로 대체하지 않음, 과거 가격도 남기지 않음 → 손님 화면은 '판매처에서 확인')
-app.put('/api/products/:id/partner-prices', requireAdminKey, (req, res) => {
+// body: { updates: [{ url | externalId | index, price, priceCurrency, priceConditions, priceCheckedAt, priceDisplay? }] }
+// 일반 수정과 같은 가격 묶음 규칙(mergePartnerLinks): 새 가격이면 값·통화·조건·확인 시각 모두, 옛 확인 시각이면 409, price가 null·0이면 가격 삭제
+app.put('/api/products/:id/partner-prices', requireAdminKey, async (req, res) => {
   try {
     const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
     if (!updates.length) throw productInputError('바꿀 판매처 가격(updates)이 없어요');
     const products = readProducts();
     const index = findProductIndex(products, req.params.id);
     if (index === -1) return res.status(404).json({ error: '상품을 찾을 수 없습니다' });
-    const links = (products[index].partnerLinks || []).map((link) => ({ ...link }));
+    const links = products[index].partnerLinks || [];
+    // 다른 판매처는 '그대로'(정체성만), 바꿀 판매처에는 가격 칸만 실어서 일반 수정과 같은 규칙으로 합침
+    const sent = links.map((link) => ({ partner: link.partner, url: link.url, source: link.source, ...(externalIdOf(link) ? { externalId: externalIdOf(link) } : {}) }));
     for (const update of updates) {
-      const at = links.findIndex((link, i) => (update.url && link.url === update.url) || (update.externalId && link.externalId === update.externalId) || (Number.isInteger(update.index) && i === update.index));
+      const at = links.findIndex((link, i) => (update.url && link.url === update.url) || (update.externalId !== undefined && externalIdOf(link) && externalIdOf(link) === String(update.externalId).trim()) || (Number.isInteger(update.index) && i === update.index));
       if (at === -1) throw productInputError(`판매처를 찾지 못했어요: ${update.url || update.externalId || update.index}`);
-      const { price, priceDisplay, priceCurrency, priceConditions, priceCheckedAt, ...rest } = links[at];
-      const value = toNumberOrUndefined(update.price, { min: 0 });
-      const next = { ...rest };
-      if (value !== undefined && value > 0) {
-        const currency = String(update.priceCurrency || '').trim().toUpperCase();
-        if (!/^[A-Z]{3}$/.test(currency)) throw productInputError('가격의 통화(예: KRW)를 적어 주세요');
-        const checkedMs = Date.parse(update.priceCheckedAt);
-        if (!Number.isFinite(checkedMs)) throw productInputError('가격을 확인한 시각을 적어 주세요');
-        Object.assign(next, { price: value, priceCurrency: currency, priceCheckedAt: new Date(checkedMs).toISOString() });
-        if (String(update.priceDisplay || '').trim()) next.priceDisplay = String(update.priceDisplay).trim().slice(0, 100);
-        if (String(update.priceConditions || '').trim()) next.priceConditions = String(update.priceConditions).trim().slice(0, 200);
-        next.updatedAt = new Date(checkedMs).toISOString();
-      }
-      links[at] = next;
+      for (const key of [...PRICE_KEYS, 'priceDisplay']) if (hasKey(update, key)) sent[at][key] = update[key];
+      if (hasKey(update, 'price') && (update.price === 0 || update.price === null)) sent[at].price = null;
     }
-    products[index] = { ...products[index], partnerLinks: links };
+    const merged = await mergePartnerLinks(sent, links);
+    products[index] = { ...products[index], partnerLinks: merged, rev: (Number(products[index].rev) || 0) + 1 };
     writeProducts(products);
     res.json(toAdminProduct(products[index]));
   } catch (error) {
@@ -1356,7 +1494,8 @@ app.post('/api/admin/publish-status-migration', requireAdminKey, lockProducts, (
     if (req.body?.apply === true && changes.length) {
       const backup = path.join(DATA_DIR, `products.before-publish-status-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
       fs.copyFileSync(PRODUCTS_FILE, backup);
-      writeProducts(next);
+      const changedIds = new Set(changes.map((c) => String(c.id)));
+      writeProducts(next.map((p) => (changedIds.has(String(p.id)) ? { ...p, rev: (Number(p.rev) || 0) + 1 } : p))); // 바뀐 상품은 저장 번호 올림 (열어 둔 어드민이 덮어쓰지 않게)
       Object.assign(result, { applied: true, backup: path.basename(backup) });
     }
     res.json(result);
@@ -1398,7 +1537,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 // 현재 세션이 살아있는지 확인 (새로고침 시 로그인 상태 복원용)
 app.get('/api/admin/session', (req, res) => {
-  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)) });
+  res.json({ authenticated: isValidSessionToken(readCookie(req, SESSION_COOKIE)), readOnly: readOnlyReason() }); // readOnly: 복구 중이면 이유
 });
 
 // 예전 어드민 빌드가 호출하던 경로. 키 확인만 하고 쿠키는 주지 않는다.
@@ -1562,7 +1701,7 @@ app.get('/api/categories', (req, res) => {
       if (hasStringData) {
         console.log('[API] categories.json 레거시 데이터 감지, 자동 정규화 실행...');
         const normalized = normalizeCategoriesPayload(parsed);
-        fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(categoriesFile, JSON.stringify(normalized, null, 2), 'utf8');
         console.log(`[API] categories.json 정규화 완료: 메인 ${normalized.mainCategories.length}개, 서브 ${normalized.subCategories.length}개`);
         return res.json(normalized);
       }
@@ -1726,7 +1865,7 @@ app.get('/api/locations', (req, res) => {
         // 레거시 string 배열 → 자동 수정 후 저장
         console.log('[API] locations.json 레거시 데이터 감지, 자동 정규화 실행...');
         const fixed = fixLegacyLocationsData(parsed, readProducts());
-        fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
+        if (!readOnlyReason()) fs.writeFileSync(locationsFile, JSON.stringify(fixed, null, 2), 'utf8');
         console.log(`[API] locations.json 정규화 완료: 국가 ${fixed.countries.length}개, 지역 ${fixed.regions.length}개`);
         return res.json(fixed);
       }

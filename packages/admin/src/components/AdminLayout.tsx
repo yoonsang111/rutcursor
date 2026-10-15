@@ -21,7 +21,7 @@ interface AdminLayoutProps {
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, readOnly } = useAuth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -35,6 +35,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {readOnly && (
+        <div role="alert" className="bg-yellow-100 text-yellow-900 text-sm px-4 py-2 text-center">
+          서버가 복구 중이라 읽기만 가능해요. 저장·수정·삭제는 할 수 없어요 ({readOnly})
+        </div>
+      )}
       {/* 헤더 */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8">

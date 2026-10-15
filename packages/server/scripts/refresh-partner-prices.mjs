@@ -121,7 +121,7 @@ for (const { product, link } of targets) {
   }
 
   // 마이리얼트립 가격은 원화. 확인 시각 = 지금 조회한 시각
-  priceUpdates.set(`${product.id}::${link.externalId}`, { productId: product.id, externalId: link.externalId, price: result.price, priceDisplay: result.priceDisplay, priceCurrency: 'KRW', priceCheckedAt: new Date().toISOString() });
+  priceUpdates.set(`${product.id}::${link.externalId}`, { productId: product.id, externalId: link.externalId, price: result.price, priceDisplay: result.priceDisplay, priceCurrency: 'KRW', priceConditions: displayed ? '판매처 표시 가격' : '옵션 가격에서 계산한 대표 가격', priceCheckedAt: new Date().toISOString() });
   refreshed += 1;
   console.log(
     `[refresh-partner-prices] ${product.id} ${product.name} - ${link.partner}: ${result.priceDisplay} (${displayed ? '파트너 노출가' : '옵션 역산'})`

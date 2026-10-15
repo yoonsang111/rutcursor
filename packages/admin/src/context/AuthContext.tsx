@@ -7,6 +7,7 @@ interface AuthContextType {
   isAuthLoading: boolean;
   login: (adminKey: string) => Promise<boolean>;
   logout: () => void;
+  readOnly: string | null; // 서버가 복구 중 읽기 전용이면 그 이유 (저장 불가)
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,6 +17,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.tourstream.kr
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [readOnly, setReadOnly] = useState<string | null>(null);
 
   useEffect(() => {
     // 로그인 여부는 브라우저가 아니라 서버가 판단한다.
@@ -28,6 +30,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!alive) return;
         const ok = Boolean(data?.authenticated);
         setIsAuthenticated(ok);
+        setReadOnly(typeof data?.readOnly === 'string' && data.readOnly ? data.readOnly : null);
         if (!ok) storage.clearAuth();
       })
       .catch(() => {
@@ -77,7 +80,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isAuthLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isAuthLoading, login, logout, readOnly }}>
       {children}
     </AuthContext.Provider>
   );

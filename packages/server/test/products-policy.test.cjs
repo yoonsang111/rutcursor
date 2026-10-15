@@ -164,9 +164,11 @@ test('공개 필수 검사는 모든 경로에 같게: 공개 등록 / 공개만
   try {
     const bad = { name: '사진 없음', images: ['https://via.placeholder.com/1'], partnerLinks: [link('A')] };
     assert.equal((await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ ...bad, publishStatus: 'published' }) })).status, 400);
-    const d = await json(await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify(bad) }));
+    // 2026-10-15 대표 결정(잘못된 입력을 조용히 지우지 않기): 예전 기대 '초안으로 저장하고 placeholder만 뺌' → 이제 400 (요청에 placeholder 사진)
+    assert.equal((await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify(bad) })).status, 400, '요청의 placeholder 사진은 거절');
+    const d = await json(await fetch(`${s.base}/products`, { method: 'POST', headers: admin, body: JSON.stringify({ ...bad, images: [] }) }));
     assert.equal(d.publishStatus, 'draft', '기본은 초안');
-    assert.deepEqual(d.images, [], 'placeholder는 저장하지 않음');
+    assert.deepEqual(d.images, []);
     assert.equal((await fetch(`${s.base}/products/${d.id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ publishStatus: 'published' }) })).status, 400);
     assert.equal((await fetch(`${s.base}/products/${d.id}`, { method: 'PUT', headers: admin, body: JSON.stringify({ isAvailable: true }) })).status, 400, '예전 활성화 요청도 같은 검사');
     assert.equal((await fetch(`${s.base}/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ images: ['https://placehold.co/600x400'] }) })).status, 400, '공개 상품 사진을 placeholder로');
@@ -239,9 +241,10 @@ test('강제 종료(kill -9) 뒤 같은 데이터로 새 서버가 바로 시작
     assert.equal((await fetch(`http://127.0.0.1:${port2}/api/products/1`, { method: 'PUT', headers: admin, body: JSON.stringify({ name: '다시 시작' }) })).status, 200);
   } finally { next.kill(); await new Promise(r => next.on('exit', r)); }
   // 잠금 포트를 이 시험 프로세스가 쥐면 서버는 기다린 뒤 시작하지 않음 (파일을 쓰지 않음)
-  const { writerLockPort } = await import('../src/writerLock.js');
+  const { writerLockPort, writerLockKey } = await import('../src/writerLock.js'); // 9차 3회차: 열쇠 = 데이터 폴더 정체성(장치·inode)
+  const lockPort = writerLockPort(await writerLockKey(dir));
   const holder = require('net').createServer();
-  await new Promise(r => holder.listen({ host: '127.0.0.1', port: writerLockPort(path.resolve(file)), exclusive: true }, r));
+  await new Promise(r => holder.listen({ host: '127.0.0.1', port: lockPort, exclusive: true }, r));
   const before = fs.readFileSync(file, 'utf8');
   const blocked = spawnServer(dir, port2 + 1);
   try { assert.notEqual(await new Promise(r => blocked.on('exit', r)), 0); } finally { holder.close(); }

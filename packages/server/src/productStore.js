@@ -57,7 +57,13 @@ export function writeFileAtomic(file, text) {
     } finally {
       fs.closeSync(fd);
     }
+    // 시험용: 이름 바꾸기 전/후에 강제 종료해 '이전 또는 새 완전본만 남는지' 확인 (TS_TEST_CRASH_AT, 운영에서는 설정하지 않음)
+    const crashAt = path.basename(file) === 'products.json' ? process.env.TS_TEST_CRASH_AT : null;
+    if (crashAt === 'before-rename') process.kill(process.pid, 'SIGKILL');
     fs.renameSync(tmp, file);
+    if (crashAt === 'after-rename') process.kill(process.pid, 'SIGKILL');
+    // 폴더 기록도 디스크로 (이름 바꾸기가 전원 장애 뒤에도 남을 가능성을 높임 — 하드웨어까지 보장한다고 하지는 않음)
+    try { const dirFd = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); } } catch { /* 폴더 fsync를 못 하는 시스템 */ }
   } catch (error) {
     try {
       fs.unlinkSync(tmp);
