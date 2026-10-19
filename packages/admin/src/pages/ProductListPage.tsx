@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { migrateProductsFromLocalStorage } from '../utils/migrateFromLocalStorage';
@@ -65,6 +65,25 @@ export default function ProductListPage() {
   const currentPage = Math.min(page, totalPages);
   const pagedProducts = filteredProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  // 검색·거르기·정렬·2쪽 이후를 보는 중이거나 이사(마이그레이션) 중이면 자동 새로고침을 멈춤
+  const pauseAutoRefresh =
+    isMigrating ||
+    searchKeyword !== '' ||
+    statusFilter !== 'all' ||
+    categoryFilter !== '' ||
+    locationFilter !== '' ||
+    sortKey !== 'default' ||
+    currentPage > 1;
+  const pauseAutoRefreshRef = useRef(pauseAutoRefresh);
+  pauseAutoRefreshRef.current = pauseAutoRefresh;
+
+  // 보여줄 쪽 번호 (현재 쪽 기준 최대 5개)
+  const pageNumbers = useMemo(() => {
+    const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+    const end = Math.min(totalPages, start + 4);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  }, [currentPage, totalPages]);
+
   // 조건이 바뀌면 첫 페이지로
   useEffect(() => {
     setPage(1);
@@ -129,7 +148,7 @@ export default function ProductListPage() {
 
     // 화면이 보일 때만 60초마다 새로고침 (숨겨진 탭에서는 쉼)
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && !pauseAutoRefreshRef.current) {
         refreshProducts();
       }
     }, AUTO_REFRESH_MS);
@@ -137,6 +156,7 @@ export default function ProductListPage() {
     // 창 포커스 시 새로고침 (5초 이내 중복 방지)
     let lastFocusRefresh = Date.now();
     const onFocus = () => {
+      if (pauseAutoRefreshRef.current) return;
       const now = Date.now();
       if (now - lastFocusRefresh >= FOCUS_REFRESH_MIN_GAP_MS) {
         lastFocusRefresh = now;
@@ -354,7 +374,14 @@ export default function ProductListPage() {
             <span>
               총 {filteredProducts.length}개의 상품 ({currentPage}/{totalPages} 페이지, 한 번에 {PAGE_SIZE}개)
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setPage(1)}
+                disabled={currentPage <= 1}
+                className="rounded-md border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                처음
+              </button>
               <button
                 onClick={() => setPage(currentPage - 1)}
                 disabled={currentPage <= 1}
@@ -362,12 +389,33 @@ export default function ProductListPage() {
               >
                 이전
               </button>
+              {pageNumbers.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setPage(n)}
+                  aria-current={n === currentPage ? 'page' : undefined}
+                  className={`rounded-md border px-3 py-1 ${
+                    n === currentPage
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
               <button
                 onClick={() => setPage(currentPage + 1)}
                 disabled={currentPage >= totalPages}
                 className="rounded-md border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 다음
+              </button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="rounded-md border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                끝
               </button>
             </div>
           </div>
