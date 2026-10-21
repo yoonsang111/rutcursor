@@ -263,6 +263,21 @@ function productLastmod(product) {
   return stamps.sort().pop().slice(0, 10);
 }
 
+// 모든 셸 하단에 들어가는 사이트 공통 링크 묶음.
+// 크롤러는 링크를 타고 페이지를 찾는데, 셸에는 React 헤더/푸터가 렌더되지 않아
+// 목록 페이지(/products, /category/*, /country/*, /region/*, /destination/*)로 들어오는
+// 내부 링크가 0개였다. 사이트맵만으로는 "고아 페이지"로 취급되어 색인이 되지 않는다.
+// main()에서 라우트를 다 만든 뒤 채운다.
+let siteNavLinks = [];
+
+function buildSiteNav(currentPath) {
+  const items = siteNavLinks.filter((l) => l.path !== currentPath);
+  if (items.length === 0) return "";
+  return `<nav style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif"><h2>둘러보기</h2><ul>${items
+    .map((l) => `<li><a href="${escapeHtml(l.path)}">${escapeHtml(l.label)}</a></li>`)
+    .join("")}</ul></nav>`;
+}
+
 // JS를 실행하지 않는 크롤러(네이버 Yeti 등)가 볼 수 있도록 #root 안에 정적 본문을 넣는다.
 // React가 마운트되면서 통째로 갈아끼우므로 사용자에게는 첫 페인트 잠깐만 보인다.
 function buildStaticBody(meta) {
@@ -360,7 +375,7 @@ function buildStaticBody(meta) {
       lines.push(`<ul>${(section.items || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`);
     });
   }
-  return `<main style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif">${lines.join("")}</main>`;
+  return `<main style="max-width:960px;margin:0 auto;padding:24px;font-family:sans-serif">${lines.join("")}</main>${buildSiteNav(meta.path)}`;
 }
 
 // 상품 설명에 줄바꿈이나 &, " 가 그대로 들어있으면 meta 태그가 깨지거나 엔티티로 잘못 읽힌다.
@@ -428,6 +443,11 @@ async function fetchJson(pathname) {
 
 async function main() {
   const baseHtml = await fs.readFile(indexPath, "utf8");
+  // build/index.html은 템플릿이자 홈 셸의 출력 위치다. 빌드 없이 두 번 돌리면
+  // #root가 이미 채워져 있어 본문이 갱신되지 않고 지난 내용이 그대로 남는다.
+  if (!baseHtml.includes('<div id="root"></div>')) {
+    throw new Error("build/index.html에 빈 <div id=\"root\"></div>가 없습니다. npm run build 로 다시 빌드한 뒤 실행하세요.");
+  }
   // 공개 API는 '공개' 상품만 보낸다 (초안·숨김은 오지 않음). 예전 서버 호환으로 isAvailable도 한 번 더 거른다
   const publishedProducts = (await fetchJson("/products")).filter((p) => p.isAvailable !== false);
   // 모든 판매처의 판매 중지가 확인된 상품(bookable: none)은 목록·추천·사이트맵에서 빼고, 상세 페이지만 안내용으로 남긴다
@@ -566,6 +586,7 @@ async function main() {
 
     routes.push({
       path: `/category/${slug}`,
+      navLabel: categoryName || "카테고리",
       title: priceLabel
         ? `${categoryName || "카테고리"} ${priceLabel}부터 | 가격비교 TourStream`
         : `${categoryName || "카테고리"} 액티비티 가격비교 | TourStream`,
@@ -596,6 +617,7 @@ async function main() {
 
     routes.push({
       path: `/country/${slug}`,
+      navLabel: countryName || "국가",
       title: countryPriceLabel
         ? `${countryName || "국가"} ${countryPriceLabel}부터 | 가격비교 TourStream`
         : `${countryName || "국가"} 여행 액티비티·투어 가격비교 | TourStream`,
@@ -624,6 +646,7 @@ async function main() {
 
       routes.push({
         path: `/region/${regionSlugValue}`,
+        navLabel: regionName,
         title: regionPriceLabel
           ? `${regionName} ${regionPriceLabel}부터 | 가격비교 TourStream`
           : `${regionName} 여행 액티비티 가격비교 | TourStream`,
@@ -666,6 +689,7 @@ async function main() {
 
       routes.push({
         path: `/destination/${regionSlugValue}/${categorySlugValue}`,
+        navLabel: `${regionName} ${categoryName}`,
         title: comboPriceLabel
           ? `${regionName} ${categoryName} ${comboPriceLabel}부터 | TourStream`
           : `${regionName} ${categoryName} 가격비교 | TourStream`,
@@ -693,6 +717,23 @@ async function main() {
     if (!Array.isArray(route.itemListProducts) || route.robots) continue;
     if (route.itemListProducts.length === 0) route.robots = "noindex, follow";
   }
+
+  // 공통 링크 묶음을 라우트에서 그대로 만든다. 색인에서 뺀 페이지는 링크도 걸지 않는다.
+  const LISTING_PREFIXES = ["/category/", "/country/", "/region/", "/destination/"];
+  siteNavLinks = [
+    { path: "/", label: "홈" },
+    { path: "/products", label: "전체 상품" },
+    { path: "/popular", label: "인기 상품" },
+    { path: "/coupons", label: "할인코드" },
+    { path: "/flights", label: "항공권" },
+    { path: "/privacy", label: "개인정보처리방침" },
+    { path: "/terms", label: "이용약관" },
+    ...routes
+      .filter((r) => r.path && LISTING_PREFIXES.some((prefix) => r.path.startsWith(prefix)))
+      .filter((r) => (r.itemListProducts || []).length > 0)
+      .filter((r) => !/noindex/.test(r.robots || ""))
+      .map((r) => ({ path: r.path, label: r.navLabel })),
+  ];
 
   const deduped = new Map();
   let homeMeta = null;
