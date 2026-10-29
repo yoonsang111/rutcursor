@@ -42,4 +42,12 @@ for (const href of navLinks) {
   assert.ok(!/noindex/.test(read(f)), `색인에서 뺀 페이지에 링크가 걸려 있다: ${href}`);
 }
 
-console.log(`SEO 링크 점검 통과 (페이지 ${pages.length}개, 사이트맵 ${sitemap.length}개, 고아 0개, 공통 링크 ${navLinks.length}개)`);
+// RSS 피드: 네이버에 제출하는 수집 통로. 깨지면 조용히 아무것도 안 들어간다.
+const rss = read(path.join(buildDir, 'rss.xml'));
+const rssLinks = [...rss.matchAll(/<link>([^<]+)<\/link>/g)].map((m) => m[1]).filter((u) => u !== 'https://tourstream.kr');
+assert.ok(/^<\?xml[^>]*\?>\s*<rss version="2\.0">/.test(rss), 'rss.xml 이 RSS 2.0 형식이 아니다');
+assert.strictEqual(rssLinks.length, sitemap.length + 1, `RSS 항목 수가 사이트맵과 다르다 (rss ${rssLinks.length}, sitemap ${sitemap.length}+홈)`);
+assert.strictEqual(new Set(rssLinks).size, rssLinks.length, 'RSS 에 같은 주소가 두 번 들어 있다');
+assert.ok(!/&(?!amp;|lt;|gt;|quot;|#)/.test(rss), 'RSS 에 escape 안 된 & 가 있다 (피드가 통째로 깨진다)');
+
+console.log(`SEO 링크 점검 통과 (페이지 ${pages.length}개, 사이트맵 ${sitemap.length}개, 고아 0개, 공통 링크 ${navLinks.length}개, RSS ${rssLinks.length}건)`);
