@@ -25,7 +25,7 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
   return (
     <div className="group flex flex-wrap md:flex-nowrap items-center gap-4 md:gap-5 py-4 md:py-[18px] border-b border-slate-100 last:border-b-0">
       <Link to={`/product/${product.id}`} className="relative w-[76px] h-[76px] md:w-[84px] md:h-[84px] rounded-xl overflow-hidden flex-shrink-0 bg-slate-100">
-        <img src={product.image} alt={product.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        <img src={product.image} alt={product.name} width={84} height={84} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
         {rank !== undefined && (
           <span className="absolute bottom-1 left-1 w-5 h-5 rounded-full bg-slate-900/70 text-white text-[10px] font-extrabold flex items-center justify-center">
             {rank}
@@ -100,6 +100,36 @@ export function ProductListRow({ product, countryName, rank }: ProductListRowPro
       >
         비교하기 <ArrowRight className="w-3.5 h-3.5" />
       </Link>
+    </div>
+  );
+}
+
+// 데이터가 오기 전 자리를 미리 잡아 두는 회색 줄 (도착 시 화면 밀림 방지). 바깥 class 는 ProductListRow 와 같게 유지할 것
+export function ProductListRowSkeleton() {
+  return (
+    <div className="flex flex-wrap md:flex-nowrap items-center gap-4 md:gap-5 py-4 md:py-[18px] border-b border-slate-100 last:border-b-0">
+      <div className="w-[76px] h-[76px] md:w-[84px] md:h-[84px] rounded-xl flex-shrink-0 bg-slate-100" />
+
+      <div className="flex-[1_1_calc(100%-96px)] md:flex-[0_1_240px] md:min-w-[140px] order-2 md:order-none">
+        <div className="mb-1">
+          <div className="h-[19px] rounded bg-slate-100" />
+          <div className="h-[19px] w-3/5 rounded bg-slate-100" />
+        </div>
+        <div className="h-4 w-2/5 rounded bg-slate-100" />
+      </div>
+
+      <div className="flex-1 order-3 md:order-none w-full md:w-auto">
+        <div className="flex gap-2 py-0.5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-1.5 rounded-lg border border-slate-100 min-w-[92px]">
+              <div className="h-4 rounded bg-slate-100" />
+              <div className="h-4 rounded bg-slate-100" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="hidden md:block flex-shrink-0 h-5 w-[72px] rounded bg-slate-100" />
     </div>
   );
 }

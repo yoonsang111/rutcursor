@@ -220,10 +220,46 @@ export default function V2ProductDetailPage() {
   }, [id, incrementProductView]);
 
   if (loading && !product) {
+    // 실제 화면과 같은 틀의 회색 자리맡기 (데이터 도착 시 footer 까지 밀리는 것 방지)
     return (
-      <div className="w-full max-w-[1200px] mx-auto px-4 pt-16 pb-32 flex flex-col items-center gap-4">
-        <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin" />
-        <p className="text-slate-500 text-sm">상품 정보를 불러오는 중...</p>
+      <div aria-busy="true" className="w-full max-w-[1200px] mx-auto pb-32 md:pb-12 pt-0 md:pt-8 px-0 md:px-6 relative">
+        <p role="status" className="sr-only">상품 정보를 불러오는 중...</p>
+        <div className="hidden md:flex items-center gap-2 mb-6">
+          <div className="h-5 w-48 rounded bg-slate-100" />
+        </div>
+
+        <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
+          <div className="flex-1">
+            <div className="w-full h-[280px] md:h-[400px] md:rounded-3xl mb-6 bg-slate-100" />
+            <div className="px-5 md:px-0">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-6 w-16 rounded-md bg-slate-100" />
+                <div className="h-4 w-20 rounded bg-slate-100" />
+              </div>
+              <div className="h-8 md:h-9 w-4/5 rounded bg-slate-100 mb-4" />
+              <div className="h-7 w-24 rounded bg-slate-100 mb-4" />
+              <div className="flex flex-col gap-2">
+                <div className="h-5 rounded bg-slate-100" />
+                <div className="h-5 rounded bg-slate-100" />
+                <div className="h-5 w-2/3 rounded bg-slate-100" />
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:w-[320px] shrink-0">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mx-5 md:mx-0 lg:rounded-3xl lg:shadow-xl lg:p-6">
+              <div className="h-4 w-16 rounded bg-slate-100 mb-2" />
+              <div className="h-7 lg:h-9 w-40 rounded bg-slate-100 mb-4" />
+              <div className="flex flex-col gap-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-[62px] rounded-xl border border-slate-100 bg-slate-50" />
+                ))}
+              </div>
+              <div className="h-3 w-full rounded bg-slate-100 mt-3" />
+              <div className="h-3 w-4/5 rounded bg-slate-100 mt-1" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

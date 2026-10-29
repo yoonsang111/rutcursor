@@ -1,5 +1,4 @@
-/* Google Fonts - 최적화된 로딩 */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+/* 글꼴: Pretendard (Poppins 는 쓰지 않아 삭제) */
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
 /* Tailwind CSS directives */

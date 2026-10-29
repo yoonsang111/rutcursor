@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ProductListRow } from "../components/ProductListRow";
+import { ProductListRow, ProductListRowSkeleton } from "../components/ProductListRow";
 import { useV2Products } from "../hooks/useV2Products";
 import { Loader2, Search } from "lucide-react";
 import { useV2Seo } from "../hooks/useV2Seo";
@@ -62,6 +62,7 @@ export default function V2ProductsPage() {
   }, [keyword, sort]);
 
   const visibleProducts = filtered.slice(0, visibleCount);
+  const showSkeleton = loading && visibleProducts.length === 0;
   const hasMore = visibleCount < filtered.length;
 
   const handleLoadMore = () => {
@@ -102,18 +103,27 @@ export default function V2ProductsPage() {
 
       <div className="mb-6 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
         <div className="relative w-full md:max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+          <label htmlFor="product-search" className="sr-only">
+            상품 검색
+          </label>
+          <Search aria-hidden="true" className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
           <input
+            id="product-search"
+            type="search"
+            name="q"
+            autoComplete="off"
+            spellCheck={false}
             value={keyword}
             onChange={(e) => handleKeywordChange(e.target.value)}
-            placeholder="상품명, 지역명으로 검색"
-            className="w-full h-11 rounded-full border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none focus:border-brand"
+            placeholder="예: 오사카, 주유패스…"
+            className="w-full h-11 rounded-full border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none focus:border-brand focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
           />
         </div>
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as "popular" | "price-low" | "price-high")}
-          className="h-11 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 outline-none"
+          aria-label="정렬 기준"
+          className="h-11 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
         >
           <option value="popular">인기순</option>
           <option value="price-low">가격 낮은순</option>
@@ -121,12 +131,14 @@ export default function V2ProductsPage() {
         </select>
       </div>
 
-      {loading && <div className="text-sm text-slate-500 mb-4">상품 불러오는 중...</div>}
+      {loading && !showSkeleton && <div className="text-sm text-slate-500 mb-4">상품 불러오는 중...</div>}
       {!loading && filtered.length === 0 && <div className="text-sm text-slate-500 mb-4">조건에 맞는 상품이 없습니다.</div>}
-      <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-        {visibleProducts.map((product) => (
-          <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} />
-        ))}
+      <div aria-busy={loading} className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
+        {showSkeleton
+          ? Array.from({ length: PAGE_SIZE }, (_, i) => <ProductListRowSkeleton key={i} />)
+          : visibleProducts.map((product) => (
+              <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} />
+            ))}
       </div>
 
       {hasMore && (
