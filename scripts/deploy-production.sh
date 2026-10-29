@@ -84,6 +84,7 @@ aws s3 sync packages/main/build/ s3://${MAIN_S3_BUCKET}/ \
   --exclude "*/index.html" \
   --exclude "sitemap.xml" \
   --exclude "robots.txt" \
+  --exclude "rss.xml" \
   --exclude "asset-manifest.json"
 
 echo "   - 메인 앱: S3 HTML/설정 파일 업로드 중 (캐시 비활성화)..."
