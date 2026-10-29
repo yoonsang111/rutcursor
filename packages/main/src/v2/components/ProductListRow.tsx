@@ -118,8 +118,8 @@ export function ProductListRowSkeleton() {
         <div className="h-4 w-2/5 rounded bg-slate-100" />
       </div>
 
-      <div className="flex-1 order-3 md:order-none w-full md:w-auto">
-        <div className="flex gap-2 py-0.5">
+      <div className="relative flex-1 order-3 md:order-none w-full md:w-auto">
+        <div className="flex gap-2 overflow-x-auto hide-scrollbar py-0.5">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex-shrink-0 flex flex-col gap-0.5 px-3 py-1.5 rounded-lg border border-slate-100 min-w-[92px]">
               <div className="h-4 rounded bg-slate-100" />
