@@ -764,16 +764,44 @@ async function main() {
   // tourstream.kr/sitemap.xml 자체를 실제 URL 목록으로 만든다 (noindex 페이지는 제외).
   // lastmod는 실제로 내용이 바뀐 날만 적는다. 매일 전체를 오늘 날짜로 찍으면
   // 검색엔진이 lastmod를 신뢰하지 않게 되고 크롤링 예산만 낭비된다.
-  const sitemapEntries = [
-    ...(homeMeta ? [{ path: "/", lastmod: homeMeta.lastmod }] : [{ path: "/", lastmod: null }]),
-    ...Array.from(deduped.values())
-      .filter((r) => !/noindex/.test(r.robots || ""))
-      .map((r) => ({ path: r.path, lastmod: r.lastmod || null })),
+  const indexableRoutes = [
+    ...(homeMeta ? [homeMeta] : []),
+    ...Array.from(deduped.values()).filter((r) => !/noindex/.test(r.robots || "")),
   ];
+  const sitemapEntries = indexableRoutes.map((r) => ({ path: r.path, lastmod: r.lastmod || null }));
   const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries
     .map((e) => `  <url><loc>${SITE_URL}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod}</lastmod>` : ""}</url>`)
     .join("\n")}\n</urlset>\n`;
   await fs.writeFile(path.join(buildDir, "sitemap.xml"), sitemapXml, "utf8");
+
+  // RSS 피드. 네이버 서치어드바이저가 사이트맵과 별개로 받는 수집 통로다.
+  // (네이버는 알아서 긁어간 페이지를 색인에 잘 넣지 않아, 제출 통로를 하나 더 둔다)
+  // pubDate는 사이트맵 lastmod와 같은 값 - 날짜를 모르는 항목은 아예 넣지 않는다.
+  // 모르는 날짜를 빌드일로 채우면 매일 전체가 새 글로 보여 피드 신뢰도가 떨어진다.
+  const rssDate = (ymd) => (ymd ? new Date(`${ymd}T00:00:00Z`).toUTCString() : null);
+  const rssItems = [...indexableRoutes].sort((a, b) => String(b.lastmod || "").localeCompare(String(a.lastmod || "")));
+  const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>TourStream - 해외여행 티켓·교통패스 가격비교</title>
+<link>${SITE_URL}</link>
+<description>일본·대만 등 해외여행 입장권과 교통패스를 클룩·마이리얼트립·KKday 가격으로 한 번에 비교합니다.</description>
+<language>ko</language>
+${rssItems
+    .map((r) => {
+      const pub = rssDate(r.lastmod);
+      return `<item>
+<title>${metaText(r.title)}</title>
+<link>${SITE_URL}${r.path}</link>
+<guid isPermaLink="true">${SITE_URL}${r.path}</guid>
+<description>${metaText(r.description)}</description>${pub ? `\n<pubDate>${pub}</pubDate>` : ""}
+</item>`;
+    })
+    .join("\n")}
+</channel>
+</rss>
+`;
+  await fs.writeFile(path.join(buildDir, "rss.xml"), rssXml, "utf8");
 
   // 없는 주소 전용 404 페이지. CloudFront가 404 상태코드와 함께 내려준다.
   // React 번들을 넣지 않는다 - 넣으면 앱이 마운트되면서 주소에 맞는 빈 페이지로 바뀌어
@@ -809,7 +837,7 @@ async function main() {
 `;
   await fs.writeFile(path.join(buildDir, "404.html"), notFoundHtml, "utf8");
 
-  console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapEntries.length} urls`);
+  console.log(`[seo-shell] generated ${written} route html files, sitemap ${sitemapEntries.length} urls, rss ${rssItems.length} items`);
 }
 
 main().catch((error) => {
