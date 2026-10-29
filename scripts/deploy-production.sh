@@ -83,6 +83,7 @@ aws s3 sync packages/main/build/ s3://${MAIN_S3_BUCKET}/ \
   --exclude "index.html" \
   --exclude "*/index.html" \
   --exclude "sitemap.xml" \
+  --exclude "rss.xml" \
   --exclude "robots.txt" \
   --exclude "asset-manifest.json"
 
