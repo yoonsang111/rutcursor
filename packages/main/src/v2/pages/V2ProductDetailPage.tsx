@@ -301,7 +301,7 @@ export default function V2ProductDetailPage() {
       <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
         <div className="flex-1">
           <div className="relative w-full h-[280px] md:h-[400px] md:rounded-3xl overflow-hidden mb-6 shadow-sm">
-            <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+            <img src={product.image} alt={product.name} width={1200} height={630} fetchPriority="high" className="w-full h-full object-cover" />
             <div className="absolute top-4 right-4 flex gap-2">
               <button
                 onClick={handleShare}
@@ -381,7 +381,7 @@ export default function V2ProductDetailPage() {
                     {alternatives.map((alt) => (
                       <li key={alt.id}>
                         <Link to={`/product/${alt.id}`} className="flex items-center gap-2 text-xs font-bold text-slate-800 hover:text-brand">
-                          <img src={alt.image} alt="" className="w-8 h-8 rounded-md object-cover flex-shrink-0" />
+                          <img src={alt.image} alt="" width={32} height={32} loading="lazy" className="w-8 h-8 rounded-md object-cover flex-shrink-0" />
                           <span className="line-clamp-1">{alt.name}</span>
                           {alt.price > 0 && <span className="ml-auto flex-shrink-0 text-slate-500 font-medium">{alt.price.toLocaleString()}원부터</span>}
                         </Link>

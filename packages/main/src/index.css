@@ -1,5 +1,4 @@
-/* 글꼴: Pretendard (Poppins 는 쓰지 않아 삭제) */
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+/* 글꼴: Pretendard 는 public/index.html 의 <link> 로 불러옴 (Poppins 는 쓰지 않아 삭제) */
 
 /* Tailwind CSS directives */
 @tailwind base;
