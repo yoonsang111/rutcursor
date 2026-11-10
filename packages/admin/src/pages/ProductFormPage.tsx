@@ -284,6 +284,18 @@ export default function ProductFormPage() {
     checkNumber('price', formData.price, '대표 가격', { integer: true });
     checkNumber('rating', formData.rating, '평점', { max: 5 });
     checkNumber('reviewCount', formData.reviewCount, '리뷰 수', { integer: true });
+
+    // 숫자 칸에 '-', '1e'처럼 숫자가 될 수 없는 글자를 넣으면 브라우저는 값을 빈 칸('')으로 넘긴다.
+    // noValidate라 브라우저가 저장을 막아 주지 않으므로, 그대로 두면 '빈 칸 = 지우기'로 처리되어
+    // 기존 숫자가 지워진다. 그래서 칸 자체의 badInput 상태를 직접 보고 칸별 오류로 알려 준다.
+    const formEl = e.currentTarget as HTMLFormElement;
+    formEl.querySelectorAll<HTMLInputElement>('input[type="number"][data-error-key]').forEach((el) => {
+      const key = el.dataset.errorKey;
+      if (!key || !el.validity.badInput) return;
+      nextErrors[key] = key.startsWith('partnerPrice-')
+        ? '가격은 숫자만 입력해주세요. 모르면 비워 두세요.'
+        : `${el.dataset.errorLabel ?? '이 칸'}에 숫자가 아닌 글자가 있어요. 숫자만 입력하거나 비워 두세요.`;
+    });
     formData.partnerLinks.forEach((link, i) => {
       const u = link.url.trim();
       if (!u) return;
@@ -299,11 +311,12 @@ export default function ProductFormPage() {
 
     setErrors(nextErrors);
     const firstErrorKey = ERROR_ORDER.find((k) => nextErrors[k])
-      ?? Object.keys(nextErrors).find((k) => k.startsWith('partnerUrl-'));
+      ?? Object.keys(nextErrors).find((k) => k.startsWith('partnerUrl-') || k.startsWith('partnerPrice-'));
     if (firstErrorKey) {
       // 이동 대상 id는 오류가 없어도 늘 화면에 있는 칸 묶음에 달려 있다.
       // 그래도 오류 글씨가 그려진 뒤에 위치를 잡도록 다음 화면 그리기 때 이동한다.
-      const targetId = `field-${firstErrorKey}`;
+      // 판매처 가격 칸의 오류는 그 판매처 묶음(field-partnerUrl-N)으로 이동한다.
+      const targetId = `field-${firstErrorKey.replace(/^partnerPrice-/, 'partnerUrl-')}`;
       window.requestAnimationFrame(() => {
         document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
@@ -588,6 +601,8 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.price}
+              data-error-key="price"
+              data-error-label="대표 가격"
               onChange={(e) => { setFormData({ ...formData, price: e.target.value }); clearError('price'); }}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.price ? 'border-red-500' : 'border-gray-300'}`}
               aria-invalid={!!errors.price}
@@ -605,6 +620,8 @@ export default function ProductFormPage() {
               max="5"
               step="0.1"
               value={formData.rating}
+              data-error-key="rating"
+              data-error-label="평점"
               onChange={(e) => { setFormData({ ...formData, rating: e.target.value }); clearError('rating'); }}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.rating ? 'border-red-500' : 'border-gray-300'}`}
               aria-invalid={!!errors.rating}
@@ -621,6 +638,8 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.reviewCount}
+              data-error-key="reviewCount"
+              data-error-label="리뷰 수"
               onChange={(e) => { setFormData({ ...formData, reviewCount: e.target.value }); clearError('reviewCount'); }}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.reviewCount ? 'border-red-500' : 'border-gray-300'}`}
               aria-invalid={!!errors.reviewCount}
@@ -1039,10 +1058,13 @@ export default function ProductFormPage() {
                       min="0"
                       step="1"
                       value={link.price != null ? String(link.price) : ''}
-                      onChange={(e) => updatePartnerLink(index, 'price', e.target.value)}
-                      className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                      data-error-key={`partnerPrice-${index}`}
+                      onChange={(e) => { updatePartnerLink(index, 'price', e.target.value); clearError(`partnerPrice-${index}`); }}
+                      className={`w-48 px-3 py-2 border rounded-lg ${errors[`partnerPrice-${index}`] ? 'border-red-500' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs`}
+                      aria-invalid={!!errors[`partnerPrice-${index}`]}
                       placeholder="가격(선택) - 모르면 비워 두기"
                     />
+                    {errors[`partnerPrice-${index}`] && <p className="text-xs text-red-600">{errors[`partnerPrice-${index}`]}</p>}
                     {errors[`partnerUrl-${index}`] && <p className="text-xs text-red-600">{errors[`partnerUrl-${index}`]}</p>}
                     {(link.price ?? 0) > 0 && (
                       <div className="flex gap-2 flex-wrap items-center">
