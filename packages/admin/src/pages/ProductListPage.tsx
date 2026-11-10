@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { migrateProductsFromLocalStorage } from '../utils/migrateFromLocalStorage';
 import { storage } from '../utils/storage';
+import { api } from '../utils/api';
+import { Product } from '@tourstream/shared';
 
 const PAGE_SIZE = 20;
 
@@ -31,6 +33,7 @@ export default function ProductListPage() {
   const [locationFilter, setLocationFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('default');
   const [page, setPage] = useState(1);
+  const [hidingId, setHidingId] = useState<string | null>(null);
   
   // 로컬스토리지에 상품이 있는지 확인
   const localProducts = storage.getProducts();
@@ -89,10 +92,32 @@ export default function ProductListPage() {
     setPage(1);
   }, [searchKeyword, statusFilter, categoryFilter, locationFilter, sortKey]);
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('정말 삭제하시겠습니까?')) {
+  // 숨기기 = 공개 상태를 '숨김'으로 (삭제하지 않음). 공개 상태만 보내서 다른 칸은 그대로 둔다.
+  // 불러온 저장 번호(baseRev)를 같이 보내서, 그사이 다른 곳에서 바뀌었으면 서버가 거절(409)한다.
+  const handleHide = async (product: Product) => {
+    const wasPublished = publishStatusOf(product) === 'published';
+    const message = wasPublished
+      ? `'${product.name}' 상품을 숨길까요?\n삭제되지 않고 손님 화면에서만 빠져요. 판매처가 다시 팔아도 자동으로 공개되지 않아요.\n다시 보이게 하려면 수정 화면에서 공개 상태를 '공개'로 바꿔 주세요.`
+      : `'${product.name}' 상품의 공개 상태를 '숨김'으로 정할까요?\n삭제되지 않아요. 지금도 손님에게는 보이지 않아요.`;
+    if (!window.confirm(message)) return;
+    setHidingId(product.id);
+    try {
+      await api.updateProduct(product.id, { publishStatus: 'hidden', baseRev: Number(product.rev) || 0 });
+      await refreshProducts();
+    } catch (error: any) {
+      console.error('상품 숨기기 실패:', error);
+      const reason = typeof error?.message === 'string' && error.message.trim() ? `\n(${error.message})` : '';
+      alert(`'${product.name}' 상품을 숨기지 못했어요. 새로고침한 뒤 다시 시도해주세요.${reason}`);
+      await refreshProducts();
+    } finally {
+      setHidingId(null);
+    }
+  };
+
+  const handleDelete = async (product: Product) => {
+    if (window.confirm(`'${product.name}' 상품을 정말 삭제하시겠습니까?\n삭제하면 되돌릴 수 없어요. 손님 화면에서만 빼려면 '숨기기'를 눌러 주세요.`)) {
       try {
-        await deleteProduct(id);
+        await deleteProduct(product.id);
       } catch (error) {
         console.error('상품 삭제 실패:', error);
         alert('상품 삭제에 실패했습니다. 다시 시도해주세요.');
@@ -347,8 +372,18 @@ export default function ProductListPage() {
                       >
                         수정
                       </button>
+                      {(publishStatusOf(product) === 'published' || publishStatusOf(product) === 'needs_classification') && (
+                        <button
+                          onClick={() => handleHide(product)}
+                          disabled={hidingId === product.id}
+                          className="rounded-md border border-gray-300 px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="삭제하지 않고 공개 상태를 '숨김'으로 바꿔요"
+                        >
+                          {hidingId === product.id ? '숨기는 중...' : '숨기기'}
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleDelete(product.id)}
+                        onClick={() => handleDelete(product)}
                         className="rounded-md border border-red-200 px-2.5 py-1 text-red-600 hover:bg-red-50"
                       >
                         삭제
