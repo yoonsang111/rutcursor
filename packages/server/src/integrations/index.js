@@ -82,6 +82,9 @@ export const detectSentinelPrices = (optionsByProduct = [], minProducts = 3) => 
   return new Set([...productCountByPrice.entries()].filter(([, count]) => count >= minProducts).map(([price]) => price));
 };
 
+// 옵션 조회에 쓸 날짜를 며칠 뒤로 할지 (당일 예약을 받지 않는 상품 때문에 오늘로는 못 묻는다)
+const OPTION_LOOKAHEAD_DAYS = 7;
+
 const myrealtripIntegration = {
   displayName: '마이리얼트립',
 
@@ -117,10 +120,14 @@ const myrealtripIntegration = {
     return myrealtrip.getTourTicketDetail(externalId);
   },
 
-  // 그날 예약 가능한 옵션들의 (가격, 이름)만 돌려준다. 대표가 선정은 pickRepresentativePrice 에서.
+  // 예약 가능한 옵션들의 (가격, 이름)만 돌려준다. 대표가 선정은 pickRepresentativePrice 에서.
+  // 날짜는 오늘이 아니라 1주 뒤로 묻는다: 패스·열차표·체험은 당일 예약을 받지 않아 오늘로 물으면
+  // 옵션이 0건으로 와서 가격을 못 받는다 (실측 2026-11-09: 오늘 0건이던 5개가 +7일에 전부 잡힘.
+  // 상하이 스냅샷은 +3일도 0건이라 +7일이 필요했다). 가격은 날짜에 따라 달라지지 않는다
+  // (USJ 익스프레스 패스도 +0·+7·+14·+30일 모두 45,900원 동일).
   async fetchPriceOptions(externalId) {
-    const today = new Date().toISOString().slice(0, 10);
-    const data = await myrealtrip.getTourTicketOptions(externalId, today);
+    const bookableDate = new Date(Date.now() + OPTION_LOOKAHEAD_DAYS * 86400000).toISOString().slice(0, 10);
+    const data = await myrealtrip.getTourTicketOptions(externalId, bookableDate);
     const options = Array.isArray(data?.options) ? data.options : [];
     return options
       .map((option) => ({ price: Number(option.salePrice), name: String(option.name || '') }))
