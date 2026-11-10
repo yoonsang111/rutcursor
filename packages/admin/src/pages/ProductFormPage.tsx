@@ -301,7 +301,12 @@ export default function ProductFormPage() {
     const firstErrorKey = ERROR_ORDER.find((k) => nextErrors[k])
       ?? Object.keys(nextErrors).find((k) => k.startsWith('partnerUrl-'));
     if (firstErrorKey) {
-      document.getElementById(`field-${firstErrorKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // 이동 대상 id는 오류가 없어도 늘 화면에 있는 칸 묶음에 달려 있다.
+      // 그래도 오류 글씨가 그려진 뒤에 위치를 잡도록 다음 화면 그리기 때 이동한다.
+      const targetId = `field-${firstErrorKey}`;
+      window.requestAnimationFrame(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       return;
     }
 
@@ -574,7 +579,7 @@ export default function ProductFormPage() {
 
         {/* 가격/평점 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
+          <div id="field-price">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               대표 가격 (원)
             </label>
@@ -588,9 +593,9 @@ export default function ProductFormPage() {
               aria-invalid={!!errors.price}
               placeholder="예: 55000"
             />
-            {errors.price && <p id="field-price" className="mt-1 text-xs text-red-600">{errors.price}</p>}
+            {errors.price && <p className="mt-1 text-xs text-red-600">{errors.price}</p>}
           </div>
-          <div>
+          <div id="field-rating">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               평점 (선택)
             </label>
@@ -605,9 +610,9 @@ export default function ProductFormPage() {
               aria-invalid={!!errors.rating}
               placeholder="예: 4.8"
             />
-            {errors.rating && <p id="field-rating" className="mt-1 text-xs text-red-600">{errors.rating}</p>}
+            {errors.rating && <p className="mt-1 text-xs text-red-600">{errors.rating}</p>}
           </div>
-          <div>
+          <div id="field-reviewCount">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               리뷰 수 (선택)
             </label>
@@ -621,7 +626,7 @@ export default function ProductFormPage() {
               aria-invalid={!!errors.reviewCount}
               placeholder="예: 186"
             />
-            {errors.reviewCount && <p id="field-reviewCount" className="mt-1 text-xs text-red-600">{errors.reviewCount}</p>}
+            {errors.reviewCount && <p className="mt-1 text-xs text-red-600">{errors.reviewCount}</p>}
             <p className="mt-1 text-[11px] text-gray-400">평점을 입력하려면 리뷰 수도 함께 입력해야 화면에 표시돼요.</p>
           </div>
         </div>
@@ -919,6 +924,7 @@ export default function ProductFormPage() {
               </div>
             </div>
           )}
+          {errors.locations && <p className="mt-2 text-xs text-red-600">{errors.locations}</p>}
         </div>
 
         {/* 태그 */}
@@ -972,7 +978,7 @@ export default function ProductFormPage() {
           </datalist>
           <div className="space-y-3">
             {formData.partnerLinks.map((link, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-2">
+              <div key={index} id={`field-partnerUrl-${index}`} className="border border-gray-200 rounded-lg p-3 space-y-2">
                 {link.source === 'api' ? (
                   <div className="flex items-center justify-between gap-2">
                     <div>
@@ -1037,7 +1043,7 @@ export default function ProductFormPage() {
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                       placeholder="가격(선택) - 모르면 비워 두기"
                     />
-                    {errors[`partnerUrl-${index}`] && <p id={`field-partnerUrl-${index}`} className="text-xs text-red-600">{errors[`partnerUrl-${index}`]}</p>}
+                    {errors[`partnerUrl-${index}`] && <p className="text-xs text-red-600">{errors[`partnerUrl-${index}`]}</p>}
                     {(link.price ?? 0) > 0 && (
                       <div className="flex gap-2 flex-wrap items-center">
                         <select aria-label="통화" value={link.priceCurrency || 'KRW'} onChange={(e) => updatePartnerLink(index, 'priceCurrency', e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
