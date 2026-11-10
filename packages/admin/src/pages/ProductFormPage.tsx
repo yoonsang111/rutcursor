@@ -296,6 +296,18 @@ export default function ProductFormPage() {
         ? '가격은 숫자만 입력해주세요. 모르면 비워 두세요.'
         : `${el.dataset.errorLabel ?? '이 칸'}에 숫자가 아닌 글자가 있어요. 숫자만 입력하거나 비워 두세요.`;
     });
+    // 판매처 가격: noValidate 전에는 min="0"·step="1" 기본 검증이 소수·음수를 막았다.
+    // 그 검증을 여기서 대신한다 (저장되는 판매처, 즉 예약 URL이 있는 줄만).
+    // 음수는 입력 즉시 '가격 없음'으로 바뀌어 조용히 지워지므로 칸 자체의 상태로도 확인한다.
+    formData.partnerLinks.forEach((link, i) => {
+      const key = `partnerPrice-${i}`;
+      if (!link.url.trim() || nextErrors[key]) return;
+      const el = formEl.querySelector<HTMLInputElement>(`input[data-error-key="${key}"]`);
+      const decimal = (typeof link.price === 'number' && !Number.isInteger(link.price)) || !!el?.validity.stepMismatch;
+      const negative = !!el?.validity.rangeUnderflow;
+      if (negative) nextErrors[key] = '가격은 0 이상 숫자로 입력해주세요. 모르면 비워 두세요.';
+      else if (decimal) nextErrors[key] = '가격은 소수점 없는 정수로 입력해주세요.';
+    });
     formData.partnerLinks.forEach((link, i) => {
       const u = link.url.trim();
       if (!u) return;
