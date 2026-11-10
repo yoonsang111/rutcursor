@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import { useCategories } from '../context/CategoryContext';
@@ -16,6 +16,11 @@ const PARTNER_API_OPTIONS = [{ key: 'myrealtrip', label: '마이리얼트립' }]
 // 서버가 상품 저장 시 파트너명을 보고 자동으로 변환해줌 (어드민에서 따로 버튼 누를 필요 없음).
 
 const emptyPartnerLink = (): PartnerLink => ({ partner: '', url: '', source: 'manual' });
+
+const LEAVE_MESSAGE = '저장하지 않은 변경 내용이 있어요. 그래도 나갈까요?';
+
+// 오류가 있을 때 화면을 옮겨 줄 순서 (위에서 아래로)
+const ERROR_ORDER = ['name', 'description', 'price', 'rating', 'reviewCount', 'categories', 'locations', 'partnerLinks'];
 
 // 공개 상태 안내 (손님에게 보일지). 판매처 예약 가능 여부와는 따로 정함
 const PUBLISH_OPTIONS: Array<{ value: Exclude<PublishStatus, 'needs_classification'>; label: string; help: string }> = [
@@ -109,7 +114,18 @@ export default function ProductFormPage() {
 
   const [tagInput, setTagInput] = useState('');
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(formData));
-  useUnsavedChangesGuard(JSON.stringify(formData) !== savedSnapshot || tagInput.trim() !== '');
+  const isDirty = JSON.stringify(formData) !== savedSnapshot || tagInput.trim() !== '';
+  // 로그아웃 버튼 확인은 AdminLayout이 이 표시를 보고 처리한다.
+  useUnsavedChangesGuard(isDirty);
+
+  // 칸별 오류 글씨 (칸 이름 → 안내 문구). submit은 저장 실패 안내
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const clearError = (key: string) =>
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const { [key]: _removed, ...rest } = prev;
+      return rest;
+    });
 
   const [categorySearch, setCategorySearch] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
@@ -146,24 +162,151 @@ export default function ProductFormPage() {
     };
   }, [isEdit, id, product]);
 
+  // 바뀐 내용이 있는데 탭을 닫거나 새로고침하면 브라우저 확인창을 띄운다.
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
+
+  // BrowserRouter에서는 useBlocker를 쓸 수 없어서, 앱 안의 링크 클릭과 브라우저 뒤로가기를 직접 막고 확인한다.
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  // 뒤로가기 확인용으로 쌓아 둔 기록은 항상 최대 한 칸만 유지한다.
+  const guardPushedRef = useRef(false);
+  // 보호용 기록의 위치(idx)와, 취소 후 되돌아오는 이동 중에 생기는 popstate를 무시하기 위한 표시.
+  const guardIdxRef = useRef<number | null>(null);
+  const restoringRef = useRef(false);
+  // 보호용 기록을 처음 쌓을 때의 입력 화면 주소. idx 없는 이전 기록에 도착한 뒤 취소해도 이 주소로 돌아온다.
+  const guardUrlRef = useRef<string | null>(null);
+  const pushGuardEntry = (url?: string) => {
+    if (!url) guardUrlRef.current = window.location.href;
+    const state = window.history.state as { idx?: number } | null;
+    const idx = typeof state?.idx === 'number' ? state.idx + 1 : null;
+    window.history.pushState({ ...(state ?? {}), ...(idx !== null ? { idx } : {}), productFormGuard: true }, '', url ?? window.location.href);
+    guardIdxRef.current = idx;
+  };
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const onClickCapture = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target as Element | null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return; // 로그아웃 버튼은 AdminLayout이 따로 묻는다
+      if ((anchor.target && anchor.target !== '_self') || anchor.hasAttribute('download')) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (!window.confirm(LEAVE_MESSAGE)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    if (!guardPushedRef.current) {
+      pushGuardEntry();
+      guardPushedRef.current = true;
+    }
+    document.addEventListener('click', onClickCapture, true);
+    return () => document.removeEventListener('click', onClickCapture, true);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      if (restoringRef.current) {
+        restoringRef.current = false;
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (!guardPushedRef.current) return;
+      if (isDirtyRef.current && !window.confirm(LEAVE_MESSAGE)) {
+        // 라우터가 먼저 이동하지 못하게 막고, 여러 칸 이동했더라도 보호용 기록 위치로 되돌아온다.
+        e.stopImmediatePropagation();
+        const state = window.history.state as { idx?: number; productFormGuard?: boolean } | null;
+        const delta = guardIdxRef.current !== null && typeof state?.idx === 'number' ? guardIdxRef.current - state.idx : 0;
+        if (delta !== 0) {
+          restoringRef.current = true;
+          window.history.go(delta);
+        } else if (!state?.productFormGuard) {
+          pushGuardEntry(guardUrlRef.current ?? undefined);
+        }
+        return;
+      }
+      guardPushedRef.current = false;
+      // 보호용 기록 바로 아래(같은 입력 화면)에 도착했을 때만 한 칸 더 뒤로 간다.
+      // 여러 칸 뒤로 이동해 이미 다른 화면에 도착했다면 사용자가 고른 위치에 그대로 둔다.
+      const landed = window.history.state as { idx?: number } | null;
+      const alreadyPast = guardIdxRef.current !== null && typeof landed?.idx === 'number' && landed.idx < guardIdxRef.current - 1;
+      if (!alreadyPast) window.history.back();
+    };
+    // 캡처 단계에서 받아야 라우터보다 먼저 취소를 처리할 수 있다.
+    window.addEventListener('popstate', onPopState, true);
+    return () => window.removeEventListener('popstate', onPopState, true);
+  }, []);
+
+  const handleCancel = () => {
+    if (isDirty && !window.confirm(LEAVE_MESSAGE)) return;
+    // 이탈 확인용으로 쌓아 둔 기록 한 칸을 덮어써서 뒤로가기 기록이 어지러워지지 않게 한다.
+    navigate('/products', { replace: guardPushedRef.current });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (formData.categories.length === 0) {
-      alert('카테고리를 최소 1개 이상 선택해주세요.');
-      return;
-    }
-
-    if (formData.locations.length === 0) {
-      alert('지역을 최소 1개 이상 선택해주세요.');
-      return;
-    }
 
     const partnerLinks = formData.partnerLinks
       .map((link) => ({ ...link, partner: link.partner.trim(), url: link.url.trim() }))
       .filter((link) => link.url !== '');
-    if (partnerLinks.length === 0) {
-      alert('예약 URL을 최소 1개 이상 입력해주세요.');
+
+    // 문제가 있는 칸마다 바로 아래에 빨간 글씨로 알려 준다 (알림창 대신)
+    const nextErrors: Record<string, string> = {};
+    if (!formData.name.trim()) nextErrors.name = '상품명을 입력해주세요.';
+    if (!formData.description.trim()) nextErrors.description = '설명을 입력해주세요.';
+    if (formData.categories.length === 0) nextErrors.categories = '카테고리를 최소 1개 이상 선택해주세요.';
+    if (formData.locations.length === 0) nextErrors.locations = '지역을 최소 1개 이상 선택해주세요.';
+    if (partnerLinks.length === 0) nextErrors.partnerLinks = '예약 URL을 최소 1개 이상 입력해주세요.';
+
+    const checkNumber = (key: string, raw: string, label: string, opts: { max?: number; integer?: boolean }) => {
+      const t = raw.trim();
+      if (!t) return;
+      const n = Number(t);
+      if (!Number.isFinite(n) || n < 0 || (opts.max !== undefined && n > opts.max)) {
+        nextErrors[key] = opts.max !== undefined ? `${label}은(는) 0~${opts.max} 사이 숫자로 입력해주세요.` : `${label}은(는) 0 이상 숫자로 입력해주세요.`;
+      } else if (opts.integer && !Number.isInteger(n)) {
+        nextErrors[key] = `${label}은(는) 소수점 없는 정수로 입력해주세요.`;
+      } else if (!opts.integer && Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) {
+        nextErrors[key] = `${label}은(는) 소수점 한 자리까지만 입력할 수 있어요.`;
+      }
+    };
+    checkNumber('price', formData.price, '대표 가격', { integer: true });
+    checkNumber('rating', formData.rating, '평점', { max: 5 });
+    checkNumber('reviewCount', formData.reviewCount, '리뷰 수', { integer: true });
+    formData.partnerLinks.forEach((link, i) => {
+      const u = link.url.trim();
+      if (!u) return;
+      let ok = false;
+      try {
+        const parsed = new URL(u);
+        ok = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        ok = false;
+      }
+      if (!ok) nextErrors[`partnerUrl-${i}`] = 'http:// 또는 https://로 시작하는 올바른 주소를 입력해주세요.';
+    });
+
+    setErrors(nextErrors);
+    const firstErrorKey = ERROR_ORDER.find((k) => nextErrors[k])
+      ?? Object.keys(nextErrors).find((k) => k.startsWith('partnerUrl-'));
+    if (firstErrorKey) {
+      // 이동 대상 id는 오류가 없어도 늘 화면에 있는 칸 묶음에 달려 있다.
+      // 그래도 오류 글씨가 그려진 뒤에 위치를 잡도록 다음 화면 그리기 때 이동한다.
+      const targetId = `field-${firstErrorKey}`;
+      window.requestAnimationFrame(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       return;
     }
 
@@ -191,13 +334,16 @@ export default function ProductFormPage() {
       } else {
         await addProduct(productData);
       }
-      navigate('/products');
+      setSavedSnapshot(JSON.stringify(formData));
+      // 이탈 확인용으로 쌓아 둔 기록 한 칸을 덮어써서 뒤로가기 기록이 어지러워지지 않게 한다.
+      navigate('/products', { replace: guardPushedRef.current });
     } catch (error: any) {
       console.error('상품 저장 실패:', error);
       const message = typeof error?.message === 'string' && error.message.trim()
         ? error.message
         : '상품 저장에 실패했습니다. 다시 시도해주세요.';
-      alert(message);
+      // 저장 버튼 바로 위에 보여 준다
+      setErrors((prev) => ({ ...prev, submit: message }));
     }
   };
 
@@ -331,6 +477,7 @@ export default function ProductFormPage() {
   };
 
   const toggleCategory = (category: string) => {
+    clearError('categories');
     if (formData.categories.includes(category)) {
       setFormData({ ...formData, categories: formData.categories.filter(c => c !== category) });
     } else {
@@ -339,6 +486,7 @@ export default function ProductFormPage() {
   };
 
   const toggleLocation = (location: string) => {
+    clearError('locations');
     if (formData.locations.includes(location)) {
       setFormData({ ...formData, locations: formData.locations.filter(l => l !== location) });
     } else {
@@ -398,38 +546,40 @@ export default function ProductFormPage() {
         {isEdit ? '상품 수정' : '상품 등록'}
       </h1>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
+      <form onSubmit={handleSubmit} noValidate className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
         {/* 상품명 */}
-        <div>
+        <div id="field-name">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             상품명 *
           </label>
           <input
             type="text"
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+            onChange={(e) => { setFormData({ ...formData, name: e.target.value }); clearError('name'); }}
+            className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.name ? 'border-red-500' : 'border-gray-300'}`}
+            aria-invalid={!!errors.name}
           />
+          {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
         </div>
 
         {/* 설명 */}
-        <div>
+        <div id="field-description">
           <label className="block text-xs font-medium text-gray-700 mb-2">
             설명 *
           </label>
           <textarea
             value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            onChange={(e) => { setFormData({ ...formData, description: e.target.value }); clearError('description'); }}
             rows={4}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+            className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.description ? 'border-red-500' : 'border-gray-300'}`}
+            aria-invalid={!!errors.description}
           />
+          {errors.description && <p className="mt-1 text-xs text-red-600">{errors.description}</p>}
         </div>
 
         {/* 가격/평점 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
+          <div id="field-price">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               대표 가격 (원)
             </label>
@@ -438,12 +588,14 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, price: e.target.value }); clearError('price'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.price ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.price}
               placeholder="예: 55000"
             />
+            {errors.price && <p className="mt-1 text-xs text-red-600">{errors.price}</p>}
           </div>
-          <div>
+          <div id="field-rating">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               평점 (선택)
             </label>
@@ -453,12 +605,14 @@ export default function ProductFormPage() {
               max="5"
               step="0.1"
               value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, rating: e.target.value }); clearError('rating'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.rating ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.rating}
               placeholder="예: 4.8"
             />
+            {errors.rating && <p className="mt-1 text-xs text-red-600">{errors.rating}</p>}
           </div>
-          <div>
+          <div id="field-reviewCount">
             <label className="block text-xs font-medium text-gray-700 mb-2">
               리뷰 수 (선택)
             </label>
@@ -467,10 +621,12 @@ export default function ProductFormPage() {
               min="0"
               step="1"
               value={formData.reviewCount}
-              onChange={(e) => setFormData({ ...formData, reviewCount: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              onChange={(e) => { setFormData({ ...formData, reviewCount: e.target.value }); clearError('reviewCount'); }}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.reviewCount ? 'border-red-500' : 'border-gray-300'}`}
+              aria-invalid={!!errors.reviewCount}
               placeholder="예: 186"
             />
+            {errors.reviewCount && <p className="mt-1 text-xs text-red-600">{errors.reviewCount}</p>}
             <p className="mt-1 text-[11px] text-gray-400">평점을 입력하려면 리뷰 수도 함께 입력해야 화면에 표시돼요.</p>
           </div>
         </div>
@@ -556,9 +712,9 @@ export default function ProductFormPage() {
         </div>
 
         {/* 카테고리 - 검색 + 아코디언 */}
-        <div>
+        <div id="field-categories">
           <label className="block text-xs font-medium text-gray-700 mb-2">
-            카테고리
+            카테고리 *
           </label>
           <div className="mb-3">
             <input
@@ -660,12 +816,13 @@ export default function ProductFormPage() {
               </div>
             </div>
           )}
+          {errors.categories && <p className="mt-2 text-xs text-red-600">{errors.categories}</p>}
         </div>
 
         {/* 지역 - 검색 + 아코디언 */}
-        <div>
+        <div id="field-locations">
           <label className="block text-xs font-medium text-gray-700 mb-2">
-            지역
+            지역 *
           </label>
           <div className="mb-3">
             <input
@@ -767,6 +924,7 @@ export default function ProductFormPage() {
               </div>
             </div>
           )}
+          {errors.locations && <p className="mt-2 text-xs text-red-600">{errors.locations}</p>}
         </div>
 
         {/* 태그 */}
@@ -811,8 +969,8 @@ export default function ProductFormPage() {
         </div>
 
         {/* 예약 URL (파트너 링크) */}
-        <div className="space-y-3">
-          <label className="block text-xs font-medium text-gray-700">예약 URL</label>
+        <div id="field-partnerLinks" className="space-y-3">
+          <label className="block text-xs font-medium text-gray-700">예약 URL *</label>
           <datalist id="known-partner-names">
             {KNOWN_PARTNER_NAMES.map((name) => (
               <option key={name} value={name} />
@@ -820,7 +978,7 @@ export default function ProductFormPage() {
           </datalist>
           <div className="space-y-3">
             {formData.partnerLinks.map((link, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-3 space-y-2">
+              <div key={index} id={`field-partnerUrl-${index}`} className="border border-gray-200 rounded-lg p-3 space-y-2">
                 {link.source === 'api' ? (
                   <div className="flex items-center justify-between gap-2">
                     <div>
@@ -863,9 +1021,10 @@ export default function ProductFormPage() {
                       <input
                         type="url"
                         value={link.url}
-                        onChange={(e) => updatePartnerLink(index, 'url', e.target.value)}
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        onChange={(e) => { updatePartnerLink(index, 'url', e.target.value); clearError(`partnerUrl-${index}`); clearError('partnerLinks'); }}
+                        className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors[`partnerUrl-${index}`] ? 'border-red-500' : 'border-gray-300'}`}
                         placeholder="예약 URL"
+                        aria-invalid={!!errors[`partnerUrl-${index}`]}
                       />
                       <button
                         type="button"
@@ -884,6 +1043,7 @@ export default function ProductFormPage() {
                       className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
                       placeholder="가격(선택) - 모르면 비워 두기"
                     />
+                    {errors[`partnerUrl-${index}`] && <p className="text-xs text-red-600">{errors[`partnerUrl-${index}`]}</p>}
                     {(link.price ?? 0) > 0 && (
                       <div className="flex gap-2 flex-wrap items-center">
                         <select aria-label="통화" value={link.priceCurrency || 'KRW'} onChange={(e) => updatePartnerLink(index, 'priceCurrency', e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md text-xs bg-white">
@@ -1025,6 +1185,7 @@ export default function ProductFormPage() {
           >
             파트너 추가
           </button>
+          {errors.partnerLinks && <p className="text-xs text-red-600">{errors.partnerLinks}</p>}
         </div>
 
         {/* 옵션 */}
@@ -1063,21 +1224,28 @@ export default function ProductFormPage() {
           </fieldset>
         </div>
 
-        {/* 버튼 */}
-        <div className="flex gap-3 pt-4">
-          <button
-            type="submit"
-            className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium"
-          >
-            {isEdit ? '수정하기' : '등록하기'}
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/products')}
-            className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-          >
-            취소
-          </button>
+        {/* 버튼 (화면 아래에 고정) */}
+        <div className="sticky bottom-0 z-10 -mx-6 -mb-6 px-6 py-3 bg-white/95 backdrop-blur border-t border-gray-200 rounded-b-lg">
+          {errors.submit && <p role="alert" className="mb-2 text-xs text-red-600">{errors.submit}</p>}
+          {!errors.submit && Object.keys(errors).length > 0 && (
+            <p role="alert" className="mb-2 text-xs text-red-600">빨간 글씨로 표시된 칸을 확인해주세요.</p>
+          )}
+          {isDirty && Object.keys(errors).length === 0 && <p className="mb-2 text-xs text-amber-600">저장하지 않은 변경 내용이 있어요.</p>}
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 rounded-lg hover:from-blue-700 hover:to-cyan-700 transition-all duration-200 font-medium"
+            >
+              {isEdit ? '수정하기' : '등록하기'}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              취소
+            </button>
+          </div>
         </div>
       </form>
     </div>
