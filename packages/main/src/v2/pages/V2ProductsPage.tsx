@@ -33,12 +33,16 @@ export default function V2ProductsPage() {
 
   const filtered = useMemo(() => {
     const q = keyword.trim().toLowerCase();
+    // 손님은 "도쿄타워"처럼 붙여 치는데 상품 이름은 "도쿄 타워"다. 양쪽의 띄어쓰기를 지워 한 번 더 맞춘다
+    const squash = (text: string) => text.replace(/\s+/g, "");
+    const qs = squash(q);
     let list = q
-      ? items.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            p.description.toLowerCase().includes(q) ||
-            p.region.toLowerCase().includes(q),
+      ? items.filter((p) =>
+          [p.name, p.description, p.region, countryNameById.get(p.countryId) || "", ...(p.tags || [])]
+            .some((field) => {
+              const t = String(field || "").toLowerCase();
+              return t.includes(q) || squash(t).includes(qs);
+            }),
         )
       : [...items];
 
@@ -55,7 +59,7 @@ export default function V2ProductsPage() {
     }
 
     return list;
-  }, [items, keyword, sort]);
+  }, [items, keyword, sort, countryNameById]);
 
   React.useEffect(() => {
     setVisibleCount(PAGE_SIZE);
