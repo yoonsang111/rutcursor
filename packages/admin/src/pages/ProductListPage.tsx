@@ -297,8 +297,11 @@ export default function ProductListPage() {
                 <th className="xl:w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   상품번호
                 </th>
-                <th className="xl:w-[34%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="xl:w-[26%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   상품명
+                </th>
+                <th className="xl:w-[8%] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                  판매처
                 </th>
                 <th className="xl:w-[17%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   카테고리
@@ -330,6 +333,21 @@ export default function ProductListPage() {
                     <div className="text-xs text-gray-500 line-clamp-2 break-words" title={product.description}>
                       {product.description}
                     </div>
+                  </td>
+                  <td className="px-4 py-4 align-top text-center text-xs whitespace-nowrap">
+                    {(() => {
+                      const partnerCount = product.partnerLinks?.length ?? 0;
+                      return (
+                        <span
+                          className={`inline-flex min-w-10 justify-center rounded-md px-2 py-1 font-medium ${
+                            partnerCount <= 1 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+                          }`}
+                          title={`판매처 링크 ${partnerCount}곳`}
+                        >
+                          {partnerCount}곳
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="text-xs text-gray-900 truncate" title={product.categories.join(', ')}>
