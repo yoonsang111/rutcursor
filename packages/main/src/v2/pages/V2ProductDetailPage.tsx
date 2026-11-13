@@ -420,8 +420,8 @@ export default function V2ProductDetailPage() {
                     </span>
                     {(partner.priceDisplay || partner.price !== undefined) && (
                       <span className="text-xs text-slate-500 mt-0.5">
+                        {/* 가격만 보여준다. priceNote(가격 출처·계산 방법)는 우리 기록용이라 손님에게는 숨긴다 */}
                         {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
-                        {partner.priceNote ? ` · ${partner.priceNote}` : ""}
                       </span>
                     )}
                     {partner.state === "partial" && (
