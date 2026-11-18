@@ -260,22 +260,62 @@ fi
 echo ""
 echo "🗺️  [7/7] Sitemap 중복 점검..."
 
-if curl -s --max-time 10 "https://api.tourstream.kr/sitemap.xml" > /tmp/ts_sitemap.xml 2>/dev/null; then
-  TOTAL_LOCS=$(grep -c '<loc>' /tmp/ts_sitemap.xml 2>/dev/null || echo 0)
-  UNIQUE_LOCS=$(grep -o '<loc>[^<]*</loc>' /tmp/ts_sitemap.xml 2>/dev/null | sort -u | wc -l | tr -d ' ')
+# 지금 배포할 빌드 결과물을 본다.
+# 전에는 운영에 이미 올라가 있는 사이트맵을 받아서 봤는데, 그건 '배포 전 점검'이 아니라
+# '지난번 배포 점검'이라 이번에 올릴 파일이 깨져 있어도 통과한다.
+SITEMAP_FILE="$BUILD_DIR_MAIN/sitemap.xml"
+
+if [ ! -f "$SITEMAP_FILE" ]; then
+  echo "  ❌ $SITEMAP_FILE 이 없습니다. 'npm run seo:generate-shells' 를 먼저 실행하세요."
+  ERRORS=$((ERRORS + 1))
+else
+  # grep -c 는 0건일 때 exit 1 이라 '|| echo 0' 을 붙이면 "0\n0" 두 줄이 되어
+  # 뒤의 $(( )) 계산이 통째로 깨진다. grep 을 통과시키고 wc 로 센다.
+  TOTAL_LOCS=$(grep -o '<loc>[^<]*</loc>' "$SITEMAP_FILE" | wc -l | tr -d ' ')
+  UNIQUE_LOCS=$(grep -o '<loc>[^<]*</loc>' "$SITEMAP_FILE" | sort -u | wc -l | tr -d ' ')
   DUPLICATE_COUNT=$((TOTAL_LOCS - UNIQUE_LOCS))
 
-  echo "  전체 URL: $TOTAL_LOCS개, 중복 제거 후: $UNIQUE_LOCS개"
-  if [ "$DUPLICATE_COUNT" -gt 0 ]; then
-    echo "  ❌ 중복 URL $DUPLICATE_COUNT개 발견!"
+  echo "  전체 URL: ${TOTAL_LOCS}개, 중복 제거 후: ${UNIQUE_LOCS}개"
+
+  if [ "$TOTAL_LOCS" -eq 0 ]; then
+    echo "  ❌ 사이트맵에 URL이 하나도 없습니다!"
+    ERRORS=$((ERRORS + 1))
+  elif [ "$DUPLICATE_COUNT" -gt 0 ]; then
+    echo "  ❌ 중복 URL ${DUPLICATE_COUNT}개 발견!"
+    grep -o '<loc>[^<]*</loc>' "$SITEMAP_FILE" | sort | uniq -d | head -5 | sed 's/^/     /'
     ERRORS=$((ERRORS + 1))
   else
     echo "  ✅ 중복 URL 없음"
   fi
-  rm -f /tmp/ts_sitemap.xml
-else
-  echo "  ⚠️  Sitemap 접근 불가 (API 서버 확인)"
-  WARNINGS=$((WARNINGS + 1))
+
+  # 나라·지역 주소가 slugMap.json 에 적어 둔 영어 이름인지 확인한다.
+  # 지도에 없으면 코드가 한글을 소리나는 대로 옮겨 버려서 (예: singgaporeu) 사람이 읽을 수 없는 주소가 된다.
+  # 글자 모양으로 추측하면 beppu·hokkaido 같은 멀쩡한 이름까지 잡으므로, 지도와 직접 대조한다.
+  SLUG_MAP_FILE="packages/main/src/v2/data/slugMap.json"
+  if [ -f "$SLUG_MAP_FILE" ]; then
+    UNMAPPED=$(node -e '
+      const fs = require("fs");
+      const map = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const known = new Set([...Object.values(map.countries || {}), ...Object.values(map.regions || {})]);
+      const xml = fs.readFileSync(process.argv[2], "utf8");
+      const found = new Set();
+      for (const m of xml.matchAll(/\/(region|country)\/([a-z0-9-]+)/g)) {
+        if (!known.has(m[2])) found.add(`${m[1]}/${m[2]}`);
+      }
+      process.stdout.write([...found].sort().join("\n"));
+    ' "$SLUG_MAP_FILE" "$SITEMAP_FILE")
+
+    if [ -n "$UNMAPPED" ]; then
+      echo "  ❌ slugMap.json 에 영어 이름이 없는 주소가 있습니다 (한글 발음으로 만들어진 주소):"
+      echo "$UNMAPPED" | head -8 | sed 's/^/     /'
+      ERRORS=$((ERRORS + 1))
+    else
+      echo "  ✅ 나라·지역 주소가 모두 slugMap.json 의 영어 이름"
+    fi
+  else
+    echo "  ⚠️  $SLUG_MAP_FILE 을 찾을 수 없어 주소 점검을 건너뜁니다"
+    WARNINGS=$((WARNINGS + 1))
+  fi
 fi
 
 # --- 최종 결과 ---
