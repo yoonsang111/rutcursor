@@ -394,7 +394,8 @@ function buildRouteHtml(baseHtml, meta) {
   const title = metaText(meta.title);
   const description = metaText(meta.description);
   html = html.replace('<div id="root"></div>', `<div id="root">${buildStaticBody(meta)}</div>`);
-  const canonicalUrl = `${SITE_URL}${meta.path}`;
+  // canonicalPath 는 옛 주소 페이지가 "진짜 주소는 저쪽" 이라고 가리킬 때만 쓴다 (buildLegacyAliasRoutes 참고)
+  const canonicalUrl = `${SITE_URL}${meta.canonicalPath || meta.path}`;
 
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
   html = upsertTag(html, /<meta[^>]*name=["']description["'][^>]*>/i, `<meta name="description" content="${description}" />`);
@@ -718,6 +719,59 @@ async function main() {
     if (route.itemListProducts.length === 0) route.robots = "noindex, follow";
   }
 
+  /*
+    옛 주소용 페이지.
+
+    나라·지역 주소를 한글 발음(/country/dokil)에서 영어 이름(/country/germany)으로 바꿨는데,
+    옛 주소 100여 개가 이미 검색엔진에 수집돼 있다. 이 사이트는 없는 주소를 열면 진짜 404라
+    (SPA 폴백이 없다) 옛 페이지를 지우면 그 주소들이 전부 죽는다.
+
+    그래서 옛 주소에도 같은 내용의 페이지를 남기되, canonical 만 새 주소를 가리키게 한다.
+    사람은 옛 링크로 들어와도 보이고, 검색엔진은 둘을 한 페이지로 합친다.
+    사이트맵·RSS·공통 링크에는 새 주소만 싣는다.
+  */
+  const nameBySlug = (map) => {
+    const out = new Map();
+    for (const [name, slug] of Object.entries(map || {})) if (!out.has(slug)) out.set(slug, name);
+    return out;
+  };
+  const countryNameBySlug = nameBySlug(SLUG_MAP.countries);
+  const regionNameBySlug = nameBySlug(SLUG_MAP.regions);
+
+  // 지도에 적어 둔 영어 이름 대신, 코드가 한글을 소리나는 대로 옮겼을 때 나오던 옛 주소
+  const legacySegment = (kind, slug) => {
+    const name = (kind === "country" ? countryNameBySlug : regionNameBySlug).get(slug);
+    if (!name) return null;
+    const legacy = toSlug(name);
+    return legacy && legacy !== slug ? legacy : null;
+  };
+
+  const legacyPathOf = (routePath) => {
+    let m = routePath.match(/^\/(country|region)\/([^/]+)$/);
+    if (m) {
+      const legacy = legacySegment(m[1] === "country" ? "country" : "region", m[2]);
+      return legacy ? `/${m[1]}/${legacy}` : null;
+    }
+    m = routePath.match(/^\/destination\/([^/]+)\/([^/]+)$/);
+    if (m) {
+      const legacy = legacySegment("region", m[1]);
+      return legacy ? `/destination/${legacy}/${m[2]}` : null;
+    }
+    return null;
+  };
+
+  const seenPaths = new Set(routes.map((r) => r.path));
+  const aliasRoutes = [];
+  for (const route of routes) {
+    if (!route.path) continue;
+    const legacyPath = legacyPathOf(route.path);
+    if (!legacyPath || seenPaths.has(legacyPath)) continue;
+    seenPaths.add(legacyPath);
+    aliasRoutes.push({ ...route, path: legacyPath, canonicalPath: route.path, isAlias: true });
+  }
+  routes.push(...aliasRoutes);
+  console.log(`[seo-shell] 옛 주소 페이지 ${aliasRoutes.length}개 (canonical 은 새 주소를 가리킴)`);
+
   // 공통 링크 묶음을 라우트에서 그대로 만든다. 색인에서 뺀 페이지는 링크도 걸지 않는다.
   const LISTING_PREFIXES = ["/category/", "/country/", "/region/", "/destination/"];
   siteNavLinks = [
@@ -730,6 +784,7 @@ async function main() {
     { path: "/terms", label: "이용약관" },
     ...routes
       .filter((r) => r.path && LISTING_PREFIXES.some((prefix) => r.path.startsWith(prefix)))
+      .filter((r) => !r.isAlias) // 옛 주소는 링크로 걸지 않는다 (새 주소만 안내한다)
       .filter((r) => (r.itemListProducts || []).length > 0)
       .filter((r) => !/noindex/.test(r.robots || ""))
       .map((r) => ({ path: r.path, label: r.navLabel })),
@@ -766,7 +821,8 @@ async function main() {
   // 검색엔진이 lastmod를 신뢰하지 않게 되고 크롤링 예산만 낭비된다.
   const indexableRoutes = [
     ...(homeMeta ? [homeMeta] : []),
-    ...Array.from(deduped.values()).filter((r) => !/noindex/.test(r.robots || "")),
+    // 옛 주소(isAlias)는 페이지만 남기고 사이트맵·RSS 에서는 뺀다. 새 주소만 제출한다.
+    ...Array.from(deduped.values()).filter((r) => !r.isAlias && !/noindex/.test(r.robots || "")),
   ];
   const sitemapEntries = indexableRoutes.map((r) => ({ path: r.path, lastmod: r.lastmod || null }));
   const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries
