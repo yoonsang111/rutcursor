@@ -17,7 +17,7 @@ export default function V2EventPage() {
 
   if (!isCouponEvent) {
     return (
-      <div className="w-full max-w-[1400px] mx-auto px-6 py-20 text-center">
+      <div className="w-full max-w-[1200px] mx-auto px-6 py-20 text-center">
         <h1 className="text-3xl font-extrabold text-slate-900 mb-4">현재 준비 중인 이벤트입니다.</h1>
         <p className="text-slate-500 mb-8">더 좋은 혜택으로 찾아오겠습니다.</p>
         <Link to="/" className="inline-block px-8 py-3 bg-cyan-600 text-white font-bold rounded-full hover:bg-cyan-700 transition-colors">

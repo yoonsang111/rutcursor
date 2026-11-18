@@ -55,11 +55,17 @@ export default function V2PrivacyPolicyPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-slate-900 mb-3">4. 쿠키(Cookie)의 운영 및 거부</h2>
+          <h2 className="text-lg font-bold text-slate-900 mb-3">4. 쿠키(Cookie) 및 브라우저 저장소의 운영 및 거부</h2>
           <p className="mb-2">
             서비스는 이용자에게 맞춤화된 서비스를 제공하기 위해 쿠키를 사용할 수 있습니다. 이용자는 웹 브라우저
             설정을 통해 쿠키 저장을 거부하거나 삭제할 수 있습니다. 다만 쿠키 저장을 거부할 경우 일부 서비스 이용에
             어려움이 발생할 수 있습니다.
+          </p>
+          <p className="mb-2">
+            또한 서비스는 회원가입 없이 이용 편의를 제공하기 위해, 이용자가 찜한 상품과 최근 본 상품의 <b>상품 번호</b>를
+            이용자의 브라우저 저장소(localStorage)에만 저장합니다. 이 정보는 서버로 전송되지 않으며, 이용자를 식별하는
+            정보는 포함되지 않습니다. 브라우저의 저장 데이터 삭제 기능으로 언제든 지울 수 있고, 최근 본 상품은 홈
+            화면의 ‘기록 지우기’로도 삭제할 수 있습니다.
           </p>
           <p>
             또한 구글 애널리틱스의 데이터 수집을 원치 않으실 경우,{" "}

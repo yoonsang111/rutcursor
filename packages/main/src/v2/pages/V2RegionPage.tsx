@@ -1,6 +1,6 @@
 import React from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { ProductListRow } from "../components/ProductListRow";
+import { ProductBrowser } from "../components/ProductBrowser";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
@@ -10,6 +10,7 @@ export default function V2RegionPage() {
   const [searchParams] = useSearchParams();
   const countrySlug = searchParams.get("country");
   const { items, countries, categories, getRegionImage, loading } = useV2Products();
+  const countryNameById = React.useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
   const country = findCountryBySlug(countries, countrySlug);
   const resolvedRegionName = findRegionNameBySlug(countries, regionSlug, countrySlug);
   const fallbackRegionName = (regionSlug || "").trim();
@@ -50,37 +51,39 @@ export default function V2RegionPage() {
   if (!regionSlug) return <div className="p-8 text-center font-bold text-xl mt-20">지역을 찾을 수 없습니다.</div>;
 
   return (
-    <div className="flex flex-col w-full max-w-[1400px] mx-auto overflow-hidden pb-20 px-6">
-      <section className="py-6 md:py-10">
-        <div className="relative w-full h-[240px] md:h-[320px] rounded-3xl overflow-hidden shadow-sm bg-slate-800">
-          {regionHeroImage && <img src={regionHeroImage} alt={safeRegionName} className="w-full h-full object-cover opacity-60" />}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent" />
-          <div className="absolute inset-0 flex flex-col justify-end p-6 md:p-12 text-white">
-            <div className="text-cyan-300 font-bold mb-2">{resolvedCountry?.name}</div>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">{safeRegionName}</h1>
+    <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">
+      <section className="px-5 md:px-6 pt-5 pb-4">
+        <nav className="text-[12.5px] text-slate-400">
+          <Link to="/" className="hover:text-brand transition-colors">홈</Link>
+          {resolvedCountry && <> &rsaquo; {resolvedCountry.name}</>} &rsaquo; {safeRegionName}
+        </nav>
+        <h1 className="mt-1.5 text-[24px] md:text-[30px] font-bold tracking-[-0.04em] text-slate-900">{safeRegionName}</h1>
+        <p className="mt-1.5 text-[13px] md:text-sm text-slate-400">
+          상품 <b className="font-bold text-slate-900">{regionProducts.length.toLocaleString("ko-KR")}</b>개
+        </p>
+
+        {regionCategories.length > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto hide-scrollbar">
+            {regionCategories.map((cat) => (
+              <Link
+                key={cat.id}
+                to={`/destination/${getRegionSlug(safeRegionName)}/${getCategorySlug(cat)}`}
+                className="flex-none h-8 px-3.5 inline-flex items-center rounded-full border border-slate-200 text-[13px] font-medium text-slate-600 hover:border-slate-900 hover:text-slate-900 transition-colors"
+              >
+                {cat.name}
+              </Link>
+            ))}
           </div>
-        </div>
+        )}
       </section>
 
-      <section className="pb-6">
-        <div className="flex flex-wrap gap-2">
-          {regionCategories.map((cat) => (
-            <Link key={cat.id} to={`/destination/${getRegionSlug(safeRegionName)}/${getCategorySlug(cat)}`} className="px-3 py-2 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors text-xs font-medium text-slate-700">
-              {cat.name}
-            </Link>
-          ))}
-          {regionCategories.length === 0 && <div className="text-xs text-slate-500">해당 지역에 연결된 카테고리가 없습니다.</div>}
-        </div>
-      </section>
-
-      <section className="pb-8">
-        <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-          {regionProducts.map((p) => (
-            <ProductListRow key={p.id} product={p} countryName={resolvedCountry?.name} />
-          ))}
-        </div>
-        {regionProducts.length === 0 && <div className="text-sm text-slate-500">해당 지역의 상품이 아직 없습니다.</div>}
-      </section>
+      <ProductBrowser
+        products={regionProducts}
+        categories={categories}
+        countryNameById={countryNameById}
+        searchPlaceholder={`${safeRegionName} 안에서 검색`}
+        emptyText="이 지역의 상품이 아직 없습니다."
+      />
     </div>
   );
 }

@@ -1,21 +1,17 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ProductListRow } from "../components/ProductListRow";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ProductBrowser } from "../components/ProductBrowser";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 
 export default function V2PopularPage() {
-  const [visibleCount, setVisibleCount] = useState(12);
-  const [isLoading, setIsLoading] = useState(false);
-  const { items, countries } = useV2Products();
+  const { items, countries, categories, loading } = useV2Products();
   const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
   const flaggedPopular = items.filter((p) => p.isPopular);
   const popularProducts = (flaggedPopular.length > 0 ? flaggedPopular : items)
     .slice()
     .sort((a, b) => b.popularityScore - a.popularityScore || b.views - a.views);
-  const hasMore = visibleCount < popularProducts.length;
 
   useV2Seo({
     // 정적 셸과 동일하게 유지 (다르면 셸 문구가 무효가 됨)
@@ -35,54 +31,26 @@ export default function V2PopularPage() {
     ],
   });
 
-  const handleLoadMore = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setVisibleCount((prev) => prev + 8);
-      setIsLoading(false);
-    }, 400);
-  };
-
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-6 py-8 md:py-12">
-      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium mb-8">
-        <Link to="/" className="hover:text-brand transition-colors">
-          홈
-        </Link>
-        <ChevronRight className="w-4 h-4" />
-        <span className="text-slate-900 font-bold">인기 상품 전체보기</span>
-      </div>
+    <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">
+      <section className="px-5 md:px-6 pt-5 pb-5">
+        <nav className="text-[12.5px] text-slate-400">
+          <Link to="/" className="hover:text-brand transition-colors">홈</Link> &rsaquo; 인기 상품
+        </nav>
+        <h1 className="mt-1.5 text-[24px] md:text-[30px] font-bold tracking-[-0.04em] text-slate-900">인기 상품</h1>
+        <p className="mt-1.5 text-[13px] md:text-sm text-slate-400">
+          상품 <b className="font-bold text-slate-900">{popularProducts.length.toLocaleString("ko-KR")}</b>개
+        </p>
+      </section>
 
-      <div className="mb-10">
-        <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">지금 가장 인기 있는 상품</h1>
-        <p className="text-slate-500 text-base">수많은 여행자들이 선택한 베스트셀러 상품입니다.</p>
-      </div>
-
-      <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-        {popularProducts.slice(0, visibleCount).map((product, idx) => (
-          <ProductListRow key={product.id} product={product} countryName={countryNameById.get(product.countryId)} rank={idx + 1} />
-        ))}
-      </div>
-      {popularProducts.length === 0 && <div className="text-sm text-slate-500 mt-6">노출할 인기 상품이 없습니다.</div>}
-
-      {hasMore && (
-        <div className="mt-12 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-8 py-3.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-full shadow-sm hover:bg-slate-50 hover:text-brand disabled:opacity-70 transition-all duration-300"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin text-brand" />
-                <span>상품 불러오는 중...</span>
-              </>
-            ) : (
-              "더 많은 상품 보기"
-            )}
-          </button>
-        </div>
-      )}
+      <ProductBrowser
+        products={popularProducts}
+        categories={categories}
+        countryNameById={countryNameById}
+        searchPlaceholder="인기 상품 안에서 검색"
+        loading={loading}
+        emptyText="보여 드릴 인기 상품이 없습니다."
+      />
     </div>
   );
 }

@@ -131,7 +131,9 @@ export function findCountryBySlug(countries: Country[], slug?: string | null) {
     const byId = (country.id || "").trim().toLowerCase() === normalized;
     const byRawName = (country.name || "").trim().toLowerCase() === normalized;
     const byEnglishName = (country.englishName || "").trim().toLowerCase() === normalized;
-    return byName || byId || byRawName || byEnglishName;
+    // 영어 이름을 지도에 적기 전 쓰던 옛 주소(/country/dokil = 독일)도 계속 받아준다
+    const byLegacySlug = toEnglishSlug(country.englishName || country.name) === normalized;
+    return byName || byId || byRawName || byEnglishName || byLegacySlug;
   });
 }
 
@@ -157,7 +159,14 @@ export function findRegionNameBySlug(countries: Country[], regionSlug?: string |
     const region = item.regions.find((regionName) => {
       const bySlug = getRegionSlug(regionName) === normalizedRegion;
       const byRawName = (regionName || "").trim().toLowerCase() === normalizedRegion;
-      return bySlug || byRawName;
+      /*
+        옛 주소도 계속 받아준다.
+        지역 이름을 영어로 바로 적기 전에는 한글을 소리나는 대로 옮긴 주소(/region/bereulrin = 베를린)를
+        썼고, 그게 이미 사이트맵에 올라가 검색엔진에 수집됐다. 끊으면 그 주소들이 전부 404가 된다.
+        화면은 그대로 띄우고 canonical 만 새 주소를 가리키게 해서 검색엔진이 알아서 합치게 둔다.
+      */
+      const byLegacySlug = toEnglishSlug(regionName) === normalizedRegion;
+      return bySlug || byRawName || byLegacySlug;
     });
     if (region) return region;
   }

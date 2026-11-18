@@ -1,12 +1,15 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { Share, Heart, MapPin, ArrowUpRight, Zap, Star, Ticket } from "lucide-react";
+import { Share, Heart, ArrowUpRight, Star, Ticket } from "lucide-react";
 import { useV2Products } from "../hooks/useV2Products";
 import { useFavorites } from "../hooks/useFavorites";
+import { useRecentlyViewed } from "../hooks/useRecentlyViewed";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { useV2Coupons } from "../hooks/useV2Coupons";
 import { couponsForProduct, formatDeadline, formatDiscount } from "../utils/coupons";
 import { getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
+import { partnerLogoSrc } from "../brand";
+import { ProductCard } from "../components/ProductCard";
 import { trackEvent } from "../../utils/analytics";
 import { api } from "../../utils/api";
 
@@ -22,9 +25,15 @@ const VIEW_STORAGE_PREFIX = "tourstream_v2_view_";
 
 export default function V2ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { byId, items, countries, categories, incrementProductView, loading } = useV2Products();
+  const { byId, items, countries, categories, countryById, incrementProductView, loading } = useV2Products();
   const { isFavorite, toggleFavorite } = useFavorites();
   // 예전에 받아 둔 목록에 있어도, 서버가 '지금은 공개 아님(숨김·초안·삭제)'이라고 하면 보여 주지 않음
+  // 상품을 열면 "최근 본 상품"에 남긴다 (이 브라우저에만 저장, 서버로 안 보냄)
+  const { record: recordRecentlyViewed } = useRecentlyViewed();
+  React.useEffect(() => {
+    if (id) recordRecentlyViewed(id);
+  }, [id, recordRecentlyViewed]);
+
   const [goneId, setGoneId] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!id) return;
@@ -92,6 +101,7 @@ export default function V2ProductDetailPage() {
   const safePrice = hasPrice ? product!.price : 0;
   const hasRating = Number(product?.rating || 0) > 0 && Number(product?.reviews || 0) > 0;
   const pricedLinks = openLinks.filter((p) => p.price !== undefined) as Array<{ price: number }>;
+  const lowestPrice = pricedLinks.length > 0 ? Math.min(...pricedLinks.map((p) => p.price)) : undefined;
   const savings =
     pricedLinks.length >= 2
       ? (() => {
@@ -99,7 +109,11 @@ export default function V2ProductDetailPage() {
           const highest = Math.max(...pricedLinks.map((p) => p.price));
           const diff = highest - lowest;
           if (diff <= 0) return null;
-          return { diff, percent: Math.round((diff / highest) * 100) };
+          const percent = Math.round((diff / highest) * 100);
+          // 판매처마다 기준 옵션(어른/어린이, 1일/7일)이 달라 차이가 비현실적으로 벌어지는 일이 있다.
+          // 그걸 할인처럼 보여 주면 손님을 속이게 되므로, 차이가 너무 크면 아예 안 보여 준다.
+          if (percent > 50) return null;
+          return { diff, percent, highest };
         })()
       : null;
   const priceValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -266,6 +280,35 @@ export default function V2ProductDetailPage() {
 
   if (!product) return <div className="p-8 text-center font-bold text-2xl mt-20">상품을 찾을 수 없습니다.</div>;
 
+  // 아래 고정 띠가 보낼 곳: 값이 있는 판매처 중 제일 싼 곳 (값이 하나도 없으면 비교표로 내린다)
+  const bestLink = partnerLinks.find((p) => p.url && p.state !== "stopped" && p.price !== undefined);
+
+  // 함께 본 상품: 같은 분류·나라의 다른 공개 상품 4개
+  const related = items
+    .filter((o) => o.id !== product.id && (o.categoryId === product.categoryId || o.countryId === product.countryId))
+    .sort(
+      (a, b) =>
+        Number(b.categoryId === product.categoryId) - Number(a.categoryId === product.categoryId) ||
+        b.popularityScore - a.popularityScore,
+    )
+    .slice(0, 4);
+
+  // 판매처는 이름보다 로고로 알아보는 게 빠르다. 로고가 없는 판매처는 칸을 비워 둔다.
+  const PartnerLogo = ({ name }: { name: string }) => {
+    const src = partnerLogoSrc(name);
+    if (!src) return null;
+    return (
+      <img
+        src={src}
+        alt=""
+        width={36}
+        height={36}
+        loading="lazy"
+        className="w-8 h-8 flex-none rounded-lg object-contain bg-white border border-slate-100"
+      />
+    );
+  };
+
   return (
     <div className="w-full max-w-[1200px] mx-auto pb-32 md:pb-12 pt-0 md:pt-8 px-0 md:px-6 relative">
       <div className="hidden md:flex items-center gap-2 text-sm text-slate-500 font-medium mb-6">
@@ -298,8 +341,12 @@ export default function V2ProductDetailPage() {
         )}
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
-        <div className="flex-1">
+      {/*
+        좁은 화면에서는 사진 → 제목 → 가격 → 설명 순서로 읽히게 한다 (가격이 설명 밑에 깔리면 안 된다).
+        넓은 화면에서는 왼쪽에 사진·제목·설명, 오른쪽에 가격 패널을 세워 둔다.
+      */}
+      <div className="flex flex-col lg:grid lg:grid-cols-[1fr_320px] lg:gap-x-12 lg:items-start">
+        <div className="order-1 lg:col-start-1 lg:row-start-1">
           <div className="relative w-full h-[280px] md:h-[400px] md:rounded-3xl overflow-hidden mb-6 shadow-sm">
             <img src={product.image} alt={product.name} width={1200} height={630} fetchPriority="high" className="w-full h-full object-cover" />
             <div className="absolute top-4 right-4 flex gap-2">
@@ -328,48 +375,67 @@ export default function V2ProductDetailPage() {
           </div>
 
           <div className="px-5 md:px-0">
-            <div className="flex items-center gap-3 mb-3">
-              <span className="px-2.5 py-1 bg-slate-100 text-slate-600 font-bold text-[11px] rounded-md">{category?.name || "미분류"}</span>
-              <div className="flex items-center gap-1 text-slate-500 text-xs font-medium">
-                <MapPin className="w-3.5 h-3.5" />
-                {country?.name || "국가 미지정"}
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              <span className="inline-flex items-center h-[21px] px-[7px] rounded text-[11px] font-medium bg-slate-100 text-slate-500">
+                {[country?.name, product.region].filter(Boolean).join(" · ") || "국가 미지정"}
+              </span>
+              <span className="inline-flex items-center h-[21px] px-[7px] rounded text-[11px] font-medium bg-slate-100 text-slate-500">
+                {category?.name || "미분류"}
+              </span>
+            </div>
+
+            <h1 className="text-[20px] md:text-[28px] font-bold text-slate-900 leading-[1.38] tracking-[-0.04em]">{product.name}</h1>
+
+            {hasRating && (
+              <div className="mt-2.5 flex items-center gap-1.5 text-[12.5px] md:text-sm text-slate-400">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                <span className="font-bold text-slate-900">{product!.rating.toFixed(1)}</span>
+                <span>리뷰 {product!.reviews.toLocaleString("ko-KR")}</span>
               </div>
-              {hasRating && (
-                <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  {product!.rating.toFixed(1)}
-                  <span className="font-medium text-slate-400">({product!.reviews.toLocaleString("ko-KR")})</span>
-                </div>
-              )}
-            </div>
-
-            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-snug mb-4 tracking-tight">{product.name}</h1>
-
-            <div className="prose prose-slate max-w-none text-sm md:text-base">
-              <h2 className="text-xl font-bold text-slate-900 mb-4">상품 설명</h2>
-              <p className="text-slate-600 leading-relaxed whitespace-pre-line">{product.description}</p>
-            </div>
-
-
+            )}
           </div>
         </div>
 
-        <div className="lg:w-[320px] shrink-0">
+        {/* 상품 설명·함께 본 상품: 모바일에서는 가격 아래, 데스크톱에서는 사진 아래 왼쪽 칸 */}
+        <div className="order-3 lg:col-start-1 lg:row-start-2">
+          <div className="h-2.5 bg-slate-100 my-6 lg:hidden" />
+          <div className="px-5 md:px-0">
+            <h2 className="text-[19px] md:text-[22px] font-bold tracking-[-0.035em] text-slate-900 mb-3">상품 정보</h2>
+            <p className="text-sm md:text-base text-slate-600 leading-relaxed whitespace-pre-line">{product.description}</p>
+          </div>
+
+          {related.length > 0 && (
+            <>
+              <div className="h-2.5 bg-slate-100 my-6 lg:hidden" />
+              <div className="lg:mt-10 lg:pt-8 lg:border-t lg:border-slate-100">
+                <h2 className="px-5 md:px-0 text-[19px] md:text-[22px] font-bold tracking-[-0.035em] text-slate-900 mb-3.5">함께 본 상품</h2>
+                <div className="flex gap-2.5 overflow-x-auto hide-scrollbar px-5 md:px-0 lg:grid lg:grid-cols-4 lg:gap-5 lg:overflow-visible">
+                  {related.map((p) => (
+                    <div key={p.id} className="w-[124px] flex-none lg:w-auto">
+                      <ProductCard product={p} countryName={countryById.get(p.countryId)?.name} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-2">
           <div
             id="price-compare"
             className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 mx-5 md:mx-0 lg:sticky lg:top-28 lg:rounded-3xl lg:shadow-xl lg:p-6"
           >
-            <div className="flex justify-between items-end mb-4 gap-3">
-              <div className="flex flex-col">
-                <div className="text-brand text-xs font-bold mb-1 flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5" /> 가격 비교
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <div className="text-xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">{hasPrice ? product.price.toLocaleString() : "판매처에서 확인"}</div>
-                  {hasPrice && <div className="text-sm font-bold text-slate-500">원부터</div>}
-                </div>
+            <div className="mb-4">
+              <div className="text-brand text-xs font-bold">
+                {hasPrice ? "최저가" : "가격 비교"} · 판매처 {partnerLinks.length}곳
               </div>
-              <div className="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md mb-1">{partnerLinks.length}개 파트너사 비교</div>
+              <div className="mt-1.5 flex items-baseline gap-2 flex-wrap">
+                <div className="text-[26px] lg:text-[32px] font-bold text-slate-900 tracking-[-0.045em] leading-none">
+                  {hasPrice ? `${product.price.toLocaleString()}원` : "판매처에서 확인"}
+                </div>
+                {savings && <div className="text-[13px] text-slate-300 line-through">{savings.highest.toLocaleString()}원</div>}
+              </div>
             </div>
 
             {noBookable && (
@@ -393,15 +459,21 @@ export default function V2ProductDetailPage() {
             )}
 
             {savings && (
-              <div className="text-xs font-bold text-save bg-save-tint px-2.5 py-1.5 rounded-lg inline-block mb-4">
-                최고가 대비 {savings.diff.toLocaleString()}원(-{savings.percent}%) 절약
+              <div className="text-xs font-bold text-[#FF3B46] bg-[#FFECEE] px-2.5 py-1.5 rounded-lg inline-block mb-4">
+                최고가 대비 -{savings.diff.toLocaleString()}원 ({savings.percent}%)
               </div>
             )}
+
+            <div className="flex items-baseline justify-between mb-2.5">
+              <h2 className="text-[15px] font-bold tracking-[-0.03em] text-slate-900">판매처 비교</h2>
+              <span className="text-[12px] text-slate-400">가격 낮은 순</span>
+            </div>
 
             <div className="flex flex-col gap-2">
               {partnerLinks.map((partner, idx) => (partner.state === "stopped" || !partner.url) ? (
                 <div key={`${partner.name}-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 opacity-70">
-                  <div className="flex flex-col min-w-0">
+                  <PartnerLogo name={partner.name} />
+                  <div className="flex flex-col min-w-0 flex-1">
                     <span className="text-sm font-bold text-slate-500">{partner.name}</span>
                     <span className="text-xs text-slate-500 mt-0.5">일시 품절 또는 판매 중지{checkedLabel(partner.checkedAt, partner.stale) ? ` (${checkedLabel(partner.checkedAt, partner.stale)})` : ""}</span>
                   </div>
@@ -410,18 +482,34 @@ export default function V2ProductDetailPage() {
                   </span>
                 </div>
               ) : (
-                <div key={`${partner.name}-${idx}`} className="flex items-center justify-between gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100 transition-colors group">
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                      {partner.name}
+                <div
+                  key={`${partner.name}-${idx}`}
+                  className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors group ${
+                    idx === 0 && partner.price !== undefined
+                      ? "bg-brand-tint/40 border-brand"
+                      : "bg-slate-50 hover:bg-slate-100 border-slate-100"
+                  }`}
+                >
+                  <PartnerLogo name={partner.name} />
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{partner.name}</span>
                       {idx === 0 && partner.price !== undefined && partner.state !== "partial" && (
-                        <span className="text-[10px] bg-brand-tint text-brand px-1.5 py-0.5 rounded-sm font-bold">가장 낮은 가격</span>
+                        <span className="flex-none text-[10px] bg-brand text-white px-1.5 py-0.5 rounded-sm font-bold">최저가</span>
                       )}
                     </span>
                     {(partner.priceDisplay || partner.price !== undefined) && (
-                      <span className="text-xs text-slate-500 mt-0.5">
+                      <span className="text-xs text-slate-500 mt-0.5 flex items-baseline gap-1.5">
                         {/* 가격만 보여준다. priceNote(가격 출처·계산 방법)는 우리 기록용이라 손님에게는 숨긴다 */}
-                        {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
+                        <span className="font-bold text-slate-900 text-[13px]">
+                          {partner.priceDisplay || `${partner.price!.toLocaleString()}원부터`}
+                        </span>
+                        {/* 1등보다 얼마를 더 내는지 바로 보여 준다 — 손님이 머리로 빼지 않게 */}
+                        {partner.price !== undefined && lowestPrice !== undefined && partner.price > lowestPrice && (
+                          <span className="text-[11px] font-medium text-[#FF3B46]">
+                            +{(partner.price - lowestPrice).toLocaleString()}원
+                          </span>
+                        )}
                       </span>
                     )}
                     {partner.state === "partial" && (
@@ -481,19 +569,46 @@ export default function V2ProductDetailPage() {
         </div>
       </div>
 
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 flex items-center justify-between gap-3">
-        <div className="flex flex-col">
-          <div className="text-[11px] text-slate-400">가격 비교</div>
-          <div className="text-lg font-extrabold text-slate-900 tracking-tight">
-            {hasPrice ? `${product.price.toLocaleString()}원부터` : "판매처에서 확인"}
-          </div>
-        </div>
+      {/* 화면을 내려도 따라오는 아래 띠. 제일 싼 판매처로 바로 보낸다 */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 flex items-center gap-3">
         <button
-          onClick={() => document.getElementById("price-compare")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="shrink-0 px-5 py-3 rounded-xl bg-slate-900 text-white font-bold text-sm"
+          onClick={() => id && toggleFavorite(id)}
+          aria-label={favorited ? "찜 해제" : "찜하기"}
+          className="shrink-0 w-11 flex flex-col items-center justify-center"
         >
-          가격 비교하기
+          <Heart className={`w-6 h-6 ${favorited ? "fill-rose-500 text-rose-500" : "text-slate-400"}`} />
         </button>
+        {bestLink ? (
+          <a
+            href={bestLink.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() =>
+              trackEvent("partner_link_click", {
+                partner: bestLink.name,
+                product_id: product.id,
+                product_name: product.name,
+                price: bestLink.price,
+                is_best_price: true,
+                placement: "sticky_bar",
+              })
+            }
+            className="flex-1 h-[50px] rounded-xl bg-brand text-white flex items-center justify-center gap-2 font-bold"
+          >
+            {partnerLogoSrc(bestLink.name) && (
+              <img src={partnerLogoSrc(bestLink.name)} alt="" width={22} height={22} className="w-[22px] h-[22px] rounded-md object-contain bg-white" />
+            )}
+            <span className="text-[15px] tracking-[-0.03em] truncate">{bestLink.name}</span>
+            {bestLink.price !== undefined && <span className="text-[15px]">{bestLink.price.toLocaleString()}원</span>}
+          </a>
+        ) : (
+          <button
+            onClick={() => document.getElementById("price-compare")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="flex-1 h-[50px] rounded-xl bg-slate-900 text-white font-bold text-[15px]"
+          >
+            판매처 보기
+          </button>
+        )}
       </div>
     </div>
   );

@@ -34,13 +34,14 @@ const LayoutV2: React.FC<LayoutV2Props> = ({ children }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // 본문 양옆 여백까지 전부 흰색. 구역은 회색 바탕이 아니라 h-2.5 회색 띠로만 끊는다.
   return (
     <div
-      className="min-h-screen bg-[#F8FAFC] flex flex-col font-sans text-slate-900 selection:bg-blue-100 selection:text-brand"
+      className="min-h-screen bg-white flex flex-col font-sans text-slate-900 selection:bg-blue-100 selection:text-brand"
       style={{ fontFamily: "'Pretendard Variable', Pretendard, sans-serif" }}
     >
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.03)]">
-        <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between gap-8">
+        <div className="max-w-[1200px] mx-auto px-6 h-20 flex items-center justify-between gap-8">
           <Link to="/" className="flex items-center relative z-10" aria-label="TourStream 홈">
             {/* 로고는 화면 최상단이라 지연 로딩하면 잠깐 비어 보인다. eager + 높은 우선순위로 받는다. */}
             <img
@@ -86,7 +87,7 @@ const LayoutV2: React.FC<LayoutV2Props> = ({ children }) => {
       <main className="flex-1 w-full mx-auto pb-20">{children}</main>
 
       <footer className="bg-white border-t border-slate-100/80 pt-12 pb-12 mt-auto">
-        <div className="max-w-[1400px] mx-auto px-6">
+        <div className="max-w-[1200px] mx-auto px-6">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
             <div className="space-y-6">
               <img src="/logo-wordmark.png" alt="TourStream" width={600} height={138} loading="lazy" decoding="async" className="h-6 w-auto" />

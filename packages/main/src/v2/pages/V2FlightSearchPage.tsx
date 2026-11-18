@@ -13,7 +13,7 @@ export default function V2FlightSearchPage() {
   });
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-6 py-8 md:py-12">
+    <div className="w-full max-w-[1200px] mx-auto px-6 py-8 md:py-12">
       <div className="flex items-center gap-2 text-sm text-slate-500 font-medium mb-8">
         <Link to="/" className="hover:text-brand transition-colors">
           홈

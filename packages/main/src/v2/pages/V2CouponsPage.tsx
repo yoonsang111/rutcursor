@@ -54,7 +54,7 @@ export default function V2CouponsPage() {
   };
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-6 py-8 md:py-12">
+    <div className="w-full max-w-[1200px] mx-auto px-6 py-8 md:py-12">
       <div className="mb-10">
         <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">할인코드</h1>
         <p className="text-slate-500 text-base">판매처가 제공하는 쿠폰을 모아 비교해보세요.</p>

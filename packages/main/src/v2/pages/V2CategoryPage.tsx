@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
-import { ProductListRow } from "../components/ProductListRow";
-import { Search } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { ProductBrowser } from "../components/ProductBrowser";
+import { ListPageSkeleton } from "../components/ListPageSkeleton";
+import { FilterPills } from "../components/ListToolbar";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { findCategoryBySlug, findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
@@ -14,7 +15,7 @@ const guides = categoryGuides as unknown as Record<string, CategoryGuide>;
 
 export default function V2CategoryPage() {
   const { id: categorySlug } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const countrySlug = searchParams.get("country");
   const regionSlug = searchParams.get("region");
   const [searchTerm, setSearchTerm] = useState("");
@@ -27,17 +28,30 @@ export default function V2CategoryPage() {
   const safeCategoryName = category?.name || "카테고리";
   const safeCategoryId = category?.id || "";
 
-  let prefixText = "";
-  if (selectedCountry) {
-    prefixText = selectedCountry.name;
-  } else if (regionName) {
-    prefixText = regionName;
-  }
+  // 이 카테고리에 상품이 있는 나라만 알약으로 보여 준다 (빈 알약을 누르게 하지 않는다)
+  const countryPills = useMemo(() => {
+    const inCategory = items.filter((p) => p.categoryId === safeCategoryId);
+    const countById = new Map<string, number>();
+    inCategory.forEach((p) => countById.set(p.countryId, (countById.get(p.countryId) || 0) + 1));
+    return [
+      { key: "all", label: "전체" },
+      ...countries
+        .filter((c) => (countById.get(c.id) || 0) > 0)
+        .sort((a, b) => (countById.get(b.id) || 0) - (countById.get(a.id) || 0))
+        .map((c) => ({ key: getCountrySlug(c), label: c.name })),
+    ];
+  }, [items, countries, safeCategoryId]);
+
+  const selectCountry = (key: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (key === "all") next.delete("country");
+    else next.set("country", key);
+    setSearchParams(next, { replace: true });
+  };
 
   let filteredProducts = items.filter((p) => p.categoryId === safeCategoryId);
   if (selectedCountry) filteredProducts = filteredProducts.filter((p) => p.countryId === selectedCountry.id);
   if (regionName) filteredProducts = filteredProducts.filter((p) => p.region === regionName);
-  if (searchTerm) filteredProducts = filteredProducts.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
   // 지역으로 필터링된 경우, /destination/:region/:category 가 정규 URL이므로 그쪽을 canonical로 지정해
   // 두 URL이 같은 상품 목록을 보여주는 중복 콘텐츠로 잡히지 않도록 한다.
   const canonicalPath = regionName
@@ -74,45 +88,36 @@ export default function V2CategoryPage() {
     ],
   });
 
-  if (!category) return <div className="p-8 text-center font-bold text-xl mt-20">카테고리를 찾을 수 없습니다.</div>;
+  if (!category) return loading ? <ListPageSkeleton /> : <div className="p-8 text-center font-bold text-xl mt-20">카테고리를 찾을 수 없습니다.</div>;
 
   return (
-    <div className="flex flex-col w-full max-w-[1400px] mx-auto overflow-hidden pb-20 px-6">
-      <section className="py-8 md:py-10">
-        <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl p-8 md:p-12 relative overflow-hidden text-white shadow-md">
-          <div className="relative z-10 flex flex-col items-center text-center max-w-xl mx-auto">
-            <div className="text-cyan-200 font-bold mb-2">{prefixText ? `${prefixText}의` : "전 세계의"}</div>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">{category.name}</h1>
-            <div className="w-full relative">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Search className="w-5 h-5 text-slate-400" />
-              </div>
-              <input
-                type="text"
-                placeholder={`'${category.name}' 내에서 검색`}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-white rounded-full pl-12 pr-5 py-3 outline-none text-slate-900 font-medium shadow-lg placeholder:text-slate-400 text-sm"
-              />
-            </div>
+    <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">
+      <section className="px-5 md:px-6 pt-5 pb-4">
+        <nav className="text-[12.5px] text-slate-400">
+          <Link to="/" className="hover:text-brand transition-colors">홈</Link> &rsaquo; 카테고리 &rsaquo; {category.name}
+        </nav>
+        <h1 className="mt-1.5 text-[24px] md:text-[30px] font-bold tracking-[-0.04em] text-slate-900">
+          {category.name}
+          {regionName && <span className="ml-2 text-[16px] md:text-[20px] font-medium text-slate-400">{regionName}</span>}
+        </h1>
+        {!regionName && (
+          <div className="mt-4">
+            <FilterPills options={countryPills} selected={countrySlug || "all"} onSelect={selectCountry} />
           </div>
-        </div>
+        )}
       </section>
 
-      <section className="py-4">
-        <div className="font-bold text-sm text-slate-900 mb-6">
-          총 <span className="text-brand">{filteredProducts.length}</span>개의 상품
-        </div>
-        <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-          {filteredProducts.map((p) => (
-            <ProductListRow key={p.id} product={p} countryName={countryNameById.get(p.countryId)} />
-          ))}
-        </div>
-        {filteredProducts.length === 0 && <div className="text-sm text-slate-500">검색 조건에 맞는 상품이 없습니다.</div>}
-      </section>
+      <ProductBrowser
+        products={filteredProducts}
+        categories={categories}
+        countryNameById={countryNameById}
+        searchPlaceholder={`'${category.name}' 안에서 검색`}
+        hideFilters={["category"]}
+        loading={loading}
+      />
 
       {guide && (
-        <section className="py-8 border-t border-slate-100">
+        <section className="px-5 md:px-6 mt-10 pt-8 border-t border-slate-100">
           <h2 className="text-lg font-bold text-slate-900 mb-3">{safeCategoryName} 고르는 법</h2>
           <p className="text-sm text-slate-600 leading-relaxed mb-6">{guide.intro}</p>
           {guide.sections.map((section) => (

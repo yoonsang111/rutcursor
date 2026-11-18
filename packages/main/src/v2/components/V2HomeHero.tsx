@@ -3,12 +3,20 @@ import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
 import { FlightSearchForm } from "./FlightSearchForm";
 
+export type HomeTab = "tour" | "flight";
+
 interface V2HomeHeroProps {
   trending: string[];
+  /** 어느 탭인지. 홈 페이지가 들고 있다 — 항공권일 때는 아래 내용을 통째로 감추기 때문이다. */
+  tab: HomeTab;
+  onTabChange: (tab: HomeTab) => void;
 }
 
-export function V2HomeHero({ trending }: V2HomeHeroProps) {
-  const [tab, setTab] = useState<"tour" | "flight">("tour");
+/**
+ * 홈 맨 위. 로고는 바로 위 머리줄에 이미 있으므로 여기서는 반복하지 않는다.
+ * 검색창 하나와 인기 검색어 한 줄만 두어, 첫 화면에 상품이 보이게 한다.
+ */
+export function V2HomeHero({ trending, tab, onTabChange }: V2HomeHeroProps) {
   const [keyword, setKeyword] = useState("");
   const navigate = useNavigate();
 
@@ -18,27 +26,16 @@ export function V2HomeHero({ trending }: V2HomeHeroProps) {
   };
 
   return (
-    <section className="px-6 pt-8 pb-10 md:pt-12 md:pb-14 text-center border-b border-slate-100">
-      <div className="flex items-center justify-center mb-7">
-        <img
-          src="/logo-wordmark.png"
-          alt="TourStream"
-          width={600}
-          height={138}
-          loading="eager"
-          decoding="async"
-          className="h-9 md:h-11 w-auto"
-        />
-      </div>
-
-      <div className="inline-flex gap-1 p-1 rounded-full bg-brand-tint mb-6">
+    <section className="px-5 md:px-6 pt-4 pb-1">
+      <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 mb-3">
         {(["tour", "flight"] as const).map((key) => (
           <button
             key={key}
             type="button"
-            onClick={() => setTab(key)}
-            className={`px-5 py-2 rounded-full text-sm font-bold transition-colors ${
-              tab === key ? "bg-brand text-white shadow-sm" : "text-brand/70 hover:text-brand"
+            onClick={() => onTabChange(key)}
+            aria-pressed={tab === key}
+            className={`px-5 h-10 rounded-full text-[15px] font-bold tracking-[-0.03em] transition-colors ${
+              tab === key ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             {key === "tour" ? "투어·티켓" : "항공권"}
@@ -47,41 +44,43 @@ export function V2HomeHero({ trending }: V2HomeHeroProps) {
       </div>
 
       {tab === "tour" ? (
-        <div>
-          <div className="max-w-xl mx-auto flex items-center gap-2 border border-slate-200 rounded-full px-5 py-3.5 shadow-sm bg-white focus-within:border-brand/40 transition-colors">
-            <Search className="w-4.5 h-4.5 text-slate-400 flex-shrink-0" />
+        <>
+          <div className="flex items-center gap-2 h-12 px-4 rounded-xl bg-slate-100 focus-within:bg-slate-50 focus-within:ring-1 focus-within:ring-slate-300 transition-colors">
+            <Search className="w-[18px] h-[18px] text-slate-400 flex-shrink-0" />
             <input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-              placeholder="도시, 투어, 액티비티를 검색해보세요"
-              className="w-full text-sm outline-none placeholder:text-slate-400"
+              placeholder="가고싶은 여행지를 검색해보세요"
+              aria-label="상품 검색"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
             <button
               type="button"
               onClick={submitSearch}
-              className="flex-shrink-0 bg-slate-900 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-slate-800 transition-colors"
+              className="flex-shrink-0 text-[13px] font-bold text-slate-900 px-1"
             >
               검색
             </button>
           </div>
+
           {trending.length > 0 && (
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-5 text-sm">
-              <span className="font-bold text-slate-400">실시간 인기 검색어</span>
-              {trending.map((term, idx) => (
+            <div className="flex items-center gap-3 mt-2.5 overflow-x-auto hide-scrollbar text-[12.5px]">
+              <span className="flex-none font-medium text-slate-400">인기</span>
+              {trending.slice(0, 4).map((term, idx) => (
                 <button
                   key={term}
                   type="button"
                   onClick={() => navigate(`/products?q=${encodeURIComponent(term)}`)}
-                  className="font-bold text-slate-700 hover:text-brand transition-colors"
+                  className="flex-none max-w-[180px] truncate font-medium text-slate-600 hover:text-brand transition-colors"
                 >
-                  <span className="text-brand font-extrabold mr-1">{idx + 1}</span>
+                  <span className="text-brand font-bold mr-1">{idx + 1}</span>
                   {term}
                 </button>
               ))}
             </div>
           )}
-        </div>
+        </>
       ) : (
         <FlightSearchForm compact />
       )}

@@ -1,6 +1,7 @@
 import React from "react";
 import { useParams, Link } from "react-router-dom";
-import { ProductListRow } from "../components/ProductListRow";
+import { ProductBrowser } from "../components/ProductBrowser";
+import { ListPageSkeleton } from "../components/ListPageSkeleton";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
 import { findCategoryBySlug, findRegionNameBySlug, getCategorySlug, getRegionSlug } from "../utils/urlSlugs";
@@ -9,7 +10,8 @@ const MIN_PRODUCTS_TO_INDEX = 3;
 
 export default function V2DestinationPage() {
   const { region: regionSlug, category: categorySlug } = useParams<{ region: string; category: string }>();
-  const { items, countries, categories, getRegionImage } = useV2Products();
+  const { items, countries, categories, getRegionImage, loading } = useV2Products();
+  const countryNameById = React.useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
   const regionName = findRegionNameBySlug(countries, regionSlug);
   const category = findCategoryBySlug(categories, categorySlug);
@@ -72,34 +74,33 @@ export default function V2DestinationPage() {
   if (!regionSlug || !categorySlug) {
     return <div className="p-8 text-center font-bold text-xl mt-20">잘못된 경로입니다.</div>;
   }
+  // 종류 이름을 아직 모르는 동안은 빈 제목 대신 자리맡기를 보여 준다
+  if (!category && loading) return <ListPageSkeleton />;
 
   return (
-    <div className="flex flex-col w-full max-w-[1400px] mx-auto overflow-hidden pb-20 px-6">
-      <section className="py-6 md:py-10">
-        <div className="relative w-full h-[240px] md:h-[320px] rounded-3xl overflow-hidden shadow-sm bg-slate-800">
-          {heroImage && <img src={heroImage} alt={`${regionName} ${category?.name}`} className="w-full h-full object-cover opacity-60" />}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/40 to-transparent" />
-          <div className="absolute inset-0 flex flex-col justify-end p-6 md:p-12 text-white">
-            <div className="text-cyan-300 font-bold mb-2">{regionName || "지역"}</div>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">{category?.name || "카테고리"}</h1>
-          </div>
-        </div>
+    <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16 px-5 md:px-6">
+      <section className="pt-5 pb-4">
+        <nav className="text-[12.5px] text-slate-400">
+          <Link to="/" className="hover:text-brand transition-colors">홈</Link> &rsaquo; {regionName || "지역"} &rsaquo; {category?.name || "카테고리"}
+        </nav>
+        <h1 className="mt-1.5 text-[24px] md:text-[30px] font-bold tracking-[-0.04em] text-slate-900">
+          {regionName} {category?.name}
+        </h1>
+        <p className="mt-1.5 text-[13px] md:text-sm text-slate-400">
+          상품 <b className="font-bold text-slate-900">{products.length.toLocaleString("ko-KR")}</b>개 · 가격 낮은 순
+        </p>
       </section>
 
-      <section className="pb-4">
-        <div className="font-bold text-sm text-slate-900">
-          총 <span className="text-brand">{products.length}</span>개의 상품 · 가격 낮은 순
-        </div>
-      </section>
-
-      <section className="pb-8">
-        <div className="flex flex-col rounded-2xl border border-slate-100 px-4 md:px-6">
-          {products.map((p) => (
-            <ProductListRow key={p.id} product={p} countryName={resolvedCountry?.name} />
-          ))}
-        </div>
-        {products.length === 0 && <div className="text-sm text-slate-500">해당 조합의 상품이 아직 없습니다.</div>}
-      </section>
+      <div className="-mx-5 md:-mx-6">
+        <ProductBrowser
+          products={products}
+          categories={categories}
+          countryNameById={countryNameById}
+          searchPlaceholder={`${regionName} ${category?.name ?? ""} 안에서 검색`}
+          hideFilters={["category"]}
+          emptyText="이 조합의 상품이 아직 없습니다."
+        />
+      </div>
 
       {(relatedCategories.length > 0 || relatedRegions.length > 0) && (
         <section className="pb-8 space-y-4">
