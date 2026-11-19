@@ -20,9 +20,31 @@ const categoryGuides = JSON.parse(
 const SLUG_MAP = JSON.parse(
   await fs.readFile(path.join(__dirname, "..", "src", "v2", "data", "slugMap.json"), "utf8"),
 );
+/*
+  주소에 쓸 영어 이름은 관리자에 입력한 englishName 이 먼저다.
+  없으면 slugMap.json(옛날에 손으로 적어 둔 것), 그것도 없으면 한글을 소리나는 대로 옮긴다.
+
+  소리나는 대로 옮긴 주소(/region/sseuchwan 같은 것)는 사람이 읽을 수 없으므로
+  페이지는 만들되 사이트맵·RSS 에는 올리지 않는다. 관리자에서 영어 이름만 넣어 주면
+  다음 빌드에 자동으로 올라간다. 빌드를 멈추지는 않는다 — 매일 도는 자동 재빌드가 서야 하니까.
+*/
+const englishNameByLocation = new Map(); // "country:일본" / "region:오사카" → "japan"
+
+const registerEnglishNames = (list, kind) => {
+  (Array.isArray(list) ? list : []).forEach((item) => {
+    const name = String(item?.name || "").trim();
+    const english = toSlug(String(item?.englishName || "").trim());
+    if (name && english && english !== "item") englishNameByLocation.set(`${kind}:${name}`, english);
+  });
+};
+
 const categorySlug = (name) => SLUG_MAP.categories[name] || toSlug(name);
-const countrySlug = (name) => SLUG_MAP.countries[name] || toSlug(name);
-const regionSlug = (name) => SLUG_MAP.regions[name] || toSlug(name);
+const countrySlug = (name) => englishNameByLocation.get(`country:${name}`) || SLUG_MAP.countries[name] || toSlug(name);
+const regionSlug = (name) => englishNameByLocation.get(`region:${name}`) || SLUG_MAP.regions[name] || toSlug(name);
+
+/** 제대로 된 영어 주소를 가지고 있나. 아니면 사이트맵에서 뺀다. */
+const hasRealSlug = (kind, name) =>
+  Boolean(englishNameByLocation.get(`${kind}:${name}`) || (kind === "country" ? SLUG_MAP.countries[name] : SLUG_MAP.regions[name]));
 
 const L_TABLE = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"];
 const V_TABLE = [
@@ -605,11 +627,18 @@ async function main() {
   const countries = Array.isArray(locationsRes?.countries) ? locationsRes.countries : [];
   const regions = Array.isArray(locationsRes?.regions) ? locationsRes.regions : [];
 
+  // 관리자에 입력한 영어 이름을 먼저 등록해야 아래에서 만드는 주소가 그 값을 쓴다
+  registerEnglishNames(countries, "country");
+  registerEnglishNames(regions, "region");
+
+  const missingSlug = [];
+
   for (const country of countries) {
     const countryName = typeof country === "string" ? country : country?.name || "";
     const countryId = typeof country === "string" ? "" : country?.id || "";
     if (!countryName && !countryId) continue;
     const slug = countrySlug(countryName || countryId);
+    if (countryName && !hasRealSlug("country", countryName)) missingSlug.push(`국가 ${countryName} → /country/${slug}`);
     const countryProducts = (Array.isArray(products) ? products : []).filter(
       (p) => Array.isArray(p.locations) && p.locations.includes(countryName),
     );
@@ -639,6 +668,7 @@ async function main() {
       const regionName = typeof region === "string" ? region : region?.name || "";
       if (!regionName) continue;
       const regionSlugValue = regionSlug(regionName);
+      if (!hasRealSlug("region", regionName)) missingSlug.push(`지역 ${regionName} → /region/${regionSlugValue}`);
       const regionProducts = (Array.isArray(products) ? products : []).filter(
         (p) => Array.isArray(p.locations) && p.locations.includes(regionName),
       );
@@ -819,11 +849,39 @@ async function main() {
   // tourstream.kr/sitemap.xml 자체를 실제 URL 목록으로 만든다 (noindex 페이지는 제외).
   // lastmod는 실제로 내용이 바뀐 날만 적는다. 매일 전체를 오늘 날짜로 찍으면
   // 검색엔진이 lastmod를 신뢰하지 않게 되고 크롤링 예산만 낭비된다.
+  /*
+    영어 이름이 없어 소리나는 대로 만든 주소는 사이트맵·RSS 에서 뺀다.
+    페이지 자체는 남아 있어 손님에게는 똑같이 보이고, 관리자에서 영어 이름만 넣으면
+    다음 빌드에 자동으로 올라간다.
+  */
+  const badSlugPaths = new Set();
+  for (const line of missingSlug) {
+    const m = line.match(/→ (\/(?:country|region)\/[^\s]+)$/);
+    if (m) badSlugPaths.add(m[1]);
+  }
+  const isBadSlugPath = (p) => {
+    if (badSlugPaths.has(p)) return true;
+    const d = p.match(/^\/destination\/([^/]+)\//);
+    return d ? badSlugPaths.has(`/region/${d[1]}`) : false;
+  };
+
   const indexableRoutes = [
     ...(homeMeta ? [homeMeta] : []),
     // 옛 주소(isAlias)는 페이지만 남기고 사이트맵·RSS 에서는 뺀다. 새 주소만 제출한다.
-    ...Array.from(deduped.values()).filter((r) => !r.isAlias && !/noindex/.test(r.robots || "")),
+    ...Array.from(deduped.values()).filter(
+      (r) => !r.isAlias && !/noindex/.test(r.robots || "") && !isBadSlugPath(r.path),
+    ),
   ];
+
+  if (missingSlug.length > 0) {
+    console.warn(
+      `\n[seo-shell] ⚠️  영어 이름이 없어 사이트맵에서 뺀 곳 ${missingSlug.length}건` +
+        ` — 관리자 > 지역에서 '영어 이름'을 채우면 다음 빌드에 올라갑니다:`,
+    );
+    missingSlug.slice(0, 20).forEach((line) => console.warn(`           ${line}`));
+    if (missingSlug.length > 20) console.warn(`           … 외 ${missingSlug.length - 20}건`);
+    console.warn("");
+  }
   const sitemapEntries = indexableRoutes.map((r) => ({ path: r.path, lastmod: r.lastmod || null }));
   const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries
     .map((e) => `  <url><loc>${SITE_URL}${e.path}</loc>${e.lastmod ? `<lastmod>${e.lastmod}</lastmod>` : ""}</url>`)

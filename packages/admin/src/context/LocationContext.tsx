@@ -6,6 +6,19 @@ import { api } from '../utils/api';
 
 const normalizeName = (name: string) => name.trim().toLowerCase();
 
+/*
+  주소에 바로 들어갈 모양으로 다듬는다. 대소문자·띄어쓰기를 어떻게 치든 같은 주소가 나오게.
+  "San Francisco" → "san-francisco",  "Hong Kong " → "hong-kong"
+*/
+const normalizeEnglishName = (value?: string) => {
+  const cleaned = (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return cleaned || undefined;
+};
+
 // 알려진 국가명 목록 (이 외의 이름을 국가로 등록할 때 경고 표시)
 const KNOWN_COUNTRY_NAMES = new Set([
   '한국', '일본', '중국', '홍콩', '마카오', '대만', '싱가포르', '태국',
@@ -20,10 +33,10 @@ const KNOWN_COUNTRY_NAMES = new Set([
 interface LocationContextType {
   countries: Country[];
   regions: Region[];
-  addCountry: (name: string, image?: string) => void;
-  addRegion: (name: string, countryId: string, image?: string) => void;
-  updateCountry: (id: string, name: string, image?: string) => void;
-  updateRegion: (id: string, name: string, image?: string) => void;
+  addCountry: (name: string, image?: string, englishName?: string) => void;
+  addRegion: (name: string, countryId: string, image?: string, englishName?: string) => void;
+  updateCountry: (id: string, name: string, image?: string, englishName?: string) => void;
+  updateRegion: (id: string, name: string, image?: string, englishName?: string) => void;
   deleteCountry: (id: string) => boolean; // 삭제 가능 여부 반환
   deleteRegion: (id: string) => void;
   getCountry: (id: string) => Country | undefined;
@@ -84,7 +97,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     });
   };
 
-  const addCountry = (name: string, image?: string) => {
+  const addCountry = (name: string, image?: string, englishName?: string) => {
     const normalized = normalizeName(name);
     if (!normalized) {
       alert('국가명을 입력해주세요.');
@@ -107,6 +120,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     const newCountry: Country = {
       id: `country_${Date.now()}`,
       name: name.trim(),
+      englishName: normalizeEnglishName(englishName),
       image: image?.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -114,7 +128,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     persistLocations([...countries, newCountry], regions);
   };
 
-  const addRegion = (name: string, countryId: string, image?: string) => {
+  const addRegion = (name: string, countryId: string, image?: string, englishName?: string) => {
     const normalized = normalizeName(name);
     if (!normalized) {
       alert('지역명을 입력해주세요.');
@@ -129,6 +143,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
       id: `region_${Date.now()}`,
       name: name.trim(),
       countryId,
+      englishName: normalizeEnglishName(englishName),
       image: image?.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -136,7 +151,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     persistLocations(countries, [...regions, newRegion]);
   };
 
-  const updateCountry = (id: string, name: string, image?: string) => {
+  const updateCountry = (id: string, name: string, image?: string, englishName?: string) => {
     const normalized = normalizeName(name);
     if (!normalized) {
       alert('국가명을 입력해주세요.');
@@ -152,6 +167,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
         ? {
             ...country,
             name: name.trim(),
+            englishName: englishName === undefined ? country.englishName : normalizeEnglishName(englishName),
             // 이름만 수정할 때 기존 이미지를 유지한다.
             image: image === undefined ? country.image : image.trim() || undefined,
             updatedAt: new Date().toISOString(),
@@ -161,7 +177,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     persistLocations(newCountries, regions);
   };
 
-  const updateRegion = (id: string, name: string, image?: string) => {
+  const updateRegion = (id: string, name: string, image?: string, englishName?: string) => {
     const normalized = normalizeName(name);
     if (!normalized) {
       alert('지역명을 입력해주세요.');
@@ -181,6 +197,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
         ? {
             ...region,
             name: name.trim(),
+            englishName: englishName === undefined ? region.englishName : normalizeEnglishName(englishName),
             // 이름만 수정할 때 기존 이미지를 유지한다.
             image: image === undefined ? region.image : image.trim() || undefined,
             updatedAt: new Date().toISOString(),

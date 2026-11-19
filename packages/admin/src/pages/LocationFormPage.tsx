@@ -61,6 +61,7 @@ export default function LocationFormPage() {
     name: '',
     countryId: '',
     image: '',
+    englishName: '',
   });
   const [imageGuideMessage, setImageGuideMessage] = useState('');
 
@@ -68,13 +69,30 @@ export default function LocationFormPage() {
     if (location) {
       if (isRegion) {
         const region = location as Region;
-        setFormData({ name: region.name, countryId: region.countryId, image: region.image || '' });
+        setFormData({
+          name: region.name,
+          countryId: region.countryId,
+          image: region.image || '',
+          englishName: region.englishName || '',
+        });
       } else {
         const country = location as Country;
-        setFormData({ name: country.name, countryId: '', image: country.image || '' });
+        setFormData({
+          name: country.name,
+          countryId: '',
+          image: country.image || '',
+          englishName: country.englishName || '',
+        });
       }
     }
   }, [location, isRegion]);
+
+  // 입력한 영어 이름이 실제로 어떤 주소가 되는지 그대로 보여 준다 (LocationContext 와 같은 규칙)
+  const slugPreview = formData.englishName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,15 +104,15 @@ export default function LocationFormPage() {
 
     if (isEdit && id) {
       if (isRegion) {
-        updateRegion(id, formData.name, formData.image);
+        updateRegion(id, formData.name, formData.image, formData.englishName);
       } else {
-        updateCountry(id, formData.name, formData.image);
+        updateCountry(id, formData.name, formData.image, formData.englishName);
       }
     } else {
       if (isRegion) {
-        addRegion(formData.name, formData.countryId, formData.image);
+        addRegion(formData.name, formData.countryId, formData.image, formData.englishName);
       } else {
-        addCountry(formData.name, formData.image);
+        addCountry(formData.name, formData.image, formData.englishName);
       }
     }
 
@@ -159,6 +177,34 @@ export default function LocationFormPage() {
             placeholder={isRegion ? '지역명을 입력하세요' : '국가명을 입력하세요'}
             required
           />
+        </div>
+
+        {/*
+          영어 이름이 그대로 주소가 된다. 전에는 이 칸이 없어서 코드가 한글을 소리나는 대로 옮겼고
+          /region/sseuchwan(쓰촨) 같은 주소가 나왔다. 그래서 필수로 받는다.
+        */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">
+            영어 이름 (주소에 사용) *
+          </label>
+          <input
+            type="text"
+            value={formData.englishName}
+            onChange={(e) => setFormData({ ...formData, englishName: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder={isRegion ? '예: osaka, san-francisco' : '예: japan, united-states'}
+            required
+          />
+          <p className="mt-2 text-xs text-gray-500">
+            주소가 이렇게 만들어집니다 —{' '}
+            <code className="font-mono text-gray-700">
+              tourstream.kr/{isRegion ? 'region' : 'country'}/{slugPreview || '...'}
+            </code>
+          </p>
+          <p className="mt-1 text-xs text-gray-400">
+            영어 소문자로 적어 주세요. 띄어쓰기는 자동으로 <code className="font-mono">-</code> 로 바뀝니다.
+            비워 두면 검색엔진에 올라가지 않습니다.
+          </p>
         </div>
 
         <div>

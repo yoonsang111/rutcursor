@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../utils/api";
 import { Category, Country, Product } from "../data";
+import { registerRegionEnglishNames } from "../utils/urlSlugs";
 
 type RawPartnerLink = {
   partner?: string;
@@ -268,6 +269,13 @@ function buildCountries(raw: RawLocationsResponse): {
     if (!countryId || !regionName || !regionImage) return;
     regionImageByKey[`${countryId}::${normalizeName(regionName)}`] = regionImage;
   });
+
+  // 관리자에 입력한 영어 이름을 주소 만드는 쪽에 넘긴다. 없으면 slugMap.json 이 받아 준다.
+  registerRegionEnglishNames(
+    rawRegions
+      .map((region) => [(region.name || "").trim(), String((region as { englishName?: string }).englishName || "").trim()])
+      .filter((pair): pair is [string, string] => Boolean(pair[0] && pair[1])),
+  );
 
   return { countries, countryNameToId, regionNameToCountryId, regionsByCountryId, regionImageByKey };
 }

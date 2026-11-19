@@ -111,8 +111,30 @@ export function toEnglishSlug(value?: string) {
   return `item-${hashString(source).slice(0, 6)}`;
 }
 
+/*
+  주소에 쓸 영어 이름은 세 군데서 차례로 찾는다.
+
+  1) 관리자에 입력한 englishName  ← 앞으로 여기만 쓴다
+  2) slugMap.json                ← 1번 칸이 없던 시절에 손으로 적어 둔 것. 옮기는 중이라 남겨 둔다
+  3) 한글을 소리나는 대로 옮기기    ← 최후의 수단. /region/sseuchwan 같은 주소가 나오므로 쓰면 안 된다
+
+  3번까지 내려가면 그 페이지는 사이트맵에 올리지 않는다 (generate-seo-route-shells.mjs 참고).
+*/
+
+/** 지역 이름 → 관리자에 입력한 영어 이름. 자료를 불러올 때 채운다 (useV2Products) */
+const regionEnglishNames = new Map<string, string>();
+
+export function registerRegionEnglishNames(pairs: Array<[string, string]>) {
+  pairs.forEach(([name, english]) => {
+    const cleaned = toEnglishSlug(english);
+    if (name && cleaned && cleaned !== "item") regionEnglishNames.set(name, cleaned);
+  });
+}
+
 export function getCountrySlug(country: Country) {
-  return SLUG_MAP.countries[country.name] || toEnglishSlug(country.englishName || country.name);
+  return toEnglishSlug(country.englishName || "") !== "item" && country.englishName
+    ? toEnglishSlug(country.englishName)
+    : SLUG_MAP.countries[country.name] || toEnglishSlug(country.name);
 }
 
 export function getCategorySlug(category: Category) {
@@ -120,7 +142,13 @@ export function getCategorySlug(category: Category) {
 }
 
 export function getRegionSlug(regionName: string) {
-  return SLUG_MAP.regions[regionName] || toEnglishSlug(regionName);
+  return regionEnglishNames.get(regionName) || SLUG_MAP.regions[regionName] || toEnglishSlug(regionName);
+}
+
+/** 이 이름이 제대로 된 영어 주소를 가지고 있나 (소리나는 대로 옮긴 게 아니라) */
+export function hasRealSlug(kind: "country" | "region", name: string, englishName?: string): boolean {
+  if (englishName && englishName.trim()) return true;
+  return Boolean(kind === "country" ? SLUG_MAP.countries[name] : SLUG_MAP.regions[name]);
 }
 
 export function findCountryBySlug(countries: Country[], slug?: string | null) {
