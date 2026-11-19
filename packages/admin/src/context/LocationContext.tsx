@@ -3,6 +3,16 @@ import { Country, Region } from '@tourstream/shared';
 import { storage } from '../utils/storage';
 import { seedCountries, seedRegions } from '../seed/locations';
 import { api } from '../utils/api';
+import englishNameTable from '../data/locationEnglishNames.json';
+
+export interface FillResult {
+  ok: boolean;
+  /** 채운 항목 설명 */
+  filled: string[];
+  /** 표에 없어서 못 채운 항목 */
+  noMap: string[];
+  error?: string;
+}
 
 const normalizeName = (name: string) => name.trim().toLowerCase();
 
@@ -37,6 +47,8 @@ interface LocationContextType {
   addRegion: (name: string, countryId: string, image?: string, englishName?: string) => void;
   updateCountry: (id: string, name: string, image?: string, englishName?: string) => void;
   updateRegion: (id: string, name: string, image?: string, englishName?: string) => void;
+  /** 비어 있는 영어 이름을 한 번에 채운다 (옮기기용, 한 번만 쓰면 된다) */
+  fillMissingEnglishNames: (opts?: { dryRun?: boolean }) => Promise<FillResult>;
   deleteCountry: (id: string) => boolean; // 삭제 가능 여부 반환
   deleteRegion: (id: string) => void;
   getCountry: (id: string) => Country | undefined;
@@ -207,6 +219,66 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
     persistLocations(countries, newRegions);
   };
 
+  /*
+    영어 이름 일괄 채우기 — 한 번만 쓰는 기능.
+
+    나라·지역에 영어 이름 칸이 없던 시절, 주소는 코드가 한글을 소리나는 대로 옮겨 만들었다
+    (/country/dokil = 독일). 그 값을 임시로 적어 둔 표(locationEnglishNames.json)를
+    데이터로 옮긴다. 옮기고 나면 이 버튼은 할 일이 없어지고, 새 지역은 등록할 때 직접 입력한다.
+
+    비어 있는 칸만 채운다. 이미 입력된 값은 건드리지 않는다.
+  */
+  const fillMissingEnglishNames = async ({ dryRun = false } = {}): Promise<FillResult> => {
+    const filled: string[] = [];
+    const noMap: string[] = [];
+
+    const fill = <T extends { name: string; englishName?: string }>(list: T[], map: Record<string, string>, kind: string) =>
+      list.map((item) => {
+        const name = (item.name || '').trim();
+        if (!name || String(item.englishName || '').trim()) return item;
+        const english = normalizeEnglishName(map[name]);
+        if (!english) {
+          noMap.push(`${kind} ${name}`);
+          return item;
+        }
+        filled.push(`${kind} ${name} → ${english}`);
+        return { ...item, englishName: english, updatedAt: new Date().toISOString() };
+      });
+
+    const nextCountries = fill(countries, englishNameTable.countries, '국가');
+    const nextRegions = fill(regions, englishNameTable.regions, '지역');
+
+    // 두 곳이 같은 주소를 갖게 되면 한쪽 페이지가 사라진다. 그런 경우엔 저장하지 않는다.
+    const clash = (list: Array<{ name: string; englishName?: string }>, kind: string) => {
+      const seen = new Map<string, string>();
+      for (const it of list) {
+        const slug = normalizeEnglishName(it.englishName);
+        if (!slug) continue;
+        const owner = seen.get(slug);
+        if (owner && owner !== it.name) return `${kind} 주소가 겹칩니다: "${owner}" 와 "${it.name}" 둘 다 /${slug}`;
+        seen.set(slug, it.name);
+      }
+      return null;
+    };
+    const conflict = clash(nextCountries, '국가') || clash(nextRegions, '지역');
+    if (conflict) return { ok: false, filled, noMap, error: conflict };
+
+    if (dryRun || filled.length === 0) return { ok: true, filled, noMap };
+
+    try {
+      // 서버 저장이 끝난 걸 확인한 뒤에 화면 값을 바꾼다 (실패를 조용히 넘기지 않는다)
+      await api.saveLocations({ countries: nextCountries, regions: nextRegions });
+    } catch (error) {
+      return { ok: false, filled, noMap, error: error instanceof Error ? error.message : '저장에 실패했습니다' };
+    }
+
+    setCountries(nextCountries);
+    setRegions(nextRegions);
+    storage.saveCountries(nextCountries);
+    storage.saveRegions(nextRegions);
+    return { ok: true, filled, noMap };
+  };
+
   const deleteCountry = (id: string): boolean => {
     // 지역이 있으면 삭제 불가
     const hasRegions = regions.some(region => region.countryId === id);
@@ -239,6 +311,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
       addRegion,
       updateCountry,
       updateRegion,
+      fillMissingEnglishNames,
       deleteCountry,
       deleteRegion,
       getCountry,

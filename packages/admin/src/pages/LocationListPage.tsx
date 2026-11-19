@@ -4,10 +4,47 @@ import { useLocations } from '../context/LocationContext';
 
 export default function LocationListPage() {
   const navigate = useNavigate();
-  const { countries, deleteCountry, deleteRegion, getRegionsByCountry } = useLocations();
+  const { countries, regions, deleteCountry, deleteRegion, getRegionsByCountry, fillMissingEnglishNames } = useLocations();
 
   const [searchKeyword, setSearchKeyword] = useState('');
   const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
+  const [filling, setFilling] = useState(false);
+
+  // 영어 이름이 비어 있는 곳. 이 숫자가 0이 되면 아래 안내가 사라진다.
+  const missingCount =
+    countries.filter((c) => !String(c.englishName || '').trim()).length +
+    regions.filter((r) => !String(r.englishName || '').trim()).length;
+
+  /*
+    영어 이름은 주소가 된다 (/region/osaka). 전에는 이 칸이 없어서 코드가 한글을
+    소리나는 대로 옮겼고 /country/dokil 같은 주소가 나왔다. 임시로 적어 둔 표를
+    데이터로 한 번만 옮긴다. 옮기고 나면 이 버튼은 사라진다.
+  */
+  const handleFill = async () => {
+    const preview = await fillMissingEnglishNames({ dryRun: true });
+    if (!preview.ok) {
+      alert(`채울 수 없습니다.\n\n${preview.error}`);
+      return;
+    }
+    if (preview.filled.length === 0) {
+      alert(
+        preview.noMap.length > 0
+          ? `자동으로 채울 수 있는 곳이 없습니다.\n아래는 직접 입력해 주세요.\n\n${preview.noMap.slice(0, 20).join('\n')}`
+          : '모두 채워져 있습니다.',
+      );
+      return;
+    }
+
+    const sample = preview.filled.slice(0, 12).join('\n');
+    const more = preview.filled.length > 12 ? `\n… 외 ${preview.filled.length - 12}건` : '';
+    const warn = preview.noMap.length > 0 ? `\n\n표에 없어 못 채우는 곳 ${preview.noMap.length}건은 직접 입력해야 합니다.` : '';
+    if (!window.confirm(`${preview.filled.length}곳의 영어 이름을 채웁니다.\n이미 입력된 곳은 건드리지 않습니다.\n\n${sample}${more}${warn}\n\n저장할까요?`)) return;
+
+    setFilling(true);
+    const result = await fillMissingEnglishNames();
+    setFilling(false);
+    alert(result.ok ? `${result.filled.length}곳을 채웠습니다.` : `저장하지 못했습니다.\n\n${result.error}`);
+  };
 
   const filteredCountries = countries.filter(country =>
     country.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
@@ -35,6 +72,26 @@ export default function LocationListPage() {
 
   return (
     <div>
+      {missingCount > 0 && (
+        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[240px]">
+            <p className="text-sm font-bold text-amber-900">영어 이름이 비어 있는 곳 {missingCount}곳</p>
+            <p className="mt-1 text-xs text-amber-800 leading-relaxed">
+              영어 이름이 주소가 됩니다. 비어 있으면 한글 발음으로 주소가 만들어지고(<code className="font-mono">/country/dokil</code>),
+              그런 주소는 검색엔진에 올라가지 않습니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleFill}
+            disabled={filling}
+            className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 disabled:opacity-60"
+          >
+            {filling ? '채우는 중…' : '영어 이름 자동 채우기'}
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">지역 목록</h1>
         <div className="flex gap-2">
