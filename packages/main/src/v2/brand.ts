@@ -110,6 +110,74 @@ export function priceSpread(product: Pick<Product, "partnerLinks">): PriceSpread
 
 export const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
 
+/* ── 검색 ──────────────────────────────────────────────────────
+   전에는 검색어를 통째로 한 덩어리로 찾았다. 그래서 "오사카 패스"가 1건밖에 안 나왔다
+   (그 글자가 통째로 들어간 상품이 하나뿐이라). 단어로 쪼개 전부 들어맞는 상품을 찾으면 23건이다.
+   손님은 "오사카 패스"처럼 띄어 치고, 상품 이름은 "오사카 주유패스 디지털"이라 덩어리로는 안 맞는다. */
+
+/** 검색어를 단어로 쪼갠다. 빈 칸과 쉼표·가운뎃점을 구분자로 본다. */
+export function searchTokens(q: string): string[] {
+  return (q || "")
+    .toLowerCase()
+    .split(/[\s,·/]+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+}
+
+/** 한 상품에서 검색 대상이 되는 글자를 전부 이어 붙인다. */
+export function productHaystack(
+  product: Pick<Product, "name" | "description" | "region" | "tags">,
+  countryName?: string,
+): string {
+  return [product.name, product.description, product.region, countryName || "", ...(product.tags || [])]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** 한 단어가 이 글자 안에 있는지. 붙여 친 경우("도쿄타워")도 맞춰 준다. */
+function hasToken(haystack: string, token: string): boolean {
+  return haystack.includes(token) || haystack.replace(/\s+/g, "").includes(token.replace(/\s+/g, ""));
+}
+
+/** 몇 개 단어가 들어맞는지 */
+export function tokenHits(haystack: string, tokens: string[]): number {
+  if (tokens.length === 0) return 0;
+  return tokens.filter((t) => hasToken(haystack, t)).length;
+}
+
+/**
+ * 결과가 0건일 때 "혹시 이걸 찾으셨나요?" 로 보여 줄 상품.
+ *
+ * 그냥 맞는 개수로 줄 세우면 흔한 단어가 이긴다. "오사카 디즈니" 를 치면
+ * 오사카(37개)가 디즈니(10개)를 눌러 유니버셜만 잔뜩 나온다.
+ * 그래서 드문 단어에 더 큰 점수를 준다 — 드문 단어가 손님이 진짜 찾는 것에 가깝다.
+ */
+export function looseMatches<T extends Pick<Product, "name" | "description" | "region" | "tags" | "countryId" | "popularityScore">>(
+  products: T[],
+  tokens: string[],
+  countryNameById: Map<string, string>,
+  limit = 6,
+): T[] {
+  if (tokens.length === 0 || products.length === 0) return [];
+
+  const haystacks = products.map((p) => productHaystack(p, countryNameById.get(p.countryId)));
+  // 단어마다 몇 개 상품에 나오는지 세어, 드물수록 높은 가중치를 준다
+  const weight = tokens.map((t) => {
+    const df = haystacks.reduce((n, h) => n + (hasToken(h, t) ? 1 : 0), 0);
+    return df === 0 ? 0 : products.length / df;
+  });
+
+  return products
+    .map((p, i) => ({
+      p,
+      score: tokens.reduce((s, t, k) => s + (hasToken(haystacks[i], t) ? weight[k] : 0), 0),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || b.p.popularityScore - a.p.popularityScore)
+    .slice(0, limit)
+    .map((x) => x.p);
+}
+
 /** 목록 정렬. 값을 모르는 상품은 늘 뒤로 민다. */
 export function sortProducts<T extends { popularityScore: number; views: number; partnerLinks: Product["partnerLinks"] }>(
   list: T[],

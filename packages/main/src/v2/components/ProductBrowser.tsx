@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 import { Category, Product } from "../data";
-import { partnerLogoSrc, priceSpread, sortProducts } from "../brand";
+import { looseMatches, partnerLogoSrc, priceSpread, productHaystack, searchTokens, sortProducts, tokenHits } from "../brand";
 import { ProductCard, ProductCardSkeleton } from "./ProductCard";
 
 /*
@@ -198,12 +198,10 @@ export function ProductBrowser({
     return out;
   }, [products, categories, hideFilters]);
 
-  const filtered = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    // 손님은 "도쿄타워"처럼 붙여 치는데 상품 이름은 "도쿄 타워"다. 양쪽 띄어쓰기를 지워 한 번 더 맞춘다
-    const squash = (t: string) => t.replace(/\s+/g, "");
-    const qs = squash(q);
+  // 검색어를 단어로 쪼갠다. 통째로 찾으면 "오사카 패스"가 1건밖에 안 나온다 (brand.ts 참고)
+  const tokens = useMemo(() => searchTokens(keyword), [keyword]);
 
+  const filtered = useMemo(() => {
     const list = products.filter((p) => {
       if (selected.category.size && !selected.category.has(p.categoryId)) return false;
 
@@ -219,15 +217,19 @@ export function ProductBrowser({
         if (!band || !selected.price.has(band.key)) return false;
       }
 
-      if (!q) return true;
-      return [p.name, p.description, p.region, countryNameById.get(p.countryId) || "", ...(p.tags || [])].some((field) => {
-        const t = String(field || "").toLowerCase();
-        return t.includes(q) || squash(t).includes(qs);
-      });
+      if (tokens.length === 0) return true;
+      // 단어가 전부 들어맞아야 한다 (하나라도 맞는 상품은 결과가 0건일 때만 '혹시 이것' 으로 보여 준다)
+      return tokenHits(productHaystack(p, countryNameById.get(p.countryId)), tokens) === tokens.length;
     });
 
     return sortProducts(list, sort);
-  }, [products, keyword, sort, selected.category, selected.seller, selected.price, countryNameById]);
+  }, [products, tokens, sort, selected.category, selected.seller, selected.price, countryNameById]);
+
+  /* 결과가 0건일 때만 계산한다 */
+  const suggestions = useMemo(() => {
+    if (loading || filtered.length > 0 || tokens.length === 0) return [];
+    return looseMatches(products, tokens, countryNameById, 6);
+  }, [loading, filtered.length, products, tokens, countryNameById]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
@@ -303,12 +305,32 @@ export function ProductBrowser({
 
         <div className="flex-1 min-w-0">
           {!loading && filtered.length === 0 ? (
-            <div className="py-10 text-sm text-slate-400">
-              {emptyText}
+            <div className="py-8">
+              <p className="text-[15px] font-bold text-slate-900">
+                {keyword ? `‘${keyword}’에 맞는 상품이 없습니다` : emptyText}
+              </p>
+              {keyword && <p className="mt-1.5 text-[13px] text-slate-400">단어를 줄이거나 다른 말로 찾아 보세요.</p>}
+
               {chosenCount > 0 && (
-                <button type="button" onClick={clearAll} className="ml-2 font-bold text-brand hover:underline">
-                  필터 지우기
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="mt-4 inline-flex items-center px-4 h-9 rounded-full border border-slate-200 text-[13px] font-bold text-slate-700 hover:border-slate-300 transition-colors"
+                >
+                  필터 {chosenCount}개 지우기
                 </button>
+              )}
+
+              {/* 막다른 길을 만들지 않는다. 단어가 하나라도 맞는 상품을 대신 보여 준다 */}
+              {suggestions.length > 0 && (
+                <div className="mt-8">
+                  <h2 className="text-[15px] font-bold tracking-[-0.035em] text-slate-900 mb-3.5">혹시 이걸 찾으셨나요?</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-[11px] gap-y-6 md:gap-x-5 md:gap-y-[34px]">
+                    {suggestions.map((p) => (
+                      <ProductCard key={p.id} product={p} countryName={countryNameById.get(p.countryId)} />
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           ) : (

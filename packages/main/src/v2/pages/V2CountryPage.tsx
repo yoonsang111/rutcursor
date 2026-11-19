@@ -6,6 +6,7 @@ import { FilterPills } from "../components/ListToolbar";
 import { flagSrc } from "../brand";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
+import V2NotFoundPage from "./V2NotFoundPage";
 import { findCountryBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 
 export default function V2CountryPage() {
@@ -51,30 +52,43 @@ export default function V2CountryPage() {
   const countryMinPrice = filteredProducts.length > 0 ? Math.min(...filteredProducts.map((p) => p.price || Infinity)) : Infinity;
   const countryPriceLabel = Number.isFinite(countryMinPrice) ? `${countryMinPrice.toLocaleString("ko-KR")}원` : null;
 
-  useV2Seo({
-    title: countryPriceLabel
-      ? `${safeCountryName} 최저 ${countryPriceLabel}부터 | 가격비교 TourStream`
-      : `${safeCountryName} 여행 상품 | TourStream`,
-    description: `${safeCountryName} 상품 ${filteredProducts.length}개${
-      countryPriceLabel ? `, 최저 ${countryPriceLabel}부터` : ""
-    } 비교해보세요.`,
-    canonicalPath,
-    ogType: "website",
-    ogImage: country?.image,
-    // 없는 국가이거나 상품이 0개면 soft 404로 잡히므로 noindex
-    robots: !loading && (!country || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
-    jsonLd: [
-      {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        name: `${safeCountryName} 여행 상품`,
-        url: `https://tourstream.kr${canonicalPath}`,
-      },
-    ],
-  });
+  // 없는 주소면 제목·canonical 도 404 로 바꾼다. 안 그러면 이 화면의 값이 나중에 덮어쓴다.
+  const notFound = !loading && !country;
+
+  useV2Seo(
+    notFound
+      ? {
+          title: "페이지를 찾을 수 없습니다 | TourStream",
+          description: "요청하신 페이지를 찾을 수 없습니다.",
+          canonicalPath: "/404",
+          ogType: "website",
+          robots: "noindex, follow",
+        }
+      :{
+      title: countryPriceLabel
+        ? `${safeCountryName} 최저 ${countryPriceLabel}부터 | 가격비교 TourStream`
+        : `${safeCountryName} 여행 상품 | TourStream`,
+      description: `${safeCountryName} 상품 ${filteredProducts.length}개${
+        countryPriceLabel ? `, 최저 ${countryPriceLabel}부터` : ""
+      } 비교해보세요.`,
+      canonicalPath,
+      ogType: "website",
+      ogImage: country?.image,
+      // 없는 국가이거나 상품이 0개면 soft 404로 잡히므로 noindex
+      robots: !loading && (!country || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
+      jsonLd: [
+        {
+          "@context": "https://schema.org",
+          "@type": "CollectionPage",
+          name: `${safeCountryName} 여행 상품`,
+          url: `https://tourstream.kr${canonicalPath}`,
+        },
+      ],
+    }
+  );
 
   // 자료가 오기 전에는 "없습니다"가 아니라 자리맡기를 보여 준다
-  if (!country) return loading ? <ListPageSkeleton /> : <div className="p-8 text-center font-bold text-xl mt-20">국가를 찾을 수 없습니다.</div>;
+  if (!country) return loading ? <ListPageSkeleton /> : <V2NotFoundPage />;
 
   const flag = flagSrc(country.name);
   const regionPills = [

@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from "react-router-dom";
 import { ProductBrowser } from "../components/ProductBrowser";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
+import V2NotFoundPage from "./V2NotFoundPage";
 import { findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 
 export default function V2RegionPage() {
@@ -26,29 +27,48 @@ export default function V2RegionPage() {
   const regionMinPrice = regionProducts.length > 0 ? Math.min(...regionProducts.map((p) => p.price || Infinity)) : Infinity;
   const regionPriceLabel = Number.isFinite(regionMinPrice) ? `${regionMinPrice.toLocaleString("ko-KR")}원` : null;
 
-  useV2Seo({
-    title: regionPriceLabel
-      ? `${safeRegionName} 최저 ${regionPriceLabel}부터 | 가격비교 TourStream`
-      : `${safeRegionName} 지역 여행 상품 | TourStream`,
-    description: `${safeRegionName} 상품 ${regionProducts.length}개${
-      regionPriceLabel ? `, 최저 ${regionPriceLabel}부터` : ""
-    } 비교해보세요.`,
-    canonicalPath,
-    ogType: "website",
-    ogImage: regionHeroImage,
-    // 상품이 0개인 지역 페이지는 soft 404로 잡히므로 noindex
-    robots: !loading && regionProducts.length === 0 ? "noindex, follow" : "index, follow",
-    jsonLd: [
-      {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        name: `${safeRegionName} 지역 여행 상품`,
-        url: `https://tourstream.kr${canonicalPath}`,
-      },
-    ],
-  });
+  /*
+    없는 지역 주소(/region/osaka-castle-ticket 같은 오타·옛 링크)는 지도에 없다.
+    전에는 슬러그를 그대로 제목에 박은 빈 페이지가 돼서, 손님은 막다른 길에 도착하고
+    검색엔진은 "osaka-castle-ticket 지역 여행 상품" 이라는 쓰레기 페이지를 봤다.
+  */
+  const notFound = !loading && (!regionSlug || !resolvedRegionName);
 
-  if (!regionSlug) return <div className="p-8 text-center font-bold text-xl mt-20">지역을 찾을 수 없습니다.</div>;
+  // 404로 보낼 때도 제목·canonical 을 같이 바꾼다. 안 그러면 이 화면의 값이 나중에 덮어쓴다.
+  useV2Seo(
+    notFound
+      ? {
+          title: "페이지를 찾을 수 없습니다 | TourStream",
+          description: "요청하신 페이지를 찾을 수 없습니다.",
+          canonicalPath: "/404",
+          ogType: "website",
+          robots: "noindex, follow",
+        }
+      : {
+          title: regionPriceLabel
+            ? `${safeRegionName} 최저 ${regionPriceLabel}부터 | 가격비교 TourStream`
+            : `${safeRegionName} 지역 여행 상품 | TourStream`,
+          description: `${safeRegionName} 상품 ${regionProducts.length}개${
+            regionPriceLabel ? `, 최저 ${regionPriceLabel}부터` : ""
+          } 비교해보세요.`,
+          canonicalPath,
+          ogType: "website",
+          ogImage: regionHeroImage,
+          // 상품이 0개인 지역 페이지는 soft 404로 잡히므로 noindex
+          robots: !loading && regionProducts.length === 0 ? "noindex, follow" : "index, follow",
+          jsonLd: [
+            {
+              "@context": "https://schema.org",
+              "@type": "CollectionPage",
+              name: `${safeRegionName} 지역 여행 상품`,
+              url: `https://tourstream.kr${canonicalPath}`,
+            },
+          ],
+        },
+  );
+
+  // 404 화면은 주소의 낱말로 비슷한 상품을 대신 보여 준다
+  if (notFound) return <V2NotFoundPage />;
 
   return (
     <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">

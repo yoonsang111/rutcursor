@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Copy } from "lucide-react";
+import { ProductBrowser } from "../components/ProductBrowser";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Coupons } from "../hooks/useV2Coupons";
 import { useV2Seo } from "../hooks/useV2Seo";
@@ -33,6 +34,15 @@ export default function V2CouponsPage() {
 
   const visible = partner === "전체" ? coupons : coupons.filter((c) => c.partner === partner);
 
+  /* 고른 판매처(전체면 쿠폰이 있는 판매처 전부)가 파는 상품. 아래 목록에 그대로 넘긴다. */
+  const couponProducts = useMemo(() => {
+    const wanted = new Set(partner === "전체" ? coupons.map((c) => c.partner) : [partner]);
+    if (wanted.size === 0) return [];
+    return items.filter((p) =>
+      p.partnerLinks.some((l) => l.url && l.state !== "stopped" && wanted.has(l.name)),
+    );
+  }, [items, coupons, partner]);
+
   useV2Seo({
     title: "클룩·KKday 할인코드 모음 | TourStream",
     description:
@@ -54,35 +64,43 @@ export default function V2CouponsPage() {
   };
 
   return (
-    <div className="w-full max-w-[1200px] mx-auto px-6 py-8 md:py-12">
-      <div className="mb-10">
-        <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">할인코드</h1>
-        <p className="text-slate-500 text-base">판매처가 제공하는 쿠폰을 모아 비교해보세요.</p>
-      </div>
+    <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">
+      {/* 머리말은 다른 목록 화면과 같은 모양으로 맞춘다 */}
+      <section className="px-5 md:px-6 pt-5 pb-4">
+        <nav className="text-[12.5px] text-slate-400">
+          <Link to="/" className="hover:text-brand transition-colors">홈</Link> &rsaquo; 할인코드
+        </nav>
+        <h1 className="mt-1.5 text-[24px] md:text-[30px] font-bold tracking-[-0.04em] text-slate-900">할인코드</h1>
+        <p className="mt-1.5 text-[13px] md:text-sm text-slate-400">
+          판매처가 직접 푸는 코드만 모았습니다. 기간이 지나면 자동으로 사라집니다.
+        </p>
+      </section>
 
-      <div className="mb-6 text-sm text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 leading-relaxed">
-        쿠폰을 적용하면 가장 저렴한 판매처가 바뀔 수 있어요. 코드를 복사한 뒤 상품 페이지에서 비교해보세요. 기간이 지난 코드는 자동으로
-        사라집니다.
-      </div>
-
-      {partners.length > 2 && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          {partners.map(([name, count]) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setPartner(name)}
-              className={`h-11 rounded-full border px-4 text-sm transition-colors ${
-                partner === name
-                  ? "border-brand bg-brand-tint text-brand font-bold"
-                  : "border-slate-200 bg-white text-slate-700 font-medium hover:border-slate-300"
-              }`}
-            >
-              {name} {count}
-            </button>
-          ))}
+      <div className="px-5 md:px-6">
+        <div className="mb-5 text-[13px] text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 leading-relaxed">
+          쿠폰을 적용하면 가장 저렴한 판매처가 바뀔 수 있어요. 코드를 복사한 뒤 상품 화면에서 비교해 보세요.
         </div>
-      )}
+
+        {partners.length > 2 && (
+          <div className="mb-5 flex flex-wrap gap-1.5 md:gap-2">
+            {partners.map(([name, count]) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setPartner(name)}
+                aria-pressed={partner === name}
+                className={`inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-[13px] transition-colors ${
+                  partner === name
+                    ? "bg-slate-900 text-white font-bold"
+                    : "bg-slate-100 text-slate-600 font-medium hover:bg-slate-200"
+                }`}
+              >
+                {name}
+                <span className={partner === name ? "text-white/60" : "text-slate-400"}>{count}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
       {(loading || couponsLoading) && <div className="text-sm text-slate-500">쿠폰 불러오는 중...</div>}
       {!couponsLoading && visible.length === 0 && (
@@ -128,13 +146,14 @@ export default function V2CouponsPage() {
                   <span>{formatDeadline(coupon)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="font-mono text-[13px] font-bold tracking-wider text-slate-900 border border-dashed border-slate-300 rounded-lg px-3 py-1.5">
+                  {/* 코드가 길면 글자 쪽이 줄어들어야 한다. 안 그러면 복사 버튼이 두 줄로 쪼개진다 */}
+                  <code className="min-w-0 break-all font-mono text-[13px] font-bold tracking-wider text-slate-900 border border-dashed border-slate-300 rounded-lg px-3 py-1.5">
                     {coupon.code}
                   </code>
                   <button
                     type="button"
                     onClick={() => copy(coupon)}
-                    className="text-xs font-bold text-brand px-1 py-1 flex items-center gap-1"
+                    className="flex-none text-xs font-bold text-brand px-1 py-1 flex items-center gap-1 whitespace-nowrap"
                     aria-label={`${coupon.code} 복사`}
                   >
                     {copied === coupon.code ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -185,9 +204,37 @@ export default function V2CouponsPage() {
         })}
       </div>
 
-      <p className="text-xs text-slate-400 mt-6 leading-relaxed">
-        쿠폰 조건과 적용 대상은 판매처 정책에 따라 변경될 수 있습니다. 최종 할인 금액은 판매처 결제 화면에서 확인해주세요.
-      </p>
+        <p className="text-xs text-slate-400 mt-6 leading-relaxed">
+          쿠폰 조건과 적용 대상은 판매처 정책에 따라 변경될 수 있습니다. 최종 할인 금액은 판매처 결제 화면에서 확인해주세요.
+        </p>
+      </div>
+
+      {/*
+        전에는 코드만 보여 주고 끝나는 섬이었다.
+        코드를 복사한 손님이 "그래서 뭘 사지"로 이어지도록 그 판매처 상품을 붙인다.
+      */}
+      {couponProducts.length > 0 && (
+        <>
+          <div className="h-2.5 bg-slate-100 mt-9" />
+          <section className="px-5 md:px-6 pt-5 pb-1">
+            <h2 className="text-[19px] md:text-[22px] font-bold tracking-[-0.035em] text-slate-900">
+              {partner === "전체" ? "할인코드가 있는 판매처 상품" : `${partner} 상품`}
+            </h2>
+            <p className="mt-1 text-[13px] text-slate-400">
+              상품 <b className="font-bold text-slate-900">{couponProducts.length.toLocaleString("ko-KR")}</b>개 ·
+              값은 쿠폰을 넣기 전 기준입니다
+            </p>
+          </section>
+          <ProductBrowser
+            products={couponProducts}
+            categories={categories}
+            countryNameById={lookup.countryNameById}
+            searchPlaceholder={partner === "전체" ? "상품 이름으로 찾기" : `${partner} 상품 안에서 검색`}
+            hideFilters={partner === "전체" ? [] : ["seller"]}
+            loading={loading}
+          />
+        </>
+      )}
     </div>
   );
 }

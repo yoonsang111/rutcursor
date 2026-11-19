@@ -5,6 +5,7 @@ import { ListPageSkeleton } from "../components/ListPageSkeleton";
 import { FilterPills } from "../components/ListToolbar";
 import { useV2Products } from "../hooks/useV2Products";
 import { useV2Seo } from "../hooks/useV2Seo";
+import V2NotFoundPage from "./V2NotFoundPage";
 import { findCategoryBySlug, findCountryBySlug, findRegionNameBySlug, getCategorySlug, getCountrySlug, getRegionSlug } from "../utils/urlSlugs";
 import categoryGuides from "../data/categoryGuides.json";
 
@@ -66,29 +67,42 @@ export default function V2CategoryPage() {
   const categoryMinPrice = filteredProducts.length > 0 ? Math.min(...filteredProducts.map((p) => p.price || Infinity)) : Infinity;
   const categoryPriceLabel = Number.isFinite(categoryMinPrice) ? `${categoryMinPrice.toLocaleString("ko-KR")}원` : null;
 
-  useV2Seo({
-    title: categoryPriceLabel
-      ? `${safeCategoryName} 최저 ${categoryPriceLabel}부터 | 가격비교 TourStream`
-      : `${safeCategoryName} 카테고리 | TourStream`,
-    description: `${safeCategoryName} 상품 ${filteredProducts.length}개${
-      categoryPriceLabel ? `, 최저 ${categoryPriceLabel}부터` : ""
-    } 비교해보세요.`,
-    canonicalPath,
-    ogType: "website",
-    ogImage: filteredProducts[0]?.image,
-    // 없는 카테고리이거나 상품이 0개면 soft 404로 잡히므로 noindex
-    robots: !loading && (!category || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
-    jsonLd: [
-      {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        name: `${safeCategoryName} 카테고리`,
-        url: `https://tourstream.kr${canonicalPath}`,
-      },
-    ],
-  });
+  // 없는 주소면 제목·canonical 도 404 로 바꾼다. 안 그러면 이 화면의 값이 나중에 덮어쓴다.
+  const notFound = !loading && !category;
 
-  if (!category) return loading ? <ListPageSkeleton /> : <div className="p-8 text-center font-bold text-xl mt-20">카테고리를 찾을 수 없습니다.</div>;
+  useV2Seo(
+    notFound
+      ? {
+          title: "페이지를 찾을 수 없습니다 | TourStream",
+          description: "요청하신 페이지를 찾을 수 없습니다.",
+          canonicalPath: "/404",
+          ogType: "website",
+          robots: "noindex, follow",
+        }
+      :{
+      title: categoryPriceLabel
+        ? `${safeCategoryName} 최저 ${categoryPriceLabel}부터 | 가격비교 TourStream`
+        : `${safeCategoryName} 카테고리 | TourStream`,
+      description: `${safeCategoryName} 상품 ${filteredProducts.length}개${
+        categoryPriceLabel ? `, 최저 ${categoryPriceLabel}부터` : ""
+      } 비교해보세요.`,
+      canonicalPath,
+      ogType: "website",
+      ogImage: filteredProducts[0]?.image,
+      // 없는 카테고리이거나 상품이 0개면 soft 404로 잡히므로 noindex
+      robots: !loading && (!category || filteredProducts.length === 0) ? "noindex, follow" : "index, follow",
+      jsonLd: [
+        {
+          "@context": "https://schema.org",
+          "@type": "CollectionPage",
+          name: `${safeCategoryName} 카테고리`,
+          url: `https://tourstream.kr${canonicalPath}`,
+        },
+      ],
+    }
+  );
+
+  if (!category) return loading ? <ListPageSkeleton /> : <V2NotFoundPage />;
 
   return (
     <div className="flex flex-col w-full max-w-[1200px] mx-auto bg-white pb-16">
