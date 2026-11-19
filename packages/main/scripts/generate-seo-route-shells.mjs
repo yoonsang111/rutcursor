@@ -760,17 +760,25 @@ async function main() {
     사람은 옛 링크로 들어와도 보이고, 검색엔진은 둘을 한 페이지로 합친다.
     사이트맵·RSS·공통 링크에는 새 주소만 싣는다.
   */
-  const nameBySlug = (map) => {
-    const out = new Map();
-    for (const [name, slug] of Object.entries(map || {})) if (!out.has(slug)) out.set(slug, name);
-    return out;
-  };
-  const countryNameBySlug = nameBySlug(SLUG_MAP.countries);
-  const regionNameBySlug = nameBySlug(SLUG_MAP.regions);
+  /*
+    지금 쓰는 주소 → 한글 이름. 지역 자료에서 직접 만든다.
+    전에는 slugMap.json 에서 만들었는데, 영어 이름이 데이터로 옮겨간 뒤 그 표를 비우면
+    옛 주소 페이지가 통째로 안 만들어졌다 (확인: 표를 비우니 261개 → 0개).
+    옛 주소를 살리는 일이 그 표에 매여 있으면 안 된다.
+  */
+  const nameByCurrentSlug = new Map();
+  countries.forEach((c) => {
+    const name = String(c?.name || "").trim();
+    if (name) nameByCurrentSlug.set(`country:${countrySlug(name)}`, name);
+  });
+  regions.forEach((r) => {
+    const name = String(r?.name || "").trim();
+    if (name) nameByCurrentSlug.set(`region:${regionSlug(name)}`, name);
+  });
 
-  // 지도에 적어 둔 영어 이름 대신, 코드가 한글을 소리나는 대로 옮겼을 때 나오던 옛 주소
+  // 영어 이름을 쓰기 전, 코드가 한글을 소리나는 대로 옮겼을 때 나오던 옛 주소
   const legacySegment = (kind, slug) => {
-    const name = (kind === "country" ? countryNameBySlug : regionNameBySlug).get(slug);
+    const name = nameByCurrentSlug.get(`${kind}:${slug}`);
     if (!name) return null;
     const legacy = toSlug(name);
     return legacy && legacy !== slug ? legacy : null;
