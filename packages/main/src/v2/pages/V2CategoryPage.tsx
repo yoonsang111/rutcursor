@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ProductBrowser } from "../components/ProductBrowser";
 import { ListPageSkeleton } from "../components/ListPageSkeleton";
@@ -19,7 +19,9 @@ export default function V2CategoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const countrySlug = searchParams.get("country");
   const regionSlug = searchParams.get("region");
-  const [searchTerm, setSearchTerm] = useState("");
+  // 검색은 ProductBrowser 가 주소(?q=)로 들고 있다. 여기서는 안내를 띄울지 판단하는 데만 쓴다.
+  // 전에는 쓰지도 않는 useState 가 남아 있어서, CI 빌드가 경고를 오류로 보고 멈췄다.
+  const searchTerm = searchParams.get("q") || "";
   const { items, categories, countries, loading } = useV2Products();
   const countryNameById = useMemo(() => new Map(countries.map((c) => [c.id, c.name])), [countries]);
 
